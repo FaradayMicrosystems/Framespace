@@ -2,7 +2,7 @@
 
 Measure, design and wireframe real spaces on **Meta Quest 3**, right in the browser. No install.
 
-**Open on the headset:** https://faradaymicrosystems.github.io/framespace/
+**Open on the headset:** https://faradaymicrosystems.github.io/Framespace/
 
 ## What it does (prototype 0.1)
 

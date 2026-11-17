@@ -11,7 +11,7 @@ For the "is AI-assisted development worth it?" conversation. All times UTC, 2026
 | 07:10–07:20 | Prototype written: ~950 lines, single page, no build step. Emulated-headset test suite written. | Claude |
 | 07:20 | Test run in emulated Quest 3: 16/17 pass. Bug found (paste without depth hit floated in the air), fixed, 17/17 pass. | Claude |
 | 07:17 | GitHub repo created. | Aurora |
-| 07:23 | Pushed, CI + GitHub Pages deploy set up. | Claude |
+| 07:23 | Pushed, CI + GitHub Pages deploy set up. Emulated-headset test runs on every push. | Claude |
 
 ## Effort split
 
