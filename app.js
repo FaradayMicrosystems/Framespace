@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { GLTFExporter } from './vendor/GLTFExporter.js';
 
-const BUILD = '0.1.0';
+const BUILD = '0.2.0';
 const STORE_KEY = 'framespace-v1';
 const V3 = THREE.Vector3;
 const UP = new V3(0, 1, 0);
@@ -41,6 +41,9 @@ const state = {
   mode: 'select',          // select | tape | circle
   roomVisible: true,
   menuPinned: false,
+  menuVisible: true,
+  grid: 0.05,             // metres; 0 = off
+  falling: [],
   selected: null,
   shapes: [],
   measures: [],
@@ -232,19 +235,6 @@ function select(s) {
 
 // ---------------------------------------------------------------- surfaces (floor + detected horizontal planes)
 function surfaceHeights() { return [0, ...room.heights]; }
-function snapToSurfaces(s) {
-  const hh = halfHeight(s), bottom = s.group.position.y - hh;
-  let best = null;
-  for (const h of surfaceHeights()) if (Math.abs(bottom - h) < SNAP_SURFACE && (best === null || Math.abs(bottom - h) < Math.abs(bottom - best))) best = h;
-  if (best !== null) s.group.position.y = best + hh;
-}
-function dropToSurface(s) {
-  const hh = halfHeight(s), bottom = s.group.position.y - hh;
-  const below = surfaceHeights().filter(h => h <= bottom + 0.01);
-  const h = below.length ? Math.max(...below) : 0;
-  s.group.position.y = h + hh;
-  refreshShape(s);
-}
 
 // ---------------------------------------------------------------- measurements
 const dotGeo = new THREE.SphereGeometry(0.006, 12, 8);
@@ -354,7 +344,7 @@ function pasteAt(point, item = state.clipboard[state.clipIndex], offset = null) 
   const s = makeShape(item.type, item.dims, pos, item.quat);
   if (offset) s.group.position.add(offset);
   else s.group.position.y += halfHeight(s);   // sit on the surface we pointed at
-  snapToSurfaces(s); refreshShape(s);
+  settle(s);
   select(s);
   pushHistory({ undo: () => removeShape(s) });
   setStatus(`Pasted ${s.name} (copy of ${item.name}).`);
@@ -386,7 +376,7 @@ function updateRoom(frame, ref) {
         const label = makeLabel(0.3);
         label.sprite.position.set((box.max.x + box.min.x) / 2, 0.03, (box.max.z + box.min.z) / 2);
         obj.add(label.sprite);
-        e = { obj, t: plane.lastChangedTime, info, label };
+        e = { obj, t: plane.lastChangedTime, info, label, pts, horizontal: false, y: 0, inv: new THREE.Matrix4() };
         room.planes.set(plane, e); room.group.add(obj);
       }
       setLabel(e.label, planeLines(e.info), '#00e5ff');
@@ -395,7 +385,10 @@ function updateRoom(frame, ref) {
         e.obj.matrix.fromArray(pose.transform.matrix);
         e.obj.matrixWorldNeedsUpdate = true;
         const ny = new V3(0, 1, 0).transformDirection(e.obj.matrix).y;
-        if (plane.orientation === 'horizontal' && ny > 0.9) heights.push(pose.transform.position.y);
+        e.horizontal = plane.orientation === 'horizontal' && ny > 0.9;
+        e.y = pose.transform.position.y;
+        e.inv.copy(e.obj.matrix).invert();
+        if (e.horizontal) heights.push(e.y);
       }
       infos.push(e.info);
     }
@@ -430,7 +423,7 @@ const BUTTONS = [
   ['tape', 'circle', 'select', 'units'],
   ['copy', 'cut', 'paste', 'nextclip'],
   ['duplicate', 'drop', 'delete', 'undo'],
-  ['room', 'clear', 'pin', 'exit'],
+  ['room', 'clear', 'grid', 'exit'],
 ];
 function buttonText(id) {
   switch (id) {
@@ -440,7 +433,7 @@ function buttonText(id) {
     case 'copy': return 'Copy'; case 'cut': return 'Cut'; case 'paste': return 'Paste'; case 'nextclip': return 'Next clip';
     case 'duplicate': return 'Duplicate'; case 'drop': return 'Drop'; case 'delete': return 'Delete'; case 'undo': return 'Undo';
     case 'room': return state.roomVisible ? 'Room: on' : 'Room: off'; case 'clear': return 'Clear all';
-    case 'pin': return state.menuPinned ? 'Menu: pinned' : 'Menu: follow'; case 'exit': return 'Exit AR';
+    case 'grid': return `Grid: ${state.grid ? Math.round(state.grid * 100) + ' cm' : 'off'}`; case 'exit': return 'Exit AR';
   }
 }
 function buttonActive(id) { return (id === 'tape' && state.mode === 'tape') || (id === 'circle' && state.mode === 'circle') || (id === 'select' && state.mode === 'select'); }
@@ -519,7 +512,7 @@ function onButton(id, ctrl) {
     case 'box': case 'sphere': case 'cylinder': case 'cone': {
       const p = spawnPoint();
       const s = makeShape(id, DEFAULT_DIMS[id], p);
-      s.group.position.y += halfHeight(s); snapToSurfaces(s); refreshShape(s);
+      s.group.position.y += halfHeight(s); settle(s);
       state.mode = 'select'; clearPending(); select(s);
       pushHistory({ undo: () => removeShape(s) });
       setStatus(`Added ${s.name}. Grab to move, drag yellow cubes to resize.`); persist(); break;
@@ -546,7 +539,7 @@ function onButton(id, ctrl) {
       pasteAt(s.group.position, clipItem(s), dx);
       break;
     }
-    case 'drop': { const s = state.selected; pushHistory({ undo: (sn => () => applySnapshot(s, sn))(snapshot(s)) }); dropToSurface(s); setStatus(`Dropped ${s.name} onto the surface below.`); persist(); break; }
+    case 'drop': { const s = state.selected; pushHistory({ undo: (sn => () => applySnapshot(s, sn))(snapshot(s)) }); settle(s); setStatus(`Dropped ${s.name} onto the surface below.`); persist(); break; }
     case 'delete': { const s = state.selected; removeShape(s); pushHistory({ undo: () => restoreShape(s) }); setStatus(`Deleted ${s.name}. Undo brings it back.`); persist(); break; }
     case 'undo': undo(); break;
     case 'room': state.roomVisible = !state.roomVisible; room.group.visible = state.roomVisible; break;
@@ -556,7 +549,7 @@ function onButton(id, ctrl) {
       pushHistory({ undo: () => { shapes.forEach(restoreShape); measures.forEach(restoreMeasure); } });
       setStatus('Cleared. Undo brings everything back.'); persist(); break;
     }
-    case 'pin': state.menuPinned = !state.menuPinned; break;
+    case 'grid': { const opts = [0.05, 0.1, 0.01, 0]; state.grid = opts[(opts.indexOf(state.grid) + 1) % opts.length]; setStatus(state.grid ? `Grid ${Math.round(state.grid * 100)} cm` : 'Grid off'); break; }
     case 'exit': renderer.xr.getSession()?.end(); break;
   }
   panel.dirty = true;
@@ -580,7 +573,190 @@ function updateMenuPlacement(instant) {
   panel.mesh.lookAt(head);
 }
 
-// ---------------------------------------------------------------- controllers / hands
+// ---------------------------------------------------------------- grid, support and settling
+// The grid is the local-floor reference space's own X/Z axes. Quest re-aligns that space to the
+// direction you face whenever you recenter, so the grid follows recentering automatically.
+function snapGrid(v) { const g = state.grid; return g ? Math.round(v / g) * g : v; }
+function yawOfQuat(q) { return new THREE.Euler().setFromQuaternion(q, 'YXZ').y; }
+function snapYawQuat(q) { const step = Math.PI / 4; return new THREE.Quaternion().setFromAxisAngle(UP, Math.round(yawOfQuat(q) / step) * step); }
+function insidePolygon(pts, x, z) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+// Highest surface under (x, z) that is at or below maxY: floor, detected tables, or the tops of other shapes.
+function supportBelow(x, z, maxY, exclude) {
+  let best = 0;
+  for (const e of room.planes.values()) {
+    if (!e.horizontal || e.y > maxY + 0.01 || e.y <= best) continue;
+    const local = new V3(x, e.y, z).applyMatrix4(e.inv);
+    if (insidePolygon(e.pts, local.x, local.z)) best = e.y;
+  }
+  for (const s of state.shapes) {
+    if (s === exclude || state.falling.some(f => f.shape === s)) continue;
+    s.group.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(s.fill);
+    if (x >= bb.min.x && x <= bb.max.x && z >= bb.min.z && z <= bb.max.z && bb.max.y <= maxY + 0.01 && bb.max.y > best) best = bb.max.y;
+  }
+  return best;
+}
+// Square the shape to the grid (yaw in 45° steps, X/Z on grid points) and let it fall onto what is below.
+function settle(s) {
+  const g = s.group;
+  g.quaternion.copy(snapYawQuat(g.quaternion));
+  g.position.x = snapGrid(g.position.x); g.position.z = snapGrid(g.position.z);
+  refreshShape(s);
+  const hh = halfHeight(s), bottom = g.position.y - hh;
+  const support = supportBelow(g.position.x, g.position.z, bottom + 0.02, s);
+  state.falling = state.falling.filter(f => f.shape !== s);
+  if (bottom - support > 0.005) state.falling.push({ shape: s, from: g.position.y, to: support + hh, t0: performance.now() });
+  else g.position.y = support + hh;
+  refreshShape(s);
+}
+function updateFalling(now) {
+  state.falling = state.falling.filter(f => {
+    const t = (now - f.t0) / 1000, y = f.from - 4.9 * t * t;
+    if (y <= f.to) { f.shape.group.position.y = f.to; refreshShape(f.shape); persist(); return false; }
+    f.shape.group.position.y = y; return true;
+  });
+}
+const gridPatch = new THREE.Group(); gridPatch.visible = false; scene.add(gridPatch);
+let gridPatchSize = 0;
+function showGridPatch(x, y, z) {
+  if (!state.grid) { gridPatch.visible = false; return; }
+  if (gridPatchSize !== state.grid) {
+    gridPatch.clear();
+    const gh = new THREE.GridHelper(1, Math.round(1 / state.grid), 0x00e5ff, 0x00e5ff);
+    gh.material.transparent = true; gh.material.opacity = 0.35;
+    gridPatch.add(gh); gridPatchSize = state.grid;
+  }
+  gridPatch.position.set(snapGrid(x), y + 0.002, snapGrid(z));
+  gridPatch.visible = true;
+}
+
+// ---------------------------------------------------------------- popups: shape palette (hold X) and context menu (hold A)
+const PALETTE = [
+  { label: 'Cube', type: 'box', dims: { x: 0.1, y: 0.1, z: 0.1 } },
+  { label: 'Box', type: 'box', dims: { x: 0.3, y: 0.3, z: 0.3 } },
+  { label: 'Crate', type: 'box', dims: { x: 0.6, y: 0.4, z: 0.4 } },
+  { label: 'Sphere', type: 'sphere', dims: { r: 0.15 } },
+  { label: 'Cylinder', type: 'cylinder', dims: { r: 0.12, h: 0.3 } },
+  { label: 'Cone', type: 'cone', dims: { r: 0.12, h: 0.3 } },
+  { label: 'Panel', type: 'box', dims: { x: 1.0, y: 0.6, z: 0.02 } },
+  { label: 'Rod', type: 'cylinder', dims: { r: 0.015, h: 1.0 } },
+  { label: 'Plank', type: 'box', dims: { x: 1.2, y: 0.03, z: 0.3 } },
+];
+function shortDims(type, d) {
+  const metric = state.units === 'metric', k = metric ? 100 : 1 / 0.0254, unit = metric ? 'cm' : 'in';
+  const n = v => +(v * k).toFixed(metric ? 0 : 1);
+  if (type === 'box') return `${n(d.x)}×${n(d.y)}×${n(d.z)} ${unit}`;
+  if (type === 'sphere') return `Ø ${n(2 * d.r)} ${unit}`;
+  return `Ø ${n(2 * d.r)} × ${n(d.h)} ${unit}`;
+}
+const TILE = 260, TILE_H = 180, PHEAD = 90;
+function makePopup(tileW) {
+  const canvas = document.createElement('canvas');
+  const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthTest: false }));
+  mesh.renderOrder = 35; mesh.visible = false; scene.add(mesh);
+  return { canvas, tex, mesh, items: [], cols: 3, title: '', hover: null, open: false, tileW, target: null, point: null };
+}
+const palette = makePopup(0.085), ctxMenu = makePopup(0.09);
+function layoutPopup(p, title, items, cols) {
+  p.title = title; p.items = items; p.cols = cols; p.hover = null;
+  const w = cols * TILE + 20, h = PHEAD + Math.ceil(items.length / cols) * TILE_H + 10;
+  if (p.canvas.width !== w || p.canvas.height !== h) { p.canvas.width = w; p.canvas.height = h; p.tex.dispose(); }
+  const ww = cols * p.tileW; p.mesh.scale.set(ww, ww * h / w, 1);
+  drawPopup(p);
+}
+function drawPopup(p) {
+  const c = p.canvas, g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+  g.fillStyle = 'rgba(12,15,20,0.92)'; roundRect(g, 2, 2, c.width - 4, c.height - 4, 30); g.fill();
+  g.strokeStyle = '#00e5ff'; g.lineWidth = 4; g.stroke();
+  g.textBaseline = 'middle'; g.fillStyle = '#00e5ff';
+  fitText(g, p.title, 24, 48, c.width - 48, 42);
+  p.items.forEach((it, i) => {
+    const x = 10 + (i % p.cols) * TILE, y = PHEAD + Math.floor(i / p.cols) * TILE_H, en = it.enabled !== false;
+    g.fillStyle = p.hover === it.id && en ? '#3a4452' : '#232a34';
+    roundRect(g, x + 8, y + 8, TILE - 16, TILE_H - 16, 20); g.fill();
+    let size = 44; g.font = `700 ${size}px system-ui, sans-serif`;
+    while (g.measureText(it.label).width > TILE - 40 && size > 22) { size -= 2; g.font = `700 ${size}px system-ui, sans-serif`; }
+    g.fillStyle = en ? (it.color || '#ffffff') : '#5c6673';
+    g.fillText(it.label, x + (TILE - g.measureText(it.label).width) / 2, y + TILE_H * (it.sub ? 0.38 : 0.5));
+    if (it.sub) {
+      let s2 = 30; g.font = `500 ${s2}px system-ui, sans-serif`;
+      while (g.measureText(it.sub).width > TILE - 30 && s2 > 16) { s2 -= 2; g.font = `500 ${s2}px system-ui, sans-serif`; }
+      g.fillStyle = '#9aa6b4'; g.fillText(it.sub, x + (TILE - g.measureText(it.sub).width) / 2, y + TILE_H * 0.7);
+    }
+  });
+  p.tex.needsUpdate = true;
+}
+function popupItemAt(p, uv) {
+  const x = uv.x * p.canvas.width, y = (1 - uv.y) * p.canvas.height;
+  if (y < PHEAD) return null;
+  const col = Math.floor((x - 10) / TILE), row = Math.floor((y - PHEAD) / TILE_H);
+  if (col < 0 || col >= p.cols) return null;
+  const it = p.items[row * p.cols + col];
+  return it && it.enabled !== false ? it : null;
+}
+function placePopup(p, pos) { p.mesh.position.copy(pos); p.mesh.lookAt(camera.getWorldPosition(new V3())); p.mesh.visible = true; p.open = true; }
+function closePopup(p) { p.mesh.visible = false; p.open = false; p.hover = null; }
+
+function openPalette(c) {
+  const items = PALETTE.map((p, i) => ({ ...p, id: 'p' + i, sub: shortDims(p.type, p.dims), color: '#' + COLORS[p.type].toString(16).padStart(6, '0') }));
+  layoutPopup(palette, 'Shapes', items, 3);
+  c.updateMatrixWorld(true);
+  const head = camera.getWorldPosition(new V3()), pos = new V3().setFromMatrixPosition(c.matrixWorld);
+  const away = pos.clone().sub(head).setY(0);
+  if (away.lengthSq() < 1e-6) away.set(0, 0, -1);
+  pos.addScaledVector(away.normalize(), 0.12).add(new V3(0, 0.12, 0));
+  placePopup(palette, pos);
+  haptic(c, 0.3, 20);
+}
+function spawnFromPalette(c, it, point) {
+  const s = makeShape(it.type, it.dims, point.clone());
+  pushHistory({ undo: () => removeShape(s) });
+  select(s); startFree(c, s, false); haptic(c, 0.5, 40);
+  setStatus(`Placing ${s.name}`);
+  persist();
+}
+function openContext(c) {
+  const u = c.userData, s = u.shapeHit?.object.userData.shape;
+  const head = camera.getWorldPosition(new V3());
+  let anchor;
+  if (s) {
+    select(s); anchor = u.shapeHit.point.clone(); ctxMenu.target = s;
+    layoutPopup(ctxMenu, s.name, [{ id: 'cut', label: 'Cut' }, { id: 'copy', label: 'Copy' }, { id: 'delete', label: 'Delete', color: '#ff6b6b' }, { id: 'duplicate', label: 'Duplicate' }], 2);
+  } else {
+    anchor = u.target ? u.target.point.clone() : pointTarget(c); ctxMenu.target = null;
+    const clip = state.clipboard[state.clipIndex];
+    layoutPopup(ctxMenu, clip ? `Clipboard ${state.clipIndex + 1}/${state.clipboard.length}: ${clip.name}` : 'Clipboard empty',
+      [{ id: 'paste', label: 'Paste', enabled: !!clip }, { id: 'nextclip', label: 'Next clip', enabled: state.clipboard.length > 1 }], 2);
+  }
+  ctxMenu.point = anchor.clone();
+  const pos = anchor.clone().add(head.clone().sub(anchor).normalize().multiplyScalar(Math.min(0.3, anchor.distanceTo(head) * 0.4))).add(new V3(0, 0.08, 0));
+  placePopup(ctxMenu, pos);
+  haptic(c, 0.4, 30);
+}
+function runContext(id) {
+  const s = ctxMenu.target, p = ctxMenu.point;
+  closePopup(ctxMenu);
+  switch (id) {
+    case 'cut': if (s) { select(s); copySelected(true); } break;
+    case 'copy': if (s) { select(s); copySelected(false); } break;
+    case 'delete': if (s) { removeShape(s); pushHistory({ undo: () => restoreShape(s) }); setStatus(`Deleted ${s.name}`); persist(); } break;
+    case 'duplicate': if (s) { select(s); onButton('duplicate'); } break;
+    case 'paste': pasteAt(p); break;
+    case 'nextclip': state.clipIndex = (state.clipIndex + 1) % state.clipboard.length; setStatus('Next clipboard item'); break;
+  }
+  panel.dirty = true;
+}
+
+// ---------------------------------------------------------------- controllers
 const raycaster = new THREE.Raycaster();
 function rayOf(c) {
   return { o: new V3().setFromMatrixPosition(c.matrixWorld), d: new V3(0, 0, -1).transformDirection(c.matrixWorld) };
@@ -590,23 +766,25 @@ function makeReticle() {
   const r = new THREE.Mesh(new THREE.RingGeometry(0.008, 0.014, 24), new THREE.MeshBasicMaterial({ color: 0x00e5ff, depthTest: false, transparent: true, side: THREE.DoubleSide }));
   r.renderOrder = 40; r.visible = false; scene.add(r); return r;
 }
+function isHand(c) { const s = c.userData.inputSource; return !!(s && (s.hand || !s.gamepad)); }
 const controllers = [0, 1].map(i => {
   const c = renderer.xr.getController(i);
   const ray = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new V3(0, 0, 0), new V3(0, 0, -1)]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
   ray.visible = false; c.add(ray);
-  c.userData = { index: i, inputSource: null, hitSource: null, ray, reticle: makeReticle(), target: null, drag: null };
+  c.userData = { index: i, inputSource: null, hitSource: null, ray, reticle: makeReticle(), target: null, drag: null, btn: null };
   c.addEventListener('connected', e => onConnected(c, e.data));
   c.addEventListener('disconnected', () => onDisconnected(c));
-  c.addEventListener('selectstart', () => onPress(c, 'select'));
-  c.addEventListener('selectend', () => onRelease(c));
-  c.addEventListener('squeezestart', () => onPress(c, 'squeeze'));
-  c.addEventListener('squeezeend', () => onRelease(c));
+  // Controllers are read by polling (see processInput). Hands only get a basic pinch = trigger.
+  c.addEventListener('selectstart', () => { if (isHand(c)) onTriggerDown(c, { grip: false }); });
+  c.addEventListener('selectend', () => { if (isHand(c)) onDragRelease(c); });
   scene.add(c);
   return c;
 });
+function rightCtrl() { return controllers.find(c => c.userData.inputSource?.handedness === 'right'); }
+function bHeld() { return !!rightCtrl()?.userData.btn?.high; }
 function onConnected(c, src) {
   const u = c.userData;
-  u.inputSource = src;
+  u.inputSource = src; u.btn = null;
   const session = renderer.xr.getSession();
   if (session?.requestHitTestSource && src.targetRaySpace) {
     try {
@@ -617,7 +795,8 @@ function onConnected(c, src) {
 function onDisconnected(c) {
   const u = c.userData;
   try { u.hitSource?.cancel(); } catch {}
-  u.hitSource = null; u.inputSource = null; u.target = null; u.drag = null;
+  if (u.drag) onDragRelease(c);
+  u.hitSource = null; u.inputSource = null; u.target = null; u.drag = null; u.btn = null;
   u.ray.visible = false; u.reticle.visible = false;
 }
 function haptic(c, strength = 0.3, ms = 25) {
@@ -660,15 +839,26 @@ function updatePointer(c, frame, ref) {
   }
   if (!real && d.y < -0.05) {
     // No depth hit (hit-test unavailable or a hard surface): fall back to the floor plane.
-    const bestT = -o.y / d.y;
-    if (bestT > 0.05 && bestT < 10) { const p = o.clone().addScaledVector(d, bestT); real = { point: p, normal: UP.clone(), dist: bestT, kind: 'surface' }; }
+    const t = -o.y / d.y;
+    if (t > 0.05 && t < 10) real = { point: o.clone().addScaledVector(d, t), normal: UP.clone(), dist: t, kind: 'surface' };
   }
   raycaster.set(o, d); raycaster.far = 20;
-  const targets = [panel.mesh, ...(state.selected ? state.selected.handles : []), ...state.shapes.map(s => s.fill)];
+  const uiMeshes = [];
+  if (palette.open) uiMeshes.push(palette.mesh);
+  if (ctxMenu.open) uiMeshes.push(ctxMenu.mesh);
+  if (panel.mesh.visible) uiMeshes.push(panel.mesh);
+  const draggingThis = u.drag && u.drag.shape;
+  const targets = [...uiMeshes, ...(state.selected ? state.selected.handles : []), ...state.shapes.filter(s => s !== draggingThis).map(s => s.fill)];
   const hits = raycaster.intersectObjects(targets, false);
-  u.uiHit = hits[0]?.object === panel.mesh ? hits[0] : null;
-  u.handleHit = null; u.shapeHit = null;
-  if (!u.uiHit && hits.length) {
+  const first = hits[0];
+  u.ui = null; u.handleHit = null; u.shapeHit = null;
+  // Pop-ups (palette, context menu) win over everything else they overlap, including the tools menu.
+  const popHit = hits.find(h => h.object === palette.mesh || h.object === ctxMenu.mesh);
+  if (popHit) {
+    u.ui = { kind: popHit.object === palette.mesh ? 'palette' : 'ctx', hit: popHit };
+  } else if (first && first.object === panel.mesh) {
+    u.ui = { kind: 'menu', hit: first };
+  } else if (hits.length) {
     const h = hits.find(h => h.object.userData.handle && h.distance < hits[0].distance + 0.05);
     if (h) u.handleHit = h;
     const s = hits.find(h => h.object.userData.shape);
@@ -685,21 +875,172 @@ function updatePointer(c, frame, ref) {
     const sp = snapPoint(best.point);
     if (sp) { best.point = sp; best.kind = 'snap'; }
   }
-  u.target = u.uiHit ? null : best;
+  u.target = u.ui ? null : best;
 
   const ret = u.reticle;
-  if (u.uiHit) {
-    ret.visible = false; u.ray.scale.z = u.uiHit.distance;
-    const id = buttonAt(u.uiHit.uv);
-    if (id !== panel.hover) { panel.hover = id; panel.dirty = true; if (id) haptic(c, 0.1, 10); }
-  } else if (best) {
+  if (u.ui) { ret.visible = false; u.ray.scale.z = u.ui.hit.distance; }
+  else if (best && !u.drag) {
     ret.visible = true; ret.position.copy(best.point);
     ret.quaternion.setFromUnitVectors(new V3(0, 0, 1), best.normal);
     ret.material.color.setHex(best.kind === 'snap' ? 0xffe14d : best.kind === 'shape' ? 0xff5ad1 : 0x00e5ff);
     u.ray.scale.z = best.dist;
-  } else {
-    ret.visible = false; u.ray.scale.z = 3;
+  } else { ret.visible = false; u.ray.scale.z = best ? best.dist : 3; }
+}
+function updateHovers() {
+  const hov = { menu: null, palette: null, ctx: null };
+  for (const c of controllers) {
+    const ui = c.userData.inputSource && c.userData.ui;
+    if (!ui) continue;
+    if (ui.kind === 'menu') hov.menu = buttonAt(ui.hit.uv);
+    else hov[ui.kind] = popupItemAt(ui.kind === 'palette' ? palette : ctxMenu, ui.hit.uv)?.id ?? null;
   }
+  if (hov.menu !== panel.hover) { panel.hover = hov.menu; panel.dirty = true; }
+  for (const [k, p] of [['palette', palette], ['ctx', ctxMenu]]) if (p.open && hov[k] !== p.hover) { p.hover = hov[k]; drawPopup(p); }
+}
+
+// ---------------------------------------------------------------- controller input
+// Trigger: select / press. Grip: scale (alone) or move (with trigger). B (right) while moving: free pick-up.
+// Stick while holding: up/down = scale ±5%, left = 45° clockwise, right = 45° counter-clockwise.
+// Hold A (right): context menu. Hold X (left): shape palette. Y (left): show/hide the tools menu.
+const NO_BTN = { trigger: false, grip: false, low: false, high: false, sx: 0, sy: 0 };
+function readButtons(c) {
+  const src = c.userData.inputSource, gp = src?.gamepad;
+  if (!gp || src.hand) return null;
+  const p = i => !!gp.buttons[i]?.pressed;
+  return { trigger: p(0), grip: p(1), low: p(4), high: p(5), sx: gp.axes[2] || 0, sy: gp.axes[3] || 0 };
+}
+function processInput(c, now) {
+  const u = c.userData, b = readButtons(c);
+  if (!b) return;
+  const prev = u.btn || NO_BTN; u.btn = b;
+  const down = k => b[k] && !prev[k], up = k => !b[k] && prev[k];
+  if (u.inputSource.handedness !== 'left') {
+    if (down('low')) { u.aDownAt = now; if (ctxMenu.open) { closePopup(ctxMenu); u.aDownAt = null; } }
+    if (b.low && u.aDownAt != null && now - u.aDownAt > 250) { u.aDownAt = null; openContext(c); }
+    if (up('low')) u.aDownAt = null;
+  } else {
+    if (down('low')) { openPalette(c); panel.mesh.visible = false; }
+    if (up('low')) { closePopup(palette); panel.mesh.visible = state.menuVisible; }
+    if (down('high')) { state.menuVisible = !state.menuVisible; panel.mesh.visible = state.menuVisible; if (state.menuVisible) updateMenuPlacement(true); }
+  }
+  if (u.drag?.type === 'move' && bHeld()) convertToFree(c);
+  if (down('trigger')) onTriggerDown(c, b);
+  if (down('grip')) onGripDown(c, b);
+  if (up('trigger')) u.pressShape = null;
+  const t = u.drag?.type;
+  if ((t === 'handle' && up('trigger')) || (t === 'scale' && up('grip')) || ((t === 'move' || t === 'free') && (up('trigger') || up('grip')))) onDragRelease(c);
+  if (u.drag && (u.drag.type === 'move' || u.drag.type === 'free')) {
+    if (Math.abs(b.sx) < 0.3) u.latchX = false;
+    if (Math.abs(b.sy) < 0.3) u.latchY = false;
+    if (!u.latchX && Math.abs(b.sx) > 0.7) { u.latchX = true; rotateHeld(c, b.sx < 0 ? -Math.PI / 4 : Math.PI / 4); haptic(c, 0.3, 20); }
+    if (!u.latchY && Math.abs(b.sy) > 0.7) { u.latchY = true; scaleHeld(c, b.sy < 0 ? 1.05 : 0.95); haptic(c, 0.3, 20); }
+  } else { u.latchX = u.latchY = true; }   // stick must return to centre after a grab starts
+}
+function onTriggerDown(c, b) {
+  const u = c.userData; state.lastCtrl = c;
+  if (u.ui) {
+    if (u.ui.kind === 'menu') { const id = buttonAt(u.ui.hit.uv); if (id) { haptic(c, 0.4, 30); onButton(id, c); } }
+    else if (u.ui.kind === 'palette') { const it = popupItemAt(palette, u.ui.hit.uv); if (it) spawnFromPalette(c, it, u.ui.hit.point); }
+    else { const it = popupItemAt(ctxMenu, u.ui.hit.uv); if (it) { haptic(c, 0.4, 30); runContext(it.id); } }
+    return;
+  }
+  if (ctxMenu.open) { closePopup(ctxMenu); return; }
+  if (u.drag?.type === 'scale') { const s = u.drag.shape; u.drag = null; startMove(c, s); return; }
+  if (u.handleHit) { startHandle(c, u.handleHit.object); haptic(c); return; }
+  if (state.mode !== 'select') {
+    const p = u.target ? u.target.point : pointTarget(c);
+    if (!u.target) setStatus('No surface there: used a point 80 cm along the ray.');
+    haptic(c); addPendingPoint(p); return;
+  }
+  if (u.shapeHit) {
+    const s = u.shapeHit.object.userData.shape;
+    select(s); u.pressShape = s; haptic(c, 0.2, 15);
+    if (b.grip) startMove(c, s);
+    return;
+  }
+  if (state.selected) select(null);
+}
+function onGripDown(c, b) {
+  const u = c.userData; state.lastCtrl = c;
+  if (u.ui?.kind === 'palette') { const it = popupItemAt(palette, u.ui.hit.uv); if (it) spawnFromPalette(c, it, u.ui.hit.point); return; }
+  if (u.ui || state.mode !== 'select' || u.drag) return;
+  const s = (b.trigger && u.pressShape) || u.shapeHit?.object.userData.shape;
+  if (!s) return;
+  select(s);
+  if (b.trigger) startMove(c, s); else startScale(c, s);
+  haptic(c);
+}
+function onDragRelease(c) {
+  const u = c.userData, dr = u.drag;
+  if (!dr) return;
+  u.drag = null;
+  if (dr.type === 'move' || dr.type === 'free') { settle(dr.shape); gridPatch.visible = false; setStatus(`${dr.shape.name} placed`); }
+  persist(); panel.dirty = true;
+}
+function snapUndo(s) { const sn = snapshot(s); return { undo: () => applySnapshot(s, sn) }; }
+function startMove(c, s) {
+  if (bHeld()) { startFree(c, s, true); return; }
+  const { o } = rayOf(c);
+  pushHistory(snapUndo(s));
+  state.falling = state.falling.filter(f => f.shape !== s);
+  c.userData.drag = { type: 'move', shape: s, c0: o.clone(), yaw0: yawOf(c), p0: s.group.position.clone(), baseY: s.group.position.y };
+  setStatus(`Moving ${s.name}`);
+}
+function updateMove(c, dr) {
+  const { o } = rayOf(c);
+  const qy = new THREE.Quaternion().setFromAxisAngle(UP, yawOf(c) - dr.yaw0);
+  const p = o.add(dr.p0.clone().sub(dr.c0).applyQuaternion(qy));
+  const g = dr.shape.group;
+  g.position.set(snapGrid(p.x), dr.baseY, snapGrid(p.z));
+  refreshShape(dr.shape);
+  showGridPatch(g.position.x, dr.baseY - halfHeight(dr.shape), g.position.z);
+}
+function startFree(c, s, pushUndo) {
+  if (pushUndo) pushHistory(snapUndo(s));
+  state.falling = state.falling.filter(f => f.shape !== s);
+  c.updateMatrixWorld(true); s.group.updateMatrixWorld(true);
+  c.userData.drag = { type: 'free', shape: s, rel: c.matrixWorld.clone().invert().multiply(s.group.matrixWorld) };
+  setStatus(`Carrying ${s.name}`);
+}
+function convertToFree(c) { startFree(c, c.userData.drag.shape, false); haptic(c, 0.5, 40); }
+function updateFree(c, dr) {
+  const g = dr.shape.group;
+  c.matrixWorld.clone().multiply(dr.rel).decompose(g.position, g.quaternion, new V3());
+  refreshShape(dr.shape);
+  showGridPatch(g.position.x, supportBelow(g.position.x, g.position.z, g.position.y, dr.shape), g.position.z);
+}
+function rotateHeld(c, ang) {
+  const dr = c.userData.drag, g = dr.shape.group, qy = new THREE.Quaternion().setFromAxisAngle(UP, ang);
+  if (dr.type === 'move') g.quaternion.copy(snapYawQuat(qy.multiply(g.quaternion)));
+  else { g.quaternion.premultiply(qy); g.updateMatrixWorld(true); dr.rel = c.matrixWorld.clone().invert().multiply(g.matrixWorld); }
+  refreshShape(dr.shape);
+  setStatus(`${dr.shape.name}: rotated 45° ${ang < 0 ? 'clockwise' : 'counter-clockwise'}`);
+}
+function scaleHeld(c, f) {
+  const dr = c.userData.drag, s = dr.shape;
+  const bottom = s.group.position.y - halfHeight(s);
+  for (const k of Object.keys(s.dims)) s.dims[k] = Math.max(MIN_SIZE, Math.round(s.dims[k] * f * 1000) / 1000);
+  if (dr.type === 'move') { dr.baseY = bottom + halfHeight(s); s.group.position.y = dr.baseY; }
+  refreshShape(s);
+  setStatus(`${s.name}: ${dimsText(s)}`);
+}
+// Grip alone on a shape: push the controller forward to grow, pull back to shrink (x2 per 20 cm).
+function startScale(c, s) {
+  pushHistory(snapUndo(s));
+  const { o, d } = rayOf(c), g = s.group;
+  const bottom = g.position.y - halfHeight(s);
+  const resting = Math.abs(bottom - supportBelow(g.position.x, g.position.z, bottom + 0.02, s)) < 0.01;
+  c.userData.drag = { type: 'scale', shape: s, o0: o, d0: d, dims0: { ...s.dims }, bottom, resting };
+  setStatus(`Scaling ${s.name}: push to grow, pull to shrink`);
+}
+function updateScale(c, dr) {
+  const { o } = rayOf(c);
+  const ratio = THREE.MathUtils.clamp(Math.pow(2, o.sub(dr.o0).dot(dr.d0) / 0.2), 0.05, 20);
+  const s = dr.shape;
+  for (const k of Object.keys(s.dims)) s.dims[k] = Math.max(MIN_SIZE, Math.round(dr.dims0[k] * ratio * 1000) / 1000);
+  if (dr.resting) s.group.position.y = dr.bottom + halfHeight(s);
+  refreshShape(s);
+  setStatus(`${s.name}: ${dimsText(s)}`);
 }
 
 function closestT(p0, dir, o, r) {
@@ -709,54 +1050,13 @@ function closestT(p0, dir, o, r) {
   if (denom < 1e-5) return null;
   return (b * e - dd) / denom;
 }
-
-function onPress(c, kind) {
-  const u = c.userData;
-  if (!u.inputSource) return;
-  state.lastCtrl = c;
-  if (u.uiHit) { if (kind === 'select') { const id = buttonAt(u.uiHit.uv); if (id) { haptic(c, 0.4, 30); onButton(id, c); } } return; }
-  if (u.handleHit) { startHandle(c, u.handleHit.object); haptic(c); return; }
-  if (state.mode === 'tape' || state.mode === 'circle') {
-    if (kind !== 'select') return;
-    const p = u.target ? u.target.point : pointTarget(c);
-    if (!u.target) setStatus('No surface found there, used a point 80 cm along the ray.');
-    haptic(c); addPendingPoint(p); return;
-  }
-  if (u.shapeHit) { select(u.shapeHit.object.userData.shape); startGrab(c, state.selected); haptic(c); return; }
-  if (kind === 'select' && state.selected) { select(null); setStatus('Nothing selected.'); }
-}
-function onRelease(c) {
-  const u = c.userData;
-  if (u.drag) { u.drag = null; persist(); panel.dirty = true; }
-}
-function startGrab(c, s) {
-  const { o } = rayOf(c);
-  pushHistory({ undo: (sn => () => applySnapshot(s, sn))(snapshot(s)) });
-  c.userData.drag = { type: 'grab', shape: s, c0: o.clone(), yaw0: yawOf(c), p0: s.group.position.clone(), q0: s.group.quaternion.clone() };
-  setStatus(`Moving ${s.name}. Thumbstick: push/pull and spin.`);
-}
-function updateGrab(c, dr) {
-  const { o } = rayOf(c);
-  const gp = c.userData.inputSource?.gamepad;
-  if (gp && gp.axes.length >= 4) {
-    const ax = gp.axes[2], ay = gp.axes[3];
-    if (Math.abs(ay) > 0.2) { const away = dr.p0.clone().sub(dr.c0); const len = away.length(); if (len > 0.05 || ay < 0) dr.p0.copy(dr.c0).addScaledVector(away.normalize(), Math.max(0.05, len - ay * 0.015)); }
-    if (Math.abs(ax) > 0.2) dr.q0.premultiply(new THREE.Quaternion().setFromAxisAngle(UP, -ax * 0.03));
-  }
-  const qy = new THREE.Quaternion().setFromAxisAngle(UP, yawOf(c) - dr.yaw0);
-  const g = dr.shape.group;
-  g.position.copy(o).add(dr.p0.clone().sub(dr.c0).applyQuaternion(qy));
-  g.quaternion.copy(qy).multiply(dr.q0);
-  snapToSurfaces(dr.shape);
-  refreshShape(dr.shape);
-}
 function startHandle(c, handle) {
   const hd = handle.userData.handle, s = hd.shape, g = s.group;
-  pushHistory({ undo: (sn => () => applySnapshot(s, sn))(snapshot(s)) });
+  pushHistory(snapUndo(s));
   const axisW = hd.axis.clone().applyQuaternion(g.quaternion).normalize();
   const fixedW = hd.mode === 'face' ? g.position.clone().addScaledVector(axisW, -extent(s, hd.key) / 2) : g.position.clone();
   c.userData.drag = { type: 'handle', shape: s, hd, axisW, fixedW };
-  setStatus(`Resizing ${s.name}.`);
+  setStatus(`Resizing ${s.name}`);
 }
 function updateHandle(c, dr) {
   const { o, d } = rayOf(c);
@@ -797,15 +1097,20 @@ function updatePreview() {
 }
 
 // ---------------------------------------------------------------- main loop
+const DRAG_UPDATE = { move: updateMove, free: updateFree, scale: updateScale, handle: updateHandle };
 renderer.setAnimationLoop((time, frame) => {
   const ref = renderer.xr.getReferenceSpace();
+  const now = performance.now();
   if (frame && ref) updateRoom(frame, ref);
-  updateMenuPlacement(!panel.placed);
+  if (state.menuVisible) updateMenuPlacement(!panel.placed);
   for (const c of controllers) {
     updatePointer(c, frame, ref);
+    processInput(c, now);
     const dr = c.userData.drag;
-    if (dr) dr.type === 'grab' ? updateGrab(c, dr) : updateHandle(c, dr);
+    if (dr) DRAG_UPDATE[dr.type](c, dr);
   }
+  updateHovers();
+  updateFalling(now);
   updatePreview();
   if (panel.dirty) drawPanel();
   renderer.render(scene, camera);
@@ -958,4 +1263,4 @@ document.getElementById('restore').onclick = () => {
 renderReport();
 
 // Test hook (used by the automated emulator test; harmless on the headset).
-window.__framespace = { THREE, state, onButton, controllers, sceneData, toCSV, panel, buttonAt, exportScene };
+window.__framespace = { THREE, palette, ctxMenu, PALETTE, state, onButton, controllers, sceneData, toCSV, panel, buttonAt, exportScene };

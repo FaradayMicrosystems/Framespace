@@ -12,12 +12,14 @@ For the "is AI-assisted development worth it?" conversation. All times UTC, 2026
 | 07:20 | Test run in emulated Quest 3: 16/17 pass. Bug found (paste without depth hit floated in the air), fixed, 17/17 pass. | Claude |
 | 07:17 | GitHub repo created. | Aurora |
 | 07:23 | Pushed, CI + GitHub Pages deploy set up. Emulated-headset test runs on every push. | Claude |
+| 07:38 | New control scheme specified in plain English (grip/trigger/B, stick, A/X/Y, grid). | Aurora |
+| 07:40–07:48 | Controls rebuilt: polling input state machine, grid snapping, gravity drop onto floor/tables/shapes, palette and context pop-ups. Test suite grown to 27 checks; 1 real overlap bug found (palette hidden behind tools menu) and fixed. 27/27 pass. | Claude |
 
 ## Effort split
 
 - **Aurora:** about 6 short chat messages, created one repo. Roughly 10 minutes of attention.
 - **Claude:** research, plan, all code, tests, CI, deployment, docs.
-- **Elapsed:** about 20 minutes from request to a deployed, tested build.
+- **Elapsed:** about 20 minutes from request to a tested build; about 10 more for a full control-scheme rewrite.
 
 ## What a person would normally spend
 

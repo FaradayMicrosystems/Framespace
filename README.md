@@ -4,22 +4,32 @@ Measure, design and wireframe real spaces on **Meta Quest 3**, right in the brow
 
 **Open on the headset:** https://faradaymicrosystems.github.io/Framespace/
 
-## What it does (prototype 0.1)
+## Controls (Touch controllers, either hand)
 
-- **Wireframe shapes over passthrough:** box, sphere, cylinder, cone. Grab to move, drag the yellow/orange handles to resize. Live labels show width, height, depth, radius and **volume**.
-- **Tape measure** that lands on real surfaces (Quest depth sensor) and on virtual shapes. Shows total, vertical and horizontal distance. Snaps to corners and earlier points.
-- **Circle 3-pt:** tap three points on a round edge to get diameter, radius and circumference.
+| Do this | Get this |
+|---|---|
+| Point + **trigger** | Select a shape / press a button |
+| Point + **grip**, push or pull | Scale the shape (push = bigger, pull = smaller, x2 per 20 cm) |
+| **Grip + trigger** on a shape | Slide it along the floor, snapped to the grid |
+| **Grip + trigger + B** | Pick it up freely. Let go and it drops onto the floor, a table or another shape, squared to the grid |
+| Stick **up / down** while holding | Scale +5% / -5% |
+| Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
+| Hold **A** on a shape | Cut / Copy / Delete / Duplicate |
+| Hold **A** on empty space | Paste / Next clip |
+| Hold **X** | Shape palette: point at one with the other controller, trigger or grip, drop it in |
+| **Y** | Show / hide the tools menu (tape, circle 3-pt, units, grid, undo, room, export) |
+| Yellow / orange cubes on a selected shape | Drag with trigger to resize one side / the radius |
+
+The grid (5 cm default; 1 cm, 10 cm or off in the tools menu) is aligned to the direction you face when you recenter the headset.
+
+## What it does
+
+- **Wireframe shapes over passthrough** with live width, height, depth, radius and **volume** labels.
+- **Tape measure** that lands on real surfaces (Quest depth sensor) and on shapes. Shows total, vertical and horizontal distance. Snaps to corners.
+- **Circle 3-pt:** three points on a round edge give diameter, radius and circumference.
 - **Cut / Copy / Paste** with a 5-item clipboard. **Undo** for everything.
-- **Room wireframe:** walls, floor and tables from Space Setup, each labelled with its size and area.
-- **Export:** CSV (spreadsheets), JSON (full data) and GLB (3D, opens in Blender / CAD viewers).
-- Metric and imperial units.
-
-## Use it
-
-1. On the Quest 3: **Settings → Physical Space → Space Setup** (once per room).
-2. Open the Quest Browser, go to the URL above, press **Enter AR**.
-3. Controls are listed on the page. Point and press trigger (or pinch) for everything.
-4. **Exit AR** to see the report and download files.
+- **Room wireframe:** walls, floor and tables from Space Setup, labelled with size and area.
+- **Export:** CSV, JSON and GLB (3D).
 
 ## Develop
 
@@ -27,7 +37,7 @@ No build step. Edit `index.html` / `app.js`, push to `main`, and GitHub Pages re
 
 ```bash
 npm install && npx playwright install chromium
-npm test          # runs the app in an emulated Quest 3 (Meta IWER) and checks 17 behaviours
+npm test          # runs the app in an emulated Quest 3 (Meta IWER) and checks 27 behaviours
 ```
 
 Desktop try-out: open the page with `?emulate` to load the Quest 3 emulator.

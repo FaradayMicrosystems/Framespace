@@ -56,60 +56,127 @@ fs.mkdirSync(path.join(__dirname, '..', 'test-results'), { recursive: true });
     return { shapes: state.shapes.map(s => ({ name: s.name, dims: { ...s.dims }, pos: s.group.position.toArray() })), measures: state.measures.length, clip: state.clipboard.length, mode: state.mode, status: state.status, selected: state.selected?.name };
   });
 
+  const btn = (hand, id, v) => page.evaluate(([h, id, v]) => window.__xrDevice.controllers[h].updateButtonValue(id, v), [hand, id, v]);
+  const stick = (hand, x, y) => page.evaluate(([h, x, y]) => window.__xrDevice.controllers[h].updateAxes('thumbstick', x, y), [hand, x, y]);
+  const box1 = () => page.evaluate(() => { const s = window.__framespace.state.shapes[0]; return { pos: s.group.position.toArray(), dims: { ...s.dims }, yaw: new window.__framespace.THREE.Euler().setFromQuaternion(s.group.quaternion, 'YXZ').y * 180 / Math.PI }; });
+  const resetBox = () => page.evaluate(() => { const s = window.__framespace.state.shapes[0]; s.dims = { x: 0.3, y: 0.3, z: 0.3 }; s.group.position.set(0, 0.15, -1); s.group.quaternion.identity(); });
+  const near = (a, b, tol = 0.006) => Math.abs(a - b) < tol;
+  const onGrid = v => near(v / 0.05, Math.round(v / 0.05), 0.01);
+  const popupTile = (which, index) => page.evaluate(([which, index]) => {
+    const { THREE } = window.__framespace, p = window.__framespace[which];
+    const w = p.canvas.width, h = p.canvas.height, col = index % p.cols, row = Math.floor(index / p.cols);
+    const local = new THREE.Vector3((10 + col * 260 + 130) / w - 0.5, 0.5 - (90 + row * 180 + 90) / h, 0);
+    p.mesh.updateMatrixWorld(true);
+    return { world: p.mesh.localToWorld(local.clone()).toArray(), front: p.mesh.localToWorld(local.clone().add(new THREE.Vector3(0, 0, 0.25))).toArray() };
+  }, [which, index]);
+
   await wait(10);
-  // 1. Add a box with a real ray click on the menu.
+  // 1. Add a box with a real ray click on the tools menu.
   await menu('box');
   let s = await S();
   check('Menu click via controller ray adds a box', s.shapes.length === 1 && s.selected === 'Box 1', s.status);
-  // Move box to a known place for the following steps.
-  await page.evaluate(() => { const b = window.__framespace.state.shapes[0]; b.group.position.set(0, 1.0, -1.0); b.group.quaternion.identity(); });
-  await wait();
+  await resetBox(); await wait();
 
-  // 2. Grab and move.
-  await aim('right', [0.2, 1.0, -0.2], [0, 1.0, -1.0]);
-  await wait(); await press('right');
-  await aim('right', [0.5, 1.0, -0.2], [0.3, 1.0, -1.0]);
-  await wait(8); await release('right');
+  // 2. Grip + trigger slides the box along the floor on the grid.
+  await aim('right', [0.2, 1.0, -0.2], [0, 0.15, -1]); await wait();
+  await btn('right', 'squeeze', 1); await wait(); await btn('right', 'trigger', 1); await wait();
+  await aim('right', [0.52, 1.0, -0.2], [0.32, 0.15, -1]); await wait(8);
+  let b = await box1();
+  check('Grip + trigger slides the shape, snapped to the 5 cm grid', onGrid(b.pos[0]) && near(b.pos[0], 0.3, 0.03) && near(b.pos[1], 0.15), `pos=${b.pos.map(v => v.toFixed(3))}`);
+  // 3. Stick while holding: left = 45° clockwise, up = +5%.
+  await stick('right', -1, 0); await wait(); await stick('right', 0, 0); await wait();
+  b = await box1();
+  check('Stick left rotates 45° clockwise (seen from above)', near(b.yaw, -45, 0.5), `yaw=${b.yaw.toFixed(1)}°`);
+  await stick('right', 1, 0); await wait(); await stick('right', 0, 0); await wait();
+  b = await box1();
+  check('Stick right rotates 45° counter-clockwise', near(b.yaw, 0, 0.5), `yaw=${b.yaw.toFixed(1)}°`);
+  await stick('right', 0, -1); await wait(); await stick('right', 0, 0); await wait();
+  b = await box1();
+  check('Stick up scales +5%', near(b.dims.x, 0.315, 0.002) && near(b.pos[1] - b.dims.y / 2, 0, 0.003), `W=${b.dims.x}, bottom=${(b.pos[1] - b.dims.y / 2).toFixed(3)}`);
+  await stick('right', 0, 1); await wait(); await stick('right', 0, 0); await wait();
+  b = await box1();
+  check('Stick down scales -5%', near(b.dims.x, 0.299, 0.002), `W=${b.dims.x}`);
+  await btn('right', 'trigger', 0); await btn('right', 'squeeze', 0); await wait();
+
+  // 4. Grip alone: push forward 20 cm doubles the size.
+  await resetBox(); await wait();
+  await aim('right', [0, 0.9, -0.2], [0, 0.15, -1]); await wait();
+  await btn('right', 'squeeze', 1); await wait();
+  const dir = [0, -0.75, -0.8], len = Math.hypot(...dir), f = 0.2 / len;
+  await aim('right', [0, 0.9 + dir[1] * f, -0.2 + dir[2] * f], [0, 0.15 + dir[1] * f, -1 + dir[2] * f]); await wait(8);
+  await btn('right', 'squeeze', 0); await wait();
+  b = await box1();
+  check('Grip + push scales up (x2 per 20 cm), stays on the floor', near(b.dims.x, 0.6, 0.02) && near(b.pos[1] - b.dims.y / 2, 0, 0.005), `W=${b.dims.x}, bottom=${(b.pos[1] - b.dims.y / 2).toFixed(3)}`);
+
+  // 5. Grip + trigger + B: free pick-up, then drop to the floor on release.
+  await resetBox(); await wait();
+  await aim('right', [0.2, 1.0, -0.2], [0, 0.15, -1]); await wait();
+  await btn('right', 'squeeze', 1); await wait(); await btn('right', 'trigger', 1); await wait(); await btn('right', 'b-button', 1); await wait();
+  await aim('right', [0.27, 1.6, -0.2], [0.07, 0.75, -1]); await wait(8);
+  b = await box1();
+  check('Holding B lifts the shape freely', b.pos[1] > 0.6, `y=${b.pos[1].toFixed(2)}`);
+  await btn('right', 'b-button', 0); await btn('right', 'trigger', 0); await btn('right', 'squeeze', 0);
+  await page.waitForTimeout(1200);
+  b = await box1();
+  check('Released shape falls to the floor and snaps to the grid', near(b.pos[1], 0.15, 0.003) && onGrid(b.pos[0]) && onGrid(b.pos[2]), `pos=${b.pos.map(v => v.toFixed(3))}`);
+
+  // 6. Hold X: shape palette; trigger on "Crate" with the right controller and drop it in.
+  await aim('left', [-0.25, 1.1, -0.3], [-0.25, 1.1, -1.0]); await wait();
+  await btn('left', 'x-button', 1); await wait();
+  check('Holding X opens the shape palette', await page.evaluate(() => window.__framespace.palette.open));
+  const tile = await popupTile('palette', 2);
+  await aim('right', tile.front, tile.world); await wait();
+  await btn('right', 'trigger', 1); await wait();
+  await btn('left', 'x-button', 0); await wait();
+  await aim('right', [0.6, 1.1, -0.6], [1.0, 0.6, -1.6]); await wait(8);
+  await btn('right', 'trigger', 0); await page.waitForTimeout(1200);
   s = await S();
-  check('Grab with trigger moves the box', Math.abs(s.shapes[0].pos[0] - 0.3) < 0.05, `x=${s.shapes[0].pos[0].toFixed(3)}`);
-  await page.evaluate(() => { const b = window.__framespace.state.shapes[0]; b.group.position.set(0, 1.0, -1.0); b.group.quaternion.identity(); });
-  await wait();
+  const crate = s.shapes[s.shapes.length - 1];
+  check('Palette shape is grabbed, carried and dropped on the floor', s.shapes.length === 2 && near(crate.dims.x, 0.6) && near(crate.pos[1], 0.2, 0.003), `${crate.name} at ${crate.pos.map(v => v.toFixed(2))}`);
+  check('Releasing X closes the palette', !(await page.evaluate(() => window.__framespace.palette.open)));
 
-  // 3. Drag the +x handle (at x = 0.15 + 0.015) out to x = 0.35 → width ≈ 0.5.
-  await aim('right', [0.165, 1.0, -0.5], [0.165, 1.0, -1.0]);
-  await wait(); await press('right');
-  await aim('right', [0.35, 1.0, -0.5], [0.35, 1.0, -1.0]);
-  await wait(8); await release('right');
+  // 7. Hold A on a shape: context menu → Copy. Hold A on empty floor → Paste.
+  await resetBox(); await wait();
+  await aim('right', [0, 0.9, -0.3], [0, 0.15, -1]); await wait();
+  await btn('right', 'a-button', 1); await page.waitForTimeout(400); await btn('right', 'a-button', 0); await wait();
+  check('Holding A on a shape opens Cut/Copy/Delete', await page.evaluate(() => window.__framespace.ctxMenu.open && window.__framespace.ctxMenu.items.map(i => i.id).join() === 'cut,copy,delete,duplicate'));
+  let t2 = await popupTile('ctxMenu', 1);
+  await aim('right', t2.front, t2.world); await wait(); await click('right');
+  s = await S(); check('Context Copy puts the shape on the clipboard', s.clip === 1, s.status);
+  await aim('right', [-0.6, 1.0, -0.3], [-0.9, 0, -1.5]); await wait();
+  await btn('right', 'a-button', 1); await page.waitForTimeout(400); await btn('right', 'a-button', 0); await wait();
+  t2 = await popupTile('ctxMenu', 0);
+  await aim('right', t2.front, t2.world); await wait(); await click('right');
   s = await S();
-  check('Dragging the +X handle resizes width', Math.abs(s.shapes[0].dims.x - 0.5) < 0.02, `W=${s.shapes[0].dims.x}`);
-
-  // 4. Tape measure between two points on the box front face (z = -0.85).
-  await menu('tape');
-  await aim('right', [-0.1, 1.0, -0.3], [-0.1, 1.0, -1.0]); await wait(); await click('right');
-  await aim('right', [0.1, 1.05, -0.3], [0.1, 1.05, -1.0]); await wait(); await click('right');
-  s = await S();
-  const m = await page.evaluate(() => window.__framespace.sceneData().measurements[0]);
-  check('Tape measure creates a measurement', s.measures === 1 && m && Math.abs(m.distance_m - Math.hypot(0.2, 0.05)) < 0.01, m ? `${m.distance_m.toFixed(4)} m (expected ${Math.hypot(0.2, 0.05).toFixed(4)})` : 'none');
-
-  // 5. Circle 3-pt directly via measurement API correctness (points on a 10 cm radius circle).
-  await menu('circle');
-  for (const [x, y] of [[0.1, 0], [0, 0.1], [-0.1, 0]]) { await aim('right', [x, 1 + y, -0.3], [x, 1 + y, -1.0]); await wait(); await click('right'); }
-  const circ = await page.evaluate(() => window.__framespace.sceneData().measurements[1]);
-  check('Circle 3-pt gives radius', circ && Math.abs(circ.radius_m - 0.1) < 0.005, circ ? `r=${circ.radius_m.toFixed(4)}` : 'none');
-
-  // 6. Copy / paste / cut / undo.
-  await menu('select');
-  await aim('right', [0.0, 1.0, -0.3], [0.0, 1.0, -1.0]); await wait(); await click('right');   // select box
-  await menu('copy');
-  s = await S(); check('Copy puts the shape on the clipboard', s.clip === 1, s.status);
-  await aim('left', [0.6, 1.0, -0.3], [0.8, 0.0, -1.0]); await wait();   // left hand points at the floor
-  await menu('paste');
-  s = await S(); check('Paste creates a copy where the other hand points', s.shapes.length === 2 && Math.abs(s.shapes[1].dims.x - 0.5) < 0.02, `${s.shapes[1]?.name} at ${s.shapes[1]?.pos.map(v => v.toFixed(2))}`);
-  check('Pasted shape sits on the floor', s.shapes[1] && Math.abs(s.shapes[1].pos[1] - 0.15) < 0.03, `y=${s.shapes[1]?.pos[1].toFixed(3)}`);
-  await menu('cut');
-  s = await S(); check('Cut removes the shape and keeps it on clipboard', s.shapes.length === 1 && s.clip === 2);
+  const pasted = s.shapes[s.shapes.length - 1];
+  check('Hold A on empty floor → Paste drops a copy there', s.shapes.length === 3 && near(pasted.pos[1], 0.15, 0.003) && near(pasted.pos[0], -0.9, 0.06), `${pasted.name} at ${pasted.pos.map(v => v.toFixed(2))}`);
+  await aim('right', [-0.9, 0.9, -0.6], [-0.9, 0.15, -1.5]); await wait();
+  await btn('right', 'a-button', 1); await page.waitForTimeout(400); await btn('right', 'a-button', 0); await wait();
+  t2 = await popupTile('ctxMenu', 2);
+  await aim('right', t2.front, t2.world); await wait(); await click('right');
+  s = await S(); check('Context Delete removes the shape', s.shapes.length === 2, s.status);
   await menu('undo');
-  s = await S(); check('Undo restores the cut shape', s.shapes.length === 2);
+  s = await S(); check('Undo restores the deleted shape', s.shapes.length === 3);
+
+  // 8. Y toggles the tools menu.
+  await btn('left', 'y-button', 1); await wait(); await btn('left', 'y-button', 0); await wait();
+  const hidden = await page.evaluate(() => !window.__framespace.panel.mesh.visible);
+  await btn('left', 'y-button', 1); await wait(); await btn('left', 'y-button', 0); await wait();
+  const shown = await page.evaluate(() => window.__framespace.panel.mesh.visible);
+  check('Y hides and shows the tools menu', hidden && shown);
+
+  // 9. Tape measure on the floor.
+  await menu('tape');
+  await aim('right', [-1, 1.0, -1.2], [-1, 0, -2]); await wait(); await click('right');
+  await aim('right', [-0.5, 1.0, -1.2], [-0.5, 0, -2]); await wait(); await click('right');
+  const m = await page.evaluate(() => window.__framespace.sceneData().measurements[0]);
+  check('Tape measure on the floor', m && near(m.distance_m, 0.5, 0.005), m ? `${m.distance_m.toFixed(4)} m` : 'none');
+  // 10. Circle 3-pt on the floor, r = 0.2 m.
+  await menu('circle');
+  for (const [x, z] of [[-0.8, -2.5], [-1, -2.3], [-1.2, -2.5]]) { await aim('right', [x, 1, z + 0.6], [x, 0, z]); await wait(); await click('right'); }
+  const circ = await page.evaluate(() => window.__framespace.sceneData().measurements[1]);
+  check('Circle 3-pt gives radius', circ && near(circ.radius_m, 0.2, 0.005), circ ? `r=${circ.radius_m.toFixed(4)}` : 'none');
+  await menu('select');
   await menu('units');
   const unitsStatus = (await S()).status;
   check('Units toggle works', /imperial/.test(unitsStatus), unitsStatus);
