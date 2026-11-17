@@ -4,6 +4,8 @@ Measure, design and wireframe real spaces on **Meta Quest 3**, right in the brow
 
 **Open on the headset:** https://faradaymicrosystems.github.io/Framespace/
 
+**Native app (offline, saved rooms, no boundary):** see [native/README.md](native/README.md). Download the APK from [Releases > native-latest](https://github.com/FaradayMicrosystems/Framespace/releases/tag/native-latest) and sideload it.
+
 ## Controls (Touch controllers, either hand)
 
 | Do this | Get this |

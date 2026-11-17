@@ -29,3 +29,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 
 - Tested in an emulator so far. First on-headset test is the real proof.
 - Accuracy is limited by the Quest 3 sensors (about ±1 to 3 cm at arm's length), not by the software.
+
+## 2026-11-18 (Brisbane): native Quest app
+
+- Aurora asked for a native, offline app with saved rooms and no guardian boundary, plus a stick-click hand menu.
+- Stack: Godot 4.6.2 + Meta's GodotOpenXRVendors 5.0.0. Why: free, and CI builds the APK with no licence. Unity CI needs a licence tied to her account.
+- The whole web app was ported to GDScript by Claude (`native/`), plus new features: rooms auto-saved and pinned to Meta spatial anchors, Space Setup surfaces for snapping, a stick-click menu attached to the hand, and 20ft/40ft container presets.
+- CI (`.github/workflows/native.yml`) runs a headless self-test, builds the APK, fails if the manifest lacks BOUNDARYLESS_APP or PASSTHROUGH, and publishes `native-latest`.
