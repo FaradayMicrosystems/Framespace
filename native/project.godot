@@ -1,0 +1,40 @@
+; Framespace native (Meta Quest 3). Godot 4.6.2 + GodotOpenXRVendors 5.0.0 (downloaded by CI into addons/).
+
+config_version=5
+
+[application]
+
+config/name="Framespace"
+config/version="0.3.0"
+config/description="Measure, design and wireframe real spaces on Meta Quest 3. Offline."
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[display]
+
+window/vsync/vsync_mode=0
+
+[physics]
+
+common/physics_ticks_per_second=72
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+anti_aliasing/quality/msaa_3d=2
+
+[xr]
+
+openxr/enabled=true
+openxr/reference_space=2
+openxr/environment_blend_mode=2
+openxr/foveation_level=3
+openxr/foveation_dynamic=true
+openxr/extensions/meta/passthrough=true
+openxr/extensions/meta/anchor_api=true
+openxr/extensions/meta/scene_api=true
+openxr/extensions/automatically_request_runtime_permissions=true
+shaders/enabled=true
