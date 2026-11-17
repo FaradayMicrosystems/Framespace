@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Framespace</title>
+<meta name="description" content="Framespace: measure, design and wireframe real spaces on Meta Quest 3.">
+<style>
+  :root { --bg:#0e1116; --panel:#171b22; --line:#2a313c; --text:#e8edf3; --muted:#9aa6b4; --accent:#00e5ff; --warn:#ffb020; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 34px; margin: 0 0 4px; letter-spacing: .5px; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: 20px; margin: 32px 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; margin: 12px 0; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 18px; cursor: pointer; background:#2a313c; color: var(--text); }
+  button.primary { background: var(--accent); color: #001014; font-size: 20px; padding: 16px 28px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display:flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  #support { color: var(--muted); }
+  #support.bad { color: var(--warn); }
+  table { width:100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align:left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  ul { padding-left: 20px; margin: 6px 0; }
+  li { margin: 3px 0; }
+  kbd { background:#262c36; border:1px solid var(--line); border-radius:4px; padding: 0 5px; font-size: 13px; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 40px; }
+  #xr-host canvas { display:none; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<main>
+  <h1>Frame<span>space</span></h1>
+  <p class="sub">Measure, design and wireframe real spaces on Meta Quest 3. Prototype build <span id="build"></span>.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="enter" class="primary" disabled>Enter AR</button>
+      <span id="support">Checking headset support…</span>
+    </div>
+  </div>
+
+  <h2>Controls</h2>
+  <div class="card">
+    <ul>
+      <li><b>Point + trigger</b> (or <b>pinch</b> with hands): press menu buttons, grab and move shapes, place tape points.</li>
+      <li><b>Grip button</b> on a shape also grabs it. While holding: <b>thumbstick</b> up/down pushes it away / pulls it closer, left/right spins it.</li>
+      <li><b>Yellow cubes</b> on the selected shape are resize handles. Point, hold trigger, drag. Orange cubes change the radius.</li>
+      <li><b>Tape</b>: two points on any real or virtual surface. Shows length plus vertical and horizontal parts. Points snap to corners and earlier points.</li>
+      <li><b>Circle 3-pt</b>: three points on a round edge (pipe, table, bucket) gives diameter, radius and circumference.</li>
+      <li><b>Copy / Cut / Paste</b>: Paste drops the shown clipboard item where you point. <b>Next clip</b> cycles the last 5 copies.</li>
+      <li>Shapes snap to the floor and to tables within 3 cm. <b>Drop</b> lowers the selected shape onto the surface below.</li>
+      <li>The menu floats to your lower left and follows you. <b>Menu: pin</b> stops it following.</li>
+      <li><b>Exit AR</b> (or the Meta button) brings you back here to download the report.</li>
+    </ul>
+    <p class="sub" style="margin:8px 0 0">Tip: run <b>Settings → Physical Space → Space Setup</b> first so walls, floor and tables show up as wireframe with their sizes.</p>
+  </div>
+
+  <h2>Report</h2>
+  <div class="card">
+    <div class="row" style="margin-bottom:12px">
+      <button id="dl-csv">Download CSV</button>
+      <button id="dl-json">Download JSON</button>
+      <button id="dl-glb">Download 3D (GLB)</button>
+      <button id="copy-report">Copy to clipboard</button>
+      <button id="restore">Restore last scene</button>
+    </div>
+    <div id="report" class="scroll"><p class="sub">Nothing measured yet.</p></div>
+  </div>
+
+  <footer>
+    Framespace prototype by Faraday Microsystems. Built with WebXR and three.js. Accuracy depends on the headset's sensors: expect about ±1 to 3 cm within arm's reach. Use for planning, not for machining.
+  </footer>
+</main>
+<div id="xr-host"></div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

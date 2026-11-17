@@ -1,0 +1,12 @@
+{
+  "name": "framespace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Measure, design and wireframe real spaces on Meta Quest 3 (WebXR).",
+  "scripts": {
+    "test": "node tests/e2e.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.49.1"
+  }
+}
