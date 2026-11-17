@@ -648,6 +648,10 @@ const PALETTE = [
   { label: 'Panel', type: 'box', dims: { x: 1.0, y: 0.6, z: 0.02 } },
   { label: 'Rod', type: 'cylinder', dims: { r: 0.015, h: 1.0 } },
   { label: 'Plank', type: 'box', dims: { x: 1.2, y: 0.03, z: 0.3 } },
+  // ISO dry-van container interiors (typical figures, e.g. Maersk / Hapag-Lloyd spec sheets): L x H x W.
+  { label: '20ft container', type: 'box', dims: { x: 5.898, y: 2.393, z: 2.352 } },
+  { label: '40ft container', type: 'box', dims: { x: 12.032, y: 2.393, z: 2.352 } },
+  { label: '40ft high cube', type: 'box', dims: { x: 12.032, y: 2.698, z: 2.352 } },
 ];
 function shortDims(type, d) {
   const metric = state.units === 'metric', k = metric ? 100 : 1 / 0.0254, unit = metric ? 'cm' : 'in';

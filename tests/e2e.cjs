@@ -13,7 +13,7 @@ const check = (name, ok, info = '') => { results.push({ name, ok }); console.log
 
 fs.mkdirSync(path.join(__dirname, '..', 'test-results'), { recursive: true });
 (async () => {
-  const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+  const browser = await chromium.launch({ ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}), args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await browser.newPage({ viewport: { width: 1000, height: 800 }, acceptDownloads: true });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
