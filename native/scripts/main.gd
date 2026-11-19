@@ -37,6 +37,76 @@ var PALETTE: Array = []
 var label_counts := {}
 
 
+# Optional side-view outline for a box (e.g. a vehicle), stored normalised to the unit box so it still scales as a box.
+# outline "x/y ...", wheels "x/diameter ...", inner "x/y/length/width/height" (mm; x back from the front, y up from the ground).
+static func _groups(t: String, n: int) -> Array:
+	var out := []
+	for p in t.strip_edges().split(" ", false):
+		var parts := p.split("/")
+		if parts.size() != n:
+			continue
+		var nums := []
+		var ok := true
+		for q in parts:
+			if not q.is_valid_float():
+				ok = false
+			nums.append(q.to_float())
+		if ok:
+			out.append(nums)
+	return out
+
+
+static func parse_outline(outline: String, wheels: String, inner: String, L: float, H: float, W: float) -> Dictionary:
+	var pts := []
+	for p in _groups(outline, 2):
+		pts.append([0.5 - p[0] / L, p[1] / H - 0.5])
+	if pts.size() < 3:
+		return {}
+	var wh := []
+	for p in _groups(wheels, 2):
+		wh.append([0.5 - p[0] / L, p[1] / 2.0 / L, p[1] / 2.0 / H])
+	var inn := []
+	for p in _groups(inner, 5):
+		inn.append([0.5 - (p[0] + p[2]) / L, 0.5 - p[0] / L, p[1] / H - 0.5, (p[1] + p[4]) / H - 0.5, p[3] / 2.0 / W])
+	return {"pts": pts, "wheels": wh, "inner": inn}
+
+
+var _outline_cache := {}
+
+
+func outline_mesh(o: Dictionary) -> ArrayMesh:
+	var key := JSON.stringify(o)
+	if _outline_cache.has(key):
+		return _outline_cache[key]
+	var v := PackedVector3Array()
+	var pts: Array = o.get("pts", [])
+	var n := pts.size()
+	for z in [-0.5, 0.5]:
+		for i in n:
+			var a: Array = pts[i]
+			var b: Array = pts[(i + 1) % n]
+			v.append_array([Vector3(a[0], a[1], z), Vector3(b[0], b[1], z)])
+	for a in pts:
+		v.append_array([Vector3(a[0], a[1], -0.5), Vector3(a[0], a[1], 0.5)])
+	for b in o.get("inner", []):
+		var c := [Vector2(b[0], b[2]), Vector2(b[1], b[2]), Vector2(b[1], b[3]), Vector2(b[0], b[3])]
+		var zw: float = b[4]
+		for z in [-zw, zw]:
+			for i in 4:
+				v.append_array([Vector3(c[i].x, c[i].y, z), Vector3(c[(i + 1) % 4].x, c[(i + 1) % 4].y, z)])
+		for p in c:
+			v.append_array([Vector3(p.x, p.y, -zw), Vector3(p.x, p.y, zw)])
+	for w in o.get("wheels", []):
+		var u: float = w[0]
+		var ru: float = w[1]
+		var rv: float = w[2]
+		for z in [-0.45, 0.45]:
+			_circle_pts(v, func(t): return Vector3(u + cos(t) * ru, -0.5 + rv + sin(t) * rv, z), 24)
+	var m := _lines_mesh(v)
+	_outline_cache[key] = m
+	return m
+
+
 static func parse_objects(text: String) -> Array:
 	var out := []
 	var header := PackedStringArray()
@@ -70,7 +140,12 @@ static func parse_objects(text: String) -> Array:
 		if not ok:
 			push_warning("objects.csv: skipped line " + line)
 			continue
-		out.append({"label": row.name, "type": type, "dims": dims, "note": row.get("note", "")})
+		var item := {"label": row.name, "type": type, "dims": dims, "note": row.get("note", "")}
+		if type == "box" and String(row.get("outline", "")) != "":
+			var o := parse_outline(row.outline, row.get("wheels", ""), row.get("inner", ""), dims.x * 1000.0, dims.y * 1000.0, dims.z * 1000.0)
+			if not o.is_empty():
+				item["outline"] = o
+		out.append(item)
 	return out
 
 
@@ -106,6 +181,7 @@ class Shape:
 	var handles: Array = []
 	var wire_mat: StandardMaterial3D
 	var fill_mat: StandardMaterial3D
+	var outline: Dictionary = {}
 
 
 class Measure:
@@ -545,7 +621,7 @@ func handle_defs(type: String) -> Array:
 		{"axis": Vector3.UP, "key": "h", "mode": "face"}, {"axis": Vector3.DOWN, "key": "h", "mode": "face"}]
 
 
-func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.IDENTITY, sname := "") -> Shape:
+func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.IDENTITY, sname := "", outline = null) -> Shape:
 	var s := Shape.new()
 	s.type = type
 	s.dims = dims.duplicate()
@@ -558,7 +634,11 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	s.node.position = pos
 	s.node.quaternion = rot
 	s.wire = MeshInstance3D.new()
-	s.wire.mesh = unit_wire[type]
+	if type == "box" and outline is Dictionary and outline.has("pts"):
+		s.outline = outline
+		s.wire.mesh = outline_mesh(outline)
+	else:
+		s.wire.mesh = unit_wire[type]
 	s.wire_mat = _unlit(s.color)
 	s.wire.material_override = s.wire_mat
 	s.fill = MeshInstance3D.new()
@@ -826,7 +906,7 @@ func undo() -> void:
 
 
 func clip_item(s: Shape) -> Dictionary:
-	return {"type": s.type, "dims": s.dims.duplicate(), "rot": s.node.quaternion, "name": s.name}
+	return {"type": s.type, "dims": s.dims.duplicate(), "rot": s.node.quaternion, "name": s.name, "outline": s.outline}
 
 
 func copy_selected(cut: bool) -> void:
@@ -853,7 +933,7 @@ func paste_at(point: Vector3, it = null, offset = null) -> void:
 	if it == null:
 		set_status("Clipboard is empty. Copy or Cut a shape first.")
 		return
-	var s := make_shape(it.type, it.dims, point, it.rot)
+	var s := make_shape(it.type, it.dims, point, it.rot, "", it.get("outline"))
 	if offset != null:
 		s.node.position += offset
 	else:
@@ -1271,7 +1351,7 @@ func spawn_from_palette(c: Ctrl, id: String, point_w: Vector3) -> void:
 		return
 	var p: Dictionary = PALETTE[it.index]
 	label_counts[p.label] = int(label_counts.get(p.label, 0)) + 1
-	var s := make_shape(p.type, p.dims, content.to_local(point_w), Quaternion.IDENTITY, "%s %d" % [p.label, label_counts[p.label]])
+	var s := make_shape(p.type, p.dims, content.to_local(point_w), Quaternion.IDENTITY, "%s %d" % [p.label, label_counts[p.label]], p.get("outline"))
 	push_history(func(): remove_shape(s))
 	select(s)
 	start_free(c, s, false)
@@ -1989,7 +2069,7 @@ func room_data() -> Dictionary:
 		var p := s.node.position
 		var q := s.node.quaternion
 		ss.append({"name": s.name, "type": s.type, "dims": s.dims, "volume_m3": volume_of(s.type, s.dims),
-			"position": [p.x, p.y, p.z], "quaternion": [q.x, q.y, q.z, q.w]})
+			"position": [p.x, p.y, p.z], "quaternion": [q.x, q.y, q.z, q.w], "outline": s.outline})
 	var ms := []
 	for m in measures:
 		var pts := []
@@ -2016,7 +2096,7 @@ func _clip_data() -> Array:
 	var out := []
 	for it in clipboard:
 		var q: Quaternion = it.rot
-		out.append({"type": it.type, "dims": it.dims, "name": it.name, "quaternion": [q.x, q.y, q.z, q.w]})
+		out.append({"type": it.type, "dims": it.dims, "name": it.name, "quaternion": [q.x, q.y, q.z, q.w], "outline": it.get("outline", {})})
 	return out
 
 
@@ -2056,7 +2136,7 @@ func load_room(id: String) -> void:
 	units = d.get("units", units)
 	grid = d.get("grid", grid)
 	for s in d.get("shapes", []):
-		make_shape(s.type, s.dims, _v3(s.position), _q(s.quaternion), s.name)
+		make_shape(s.type, s.dims, _v3(s.position), _q(s.quaternion), s.name, s.get("outline"))
 	for m in d.get("measurements", []):
 		var pts := []
 		for p in m.points:
@@ -2067,7 +2147,7 @@ func load_room(id: String) -> void:
 		counters[k] = int(cn.get(k, counters[k]))
 	clipboard = []
 	for it in d.get("clipboard", []):
-		clipboard.append({"type": it.type, "dims": it.dims, "name": it.name, "rot": _q(it.quaternion)})
+		clipboard.append({"type": it.type, "dims": it.dims, "name": it.name, "rot": _q(it.quaternion), "outline": it.get("outline", {})})
 	clip_index = 0
 	anchor_node = null
 	content.transform = Transform3D.IDENTITY

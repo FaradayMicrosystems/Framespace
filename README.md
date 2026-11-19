@@ -45,13 +45,20 @@ Everything in the Hold-X palette comes from one file: [`objects.csv`](objects.cs
 
 Example: `Shopping trolley,box,950,560,1000,,Typical supermarket trolley`
 
+**Vehicle-shaped wireframes (optional, boxes only):** three extra columns draw a shape inside the box instead of plain box edges. The object still measures, snaps and scales as its outer box.
+- `outline`: side-view points `x/y x/y ...` in mm (x back from the front, y up from the ground), at least 3.
+- `wheels`: `x/diameter ...` in mm (wheels touch the ground, so the object stands at true ride height).
+- `inner`: `x/y/length/width/height` in mm for a box drawn inside, e.g. a cargo area (y = floor height).
+
+See the two `Farizon V7E` lines in `objects.csv` for a worked example.
+
 ## Develop
 
 No build step. Edit `index.html` / `app.js`, push to `main`, and GitHub Pages redeploys in about a minute.
 
 ```bash
 npm install && npx playwright install chromium
-npm test          # runs the app in an emulated Quest 3 (Meta IWER) and checks 29 behaviours
+npm test          # runs the app in an emulated Quest 3 (Meta IWER) and checks 31 behaviours
 ```
 
 Desktop try-out: open the page with `?emulate` to load the Quest 3 emulator.

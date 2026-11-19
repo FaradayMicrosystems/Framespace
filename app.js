@@ -175,17 +175,18 @@ function shapeLines(s) {
 }
 function dimsText(s) { return shapeLines(s)[1]; }
 
-function makeShape(type, dims, position, quaternion, name) {
+function makeShape(type, dims, position, quaternion, name, outline) {
   const group = new THREE.Group();
   group.position.copy(position);
   if (quaternion) group.quaternion.copy(quaternion);
   const color = COLORS[type];
-  const wire = new THREE.LineSegments(WIRE_GEO[type], new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
+  if (type !== 'box' || !outline?.pts) outline = undefined;
+  const wire = new THREE.LineSegments(outline ? outlineWire(outline) : WIRE_GEO[type], new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
   const fill = new THREE.Mesh(UNIT_GEO[type], new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.06, depthWrite: false, side: THREE.DoubleSide }));
   const label = makeLabel();
   group.add(wire, fill, label.sprite);
   if (!name) name = `${NAMES[type]} ${++state.counters[type]}`;
-  const shape = { type, name, dims: { ...dims }, group, wire, fill, label, color, handles: [] };
+  const shape = { type, name, dims: { ...dims }, group, wire, fill, label, color, handles: [], outline };
   fill.userData.shape = shape;
   scene.add(group);
   state.shapes.push(shape);
@@ -324,7 +325,7 @@ function undo() {
   if (!e) { setStatus('Nothing to undo.'); return; }
   e.undo(); setStatus('Undone.'); persist();
 }
-function clipItem(s) { return { type: s.type, dims: { ...s.dims }, quat: s.group.quaternion.clone(), name: s.name }; }
+function clipItem(s) { return { type: s.type, dims: { ...s.dims }, quat: s.group.quaternion.clone(), name: s.name, outline: s.outline }; }
 function copySelected(cut) {
   const s = state.selected;
   if (!s) { setStatus('Select a shape first.'); return; }
@@ -341,7 +342,7 @@ function copySelected(cut) {
 function pasteAt(point, item = state.clipboard[state.clipIndex], offset = null) {
   if (!item) { setStatus('Clipboard is empty. Copy or Cut a shape first.'); return; }
   const pos = point.clone();
-  const s = makeShape(item.type, item.dims, pos, item.quat);
+  const s = makeShape(item.type, item.dims, pos, item.quat, undefined, item.outline);
   if (offset) s.group.position.add(offset);
   else s.group.position.y += halfHeight(s);   // sit on the surface we pointed at
   settle(s);
@@ -646,6 +647,39 @@ const PALETTE = [
   { label: 'Cylinder', type: 'cylinder', dims: { r: 0.12, h: 0.3 } },
   { label: 'Cone', type: 'cone', dims: { r: 0.12, h: 0.3 } },
 ];
+// Optional side-view outline for a box (e.g. a vehicle): "x/y x/y ..." in mm, x from the front, y from the ground.
+// Optional wheels: "x/diameter ...". Stored normalised to the unit box so the shape still scales like a box.
+// Optional inner box (e.g. a cargo area): "x/y/length/width/height" in mm, x from the front, y = floor height, centred across.
+function parseOutline(outline, wheels, inner, L, H, W) {
+  const groups = (t, n) => (t || '').trim().split(/\s+/).filter(Boolean).map(p => p.split('/').map(Number)).filter(p => p.length === n && p.every(Number.isFinite));
+  const pts = groups(outline, 2).map(([x, y]) => [0.5 - x / L, y / H - 0.5]);
+  if (pts.length < 3) return undefined;
+  return {
+    pts,
+    wheels: groups(wheels, 2).map(([x, d]) => [0.5 - x / L, d / 2 / L, d / 2 / H]),
+    inner: groups(inner, 5).map(([x, y, l, w, h]) => [0.5 - (x + l) / L, 0.5 - x / L, y / H - 0.5, (y + h) / H - 0.5, w / 2 / W]),
+  };
+}
+const outlineCache = new Map();
+function outlineWire(o) {
+  const key = JSON.stringify(o);
+  if (outlineCache.has(key)) return outlineCache.get(key);
+  const v = [], n = o.pts.length;
+  for (const z of [-0.5, 0.5]) for (let i = 0; i < n; i++) { const a = o.pts[i], b = o.pts[(i + 1) % n]; v.push(a[0], a[1], z, b[0], b[1], z); }
+  for (const p of o.pts) v.push(p[0], p[1], -0.5, p[0], p[1], 0.5);
+  for (const [u0, u1, v0, v1, zw] of o.inner || []) {
+    const c = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+    for (const z of [-zw, zw]) for (let i = 0; i < 4; i++) v.push(c[i][0], c[i][1], z, c[(i + 1) % 4][0], c[(i + 1) % 4][1], z);
+    for (const [a, b] of c) v.push(a, b, -zw, a, b, zw);
+  }
+  for (const [u, ru, rv] of o.wheels || []) for (const z of [-0.45, 0.45]) for (let k = 0; k < 24; k++) {
+    const t0 = k / 24 * Math.PI * 2, t1 = (k + 1) / 24 * Math.PI * 2;
+    v.push(u + Math.cos(t0) * ru, -0.5 + rv + Math.sin(t0) * rv, z, u + Math.cos(t1) * ru, -0.5 + rv + Math.sin(t1) * rv, z);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  outlineCache.set(key, g);
+  return g;
+}
 function parseObjects(text) {
   const out = [];
   let header = null;
@@ -661,7 +695,9 @@ function parseObjects(text) {
     else if (type === 'sphere') dims = { r: mm('diameter_mm') / 2 };
     else if (type === 'cylinder' || type === 'cone') dims = { r: mm('diameter_mm') / 2, h: mm('height_mm') };
     if (!row.name || !dims || Object.values(dims).some(v => !(v > 0))) { console.warn('objects.csv: skipped line', line); continue; }
-    out.push({ label: row.name, type, dims, note: row.note || '' });
+    const item = { label: row.name, type, dims, note: row.note || '' };
+    if (type === 'box' && row.outline) item.outline = parseOutline(row.outline, row.wheels, row.inner, dims.x * 1000, dims.y * 1000, dims.z * 1000);
+    out.push(item);
   }
   return out;
 }
@@ -740,7 +776,7 @@ function openPalette(c) {
 }
 function spawnFromPalette(c, it, point) {
   labelCounts[it.label] = (labelCounts[it.label] || 0) + 1;
-  const s = makeShape(it.type, it.dims, point.clone(), null, `${it.label} ${labelCounts[it.label]}`);
+  const s = makeShape(it.type, it.dims, point.clone(), null, `${it.label} ${labelCounts[it.label]}`, it.outline);
   pushHistory({ undo: () => removeShape(s) });
   select(s); startFree(c, s, false); haptic(c, 0.5, 40);
   setStatus(`Placing ${s.name}`);
@@ -1173,7 +1209,7 @@ checkSupport();
 function sceneData() {
   return {
     app: 'Framespace', build: BUILD, savedAt: new Date().toISOString(), units: state.units,
-    shapes: state.shapes.map(s => ({ name: s.name, type: s.type, dims: s.dims, volume_m3: volumeOf(s), position: s.group.position.toArray(), quaternion: s.group.quaternion.toArray() })),
+    shapes: state.shapes.map(s => ({ name: s.name, type: s.type, dims: s.dims, volume_m3: volumeOf(s), position: s.group.position.toArray(), quaternion: s.group.quaternion.toArray(), ...(s.outline ? { outline: s.outline } : {}) })),
     measurements: state.measures.map(m => {
       const base = { name: m.name, type: m.type, points: m.points.map(p => p.toArray()) };
       if (m.type === 'line') { const d = m.points[1].clone().sub(m.points[0]); return { ...base, distance_m: d.length(), vertical_m: Math.abs(d.y), horizontal_m: Math.hypot(d.x, d.z) }; }
@@ -1275,7 +1311,7 @@ document.getElementById('restore').onclick = () => {
   if (!data) return;
   if (state.shapes.length || state.measures.length) return;   // only restore into an empty scene
   state.units = data.units || 'metric';
-  for (const s of data.shapes) makeShape(s.type, s.dims, new V3().fromArray(s.position), new THREE.Quaternion().fromArray(s.quaternion), s.name);
+  for (const s of data.shapes) makeShape(s.type, s.dims, new V3().fromArray(s.position), new THREE.Quaternion().fromArray(s.quaternion), s.name, s.outline);
   for (const m of data.measurements) createMeasure(m.type, m.points.map(p => new V3().fromArray(p)), m.name);
   state.counters.m = state.measures.length;
   lastRoom = data.room || [];

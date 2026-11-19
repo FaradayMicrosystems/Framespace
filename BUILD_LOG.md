@@ -43,3 +43,9 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Added 25 objects (AU / EUR / US pallets, IBC, 205 L drum, racking bay, forklift, door, car park bay, car, ute, person and more), Australian standards where they exist.
 - Moved the whole palette into one shared `objects.csv` (sizes in mm) read by both the web and native apps. Why: one spreadsheet-style edit updates both builds, no code changes.
 - Placed objects are named after what they are ("AU pallet 2"), so exports are readable.
+
+## 2026-11-19 (Brisbane): Farizon V7E wireframes
+
+- Aurora asked for a wireframe Farizon V7E, then a second one showing the internal load area with no barn or sliding doors, both as the whole van on its wheels.
+- Dimensions from AU spec listings (CarsGuide, CarExpert; overhangs from VanReviewer): 4995 L x 1820 W x 1985 H, wheelbase 3200, 195/65 R16 tyres (660 mm), load area 2865 x 1690 x 1435 on a 510 mm floor.
+- Added optional `outline`, `wheels` and `inner` columns to `objects.csv`. Why: any vehicle or odd-shaped object can be drawn from the spreadsheet, while measuring and scaling stay box-simple.
