@@ -3,3 +3,4 @@ addons/godotopenxrvendors/
 android/
 build/
 *.import
+objects.txt

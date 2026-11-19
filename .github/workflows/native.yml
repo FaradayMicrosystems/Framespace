@@ -6,9 +6,9 @@ name: Native Quest APK
 on:
   push:
     branches: [main]
-    paths: ['native/**', '.github/workflows/native.yml']
+    paths: ['native/**', 'objects.csv', '.github/workflows/native.yml']
   pull_request:
-    paths: ['native/**', '.github/workflows/native.yml']
+    paths: ['native/**', 'objects.csv', '.github/workflows/native.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -65,6 +65,9 @@ jobs:
           export/android/java_sdk_path = "$JAVA_HOME"
           EOF
           done
+
+      - name: Copy object palette (objects.csv is shared with the web build)
+        run: cp objects.csv native/objects.txt
 
       - name: Import project
         run: ~/godot-cache/godot --headless --path native --import 2>&1 | tee import.log; true

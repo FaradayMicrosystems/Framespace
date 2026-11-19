@@ -1,0 +1,41 @@
+# Framespace object palette (hold X). Edit this file to add, remove or resize objects; no code changes needed.
+# One object per line, shown in this order. Sizes in millimetres. Lines starting with # are ignored. Do not use commas inside a value.
+# shape = box (fill length, width, height) | cylinder or cone (fill diameter, height) | sphere (fill diameter)
+name,shape,length_mm,width_mm,height_mm,diameter_mm,note
+Cube,box,100,100,100,,
+Box,box,300,300,300,,
+Crate,box,600,400,400,,
+Sphere,sphere,,,,300,
+Cylinder,cylinder,,,300,240,
+Cone,cone,,,300,240,
+Panel,box,1000,20,600,,
+Rod,cylinder,,,1000,30,
+Plank,box,1200,300,30,,
+20ft container,box,5898,2352,2393,,ISO dry-van interior (typical)
+40ft container,box,12032,2352,2393,,ISO dry-van interior (typical)
+40ft high cube,box,12032,2352,2698,,ISO dry-van interior (typical)
+AU pallet,box,1165,1165,150,,Australian standard (CHEP blue) pallet
+AU pallet loaded,box,1165,1165,1400,,AU pallet with load; 1.4 m total is a common warehouse limit
+EUR pallet,box,1200,800,144,,EUR / EPAL pallet
+US pallet 48x40,box,1219,1016,140,,GMA 48 x 40 in pallet
+IBC 1000 L,box,1200,1000,1160,,Intermediate bulk container tote
+Drum 205 L,cylinder,,,880,584,44-gallon steel drum
+Rack bay,box,2840,840,4800,,Selective pallet racking bay: 2 AU pallets per level; height varies
+Forklift 2.5 t,box,3600,1150,2150,,Counterbalance forklift incl. forks and overhead guard (typical)
+Pallet jack,box,1550,690,1200,,Hand pallet jack incl. handle
+Workbench,box,1800,750,900,,
+Wheelie bin 240 L,box,740,580,1060,,AU council bin
+1 m3 cube,box,1000,1000,1000,,Volume reference
+Brick,box,230,110,76,,Australian standard brick
+Door,box,820,35,2040,,AU standard door leaf 2040 x 820
+Garage door,box,2400,50,2100,,Single roller door opening
+Car park bay,box,5400,2400,10,,AS 2890.1 class 1A space
+Wheelchair turn,box,2070,1540,10,,AS 1428.1 180 degree turning space
+Office desk,box,1600,800,720,,
+Fridge,box,700,720,1800,,
+Queen bed,box,2030,1530,550,,AU queen mattress on base
+3-seat sofa,box,2100,900,850,,
+Washing machine,box,600,600,850,,
+Person 1.75 m,cylinder,,,1750,500,Average adult height and shoulder envelope
+Car (sedan),box,4600,1800,1450,,Medium sedan (Corolla / Mazda3 class)
+Dual-cab ute,box,5330,1855,1815,,HiLux / Ranger class

@@ -25,21 +25,61 @@ const DEFAULT_DIMS := {"box": {"x": 0.3, "y": 0.3, "z": 0.3}, "sphere": {"r": 0.
 const C_YELLOW := Color("ffe14d")
 const C_CYAN := Color("00e5ff")
 
-# Hold X palette. Containers: typical ISO dry-van interior dimensions (L x H x W).
-const PALETTE := [
+# Hold X palette. Loaded at startup from res://objects.txt, which CI copies from the repo's objects.csv
+# (one object per line, sizes in mm). Edit objects.csv, not this file. Fallback below if the file is missing.
+const PALETTE_FALLBACK := [
 	{"label": "Cube", "type": "box", "dims": {"x": 0.1, "y": 0.1, "z": 0.1}},
-	{"label": "Box", "type": "box", "dims": {"x": 0.3, "y": 0.3, "z": 0.3}},
-	{"label": "Crate", "type": "box", "dims": {"x": 0.6, "y": 0.4, "z": 0.4}},
 	{"label": "Sphere", "type": "sphere", "dims": {"r": 0.15}},
 	{"label": "Cylinder", "type": "cylinder", "dims": {"r": 0.12, "h": 0.3}},
 	{"label": "Cone", "type": "cone", "dims": {"r": 0.12, "h": 0.3}},
-	{"label": "Panel", "type": "box", "dims": {"x": 1.0, "y": 0.6, "z": 0.02}},
-	{"label": "Rod", "type": "cylinder", "dims": {"r": 0.015, "h": 1.0}},
-	{"label": "Plank", "type": "box", "dims": {"x": 1.2, "y": 0.03, "z": 0.3}},
-	{"label": "20ft container", "type": "box", "dims": {"x": 5.898, "y": 2.393, "z": 2.352}},
-	{"label": "40ft container", "type": "box", "dims": {"x": 12.032, "y": 2.393, "z": 2.352}},
-	{"label": "40ft high cube", "type": "box", "dims": {"x": 12.032, "y": 2.698, "z": 2.352}},
 ]
+var PALETTE: Array = []
+var label_counts := {}
+
+
+static func parse_objects(text: String) -> Array:
+	var out := []
+	var header := PackedStringArray()
+	for raw: String in text.split("\n"):
+		var line := raw.strip_edges()
+		if line == "" or line.begins_with("#"):
+			continue
+		var cells := line.split(",")
+		for i in cells.size():
+			cells[i] = cells[i].strip_edges()
+		if header.is_empty():
+			for c in cells:
+				header.append(c.to_lower())
+			continue
+		var row := {}
+		for i in header.size():
+			row[header[i]] = cells[i] if i < cells.size() else ""
+		var mm := func(k: String) -> float: return String(row.get(k, "")).to_float() / 1000.0
+		var type := String(row.get("shape", "")).to_lower()
+		var dims := {}
+		if type == "box":
+			dims = {"x": mm.call("length_mm"), "y": mm.call("height_mm"), "z": mm.call("width_mm")}
+		elif type == "sphere":
+			dims = {"r": mm.call("diameter_mm") / 2.0}
+		elif type == "cylinder" or type == "cone":
+			dims = {"r": mm.call("diameter_mm") / 2.0, "h": mm.call("height_mm")}
+		var ok: bool = String(row.get("name", "")) != "" and not dims.is_empty()
+		for v in dims.values():
+			if not (v > 0.0):
+				ok = false
+		if not ok:
+			push_warning("objects.csv: skipped line " + line)
+			continue
+		out.append({"label": row.name, "type": type, "dims": dims, "note": row.get("note", "")})
+	return out
+
+
+func load_palette() -> void:
+	var f := FileAccess.open("res://objects.txt", FileAccess.READ)
+	PALETTE = parse_objects(f.get_as_text()) if f else []
+	if PALETTE.is_empty():
+		push_warning("objects.txt missing or empty, using built-in shapes")
+		PALETTE = PALETTE_FALLBACK.duplicate(true)
 
 # Stick-click main menu, page "main". Rows of 4.
 const MENU_MAIN := [
@@ -157,6 +197,7 @@ var mat_handle := {}
 func _ready() -> void:
 	name = "Main"
 	selftest = OS.get_cmdline_user_args().has("--selftest")
+	load_palette()
 	_build_assets()
 	_build_world()
 	_init_xr()
@@ -1214,7 +1255,7 @@ func open_palette(c: Ctrl) -> void:
 	for i in PALETTE.size():
 		var p: Dictionary = PALETTE[i]
 		items.append({"id": "p%d" % i, "label": p.label, "sub": short_dims(p.type, p.dims), "color": COLORS[p.type], "index": i})
-	palette.build("Shapes", [], items, 3, 0.085)
+	palette.build("Objects", [], items, 6, 0.07)
 	var head := camera.global_position
 	var pos := c.node.global_position
 	var away := pos - head
@@ -1229,7 +1270,8 @@ func spawn_from_palette(c: Ctrl, id: String, point_w: Vector3) -> void:
 	if it == null:
 		return
 	var p: Dictionary = PALETTE[it.index]
-	var s := make_shape(p.type, p.dims, content.to_local(point_w))
+	label_counts[p.label] = int(label_counts.get(p.label, 0)) + 1
+	var s := make_shape(p.type, p.dims, content.to_local(point_w), Quaternion.IDENTITY, "%s %d" % [p.label, label_counts[p.label]])
 	push_history(func(): remove_shape(s))
 	select(s)
 	start_free(c, s, false)

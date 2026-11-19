@@ -35,7 +35,7 @@ Uninstalling the app deletes its saved rooms.
 | Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
 | Hold **A** on a shape | Cut / Copy / Delete / Duplicate |
 | Hold **A** on empty space | Paste / Next clip |
-| Hold **X** | Shape palette, including 20ft, 40ft and 40ft high-cube container interiors |
+| Hold **X** | Object palette from [`objects.csv`](../objects.csv) (shared with the web app): pallets, containers, IBC, forklift, door, car, person and more |
 | Yellow / orange cubes on a selected shape | Drag with trigger to resize one side / the radius |
 
 The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete), export and quit.
