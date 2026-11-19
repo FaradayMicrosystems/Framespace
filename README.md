@@ -18,7 +18,7 @@ Measure, design and wireframe real spaces on **Meta Quest 3**, right in the brow
 | Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
 | Hold **A** on a shape | Cut / Copy / Delete / Duplicate |
 | Hold **A** on empty space | Paste / Next clip |
-| Hold **X** | Shape palette: point at one with the other controller, trigger or grip, drop it in |
+| Hold **X** | Object palette (37 true-scale objects: pallets, IBC, drum, racking, forklift, door, car, person...): point at one with the other controller, trigger or grip, drop it in |
 | **Y** | Show / hide the tools menu (tape, circle 3-pt, units, grid, undo, room, export) |
 | Yellow / orange cubes on a selected shape | Drag with trigger to resize one side / the radius |
 
@@ -33,13 +33,25 @@ The grid (5 cm default; 1 cm, 10 cm or off in the tools menu) is aligned to the 
 - **Room wireframe:** walls, floor and tables from Space Setup, labelled with size and area.
 - **Export:** CSV, JSON and GLB (3D).
 
+## Editing the object palette
+
+Everything in the Hold-X palette comes from one file: [`objects.csv`](objects.csv). Both the web app and the native Quest app read it, so one edit updates both.
+
+- **Add an object:** add a line. **Remove:** delete the line. **Reorder:** move lines (the palette shows them in file order).
+- Sizes are in **millimetres**. `shape` is `box` (fill length, width, height), `cylinder` or `cone` (fill diameter, height) or `sphere` (fill diameter).
+- Do not put commas inside a value. Lines starting with `#` are ignored. A line with a missing size is skipped.
+- Opens fine in Excel or Google Sheets; save as CSV.
+- Edit it on GitHub (pencil icon) and commit to `main`: the web app updates in about a minute, the native APK rebuilds in about 10 minutes.
+
+Example: `Shopping trolley,box,950,560,1000,,Typical supermarket trolley`
+
 ## Develop
 
 No build step. Edit `index.html` / `app.js`, push to `main`, and GitHub Pages redeploys in about a minute.
 
 ```bash
 npm install && npx playwright install chromium
-npm test          # runs the app in an emulated Quest 3 (Meta IWER) and checks 27 behaviours
+npm test          # runs the app in an emulated Quest 3 (Meta IWER) and checks 29 behaviours
 ```
 
 Desktop try-out: open the page with `?emulate` to load the Quest 3 emulator.

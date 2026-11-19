@@ -2,7 +2,7 @@
 const { chromium } = require('playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const ROOT = process.argv[2] || path.join(__dirname, '..');
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.csv': 'text/csv' };
 const server = http.createServer((req, res) => {
   const p = path.join(ROOT, decodeURIComponent(req.url.split('?')[0]).replace(/\/$/, '/index.html'));
   fs.readFile(p, (e, b) => { if (e) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'content-type': types[path.extname(p)] || 'application/octet-stream' }); res.end(b); });
@@ -134,6 +134,10 @@ fs.mkdirSync(path.join(__dirname, '..', 'test-results'), { recursive: true });
   const crate = s.shapes[s.shapes.length - 1];
   check('Palette shape is grabbed, carried and dropped on the floor', s.shapes.length === 2 && near(crate.dims.x, 0.6) && near(crate.pos[1], 0.2, 0.003), `${crate.name} at ${crate.pos.map(v => v.toFixed(2))}`);
   check('Releasing X closes the palette', !(await page.evaluate(() => window.__framespace.palette.open)));
+  const pal = await page.evaluate(() => window.__framespace.PALETTE.map(p => [p.label, p.dims]));
+  const pallet = pal.find(p => p[0] === 'AU pallet');
+  check('Palette loads objects.csv (37 objects incl. AU pallet 1165 mm)', pal.length === 37 && pallet && near(pallet[1].x, 1.165) && near(pallet[1].z, 1.165), `${pal.length} objects`);
+  check('Palette shape is named after its object', crate.name === 'Crate 1', crate.name);
 
   // 7. Hold A on a shape: context menu → Copy. Hold A on empty floor → Paste.
   await resetBox(); await wait();

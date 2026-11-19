@@ -45,6 +45,9 @@ func run(m) -> void:
 	check("Palette has 20ft / 40ft / 40ft HC containers", labels.has("20ft container") and labels.has("40ft container") and labels.has("40ft high cube"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container interior volume ~33.2 m3", absf(main.volume_of("box", c20.dims) - 33.2) < 0.1, str(main.volume_of("box", c20.dims)))
+	check("Palette loaded from objects.csv (37 objects)", main.PALETTE.size() == 37, str(main.PALETTE.size()))
+	var pallet = main.PALETTE[labels.find("AU pallet")] if labels.has("AU pallet") else null
+	check("AU pallet is 1165 x 1165 mm", pallet != null and is_equal_approx(pallet.dims.x, 1.165) and is_equal_approx(pallet.dims.z, 1.165), str(pallet))
 
 	# Stick scale / rotate on a held shape (move drag, no headset: fake the drag dict).
 	var c = main.ctrls[1]

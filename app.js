@@ -638,21 +638,38 @@ function showGridPatch(x, y, z) {
 }
 
 // ---------------------------------------------------------------- popups: shape palette (hold X) and context menu (hold A)
+// The palette is loaded from objects.csv (one object per line, sizes in mm) so it can be edited without code changes.
+// Fallback below is used only if the file can't be fetched.
 const PALETTE = [
   { label: 'Cube', type: 'box', dims: { x: 0.1, y: 0.1, z: 0.1 } },
-  { label: 'Box', type: 'box', dims: { x: 0.3, y: 0.3, z: 0.3 } },
-  { label: 'Crate', type: 'box', dims: { x: 0.6, y: 0.4, z: 0.4 } },
   { label: 'Sphere', type: 'sphere', dims: { r: 0.15 } },
   { label: 'Cylinder', type: 'cylinder', dims: { r: 0.12, h: 0.3 } },
   { label: 'Cone', type: 'cone', dims: { r: 0.12, h: 0.3 } },
-  { label: 'Panel', type: 'box', dims: { x: 1.0, y: 0.6, z: 0.02 } },
-  { label: 'Rod', type: 'cylinder', dims: { r: 0.015, h: 1.0 } },
-  { label: 'Plank', type: 'box', dims: { x: 1.2, y: 0.03, z: 0.3 } },
-  // ISO dry-van container interiors (typical figures, e.g. Maersk / Hapag-Lloyd spec sheets): L x H x W.
-  { label: '20ft container', type: 'box', dims: { x: 5.898, y: 2.393, z: 2.352 } },
-  { label: '40ft container', type: 'box', dims: { x: 12.032, y: 2.393, z: 2.352 } },
-  { label: '40ft high cube', type: 'box', dims: { x: 12.032, y: 2.698, z: 2.352 } },
 ];
+function parseObjects(text) {
+  const out = [];
+  let header = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const cells = line.split(',').map(c => c.trim());
+    if (!header) { header = cells.map(c => c.toLowerCase()); continue; }
+    const row = Object.fromEntries(header.map((h, i) => [h, cells[i] || '']));
+    const mm = k => parseFloat(row[k]) / 1000, type = (row.shape || '').toLowerCase();
+    let dims = null;
+    if (type === 'box') dims = { x: mm('length_mm'), y: mm('height_mm'), z: mm('width_mm') };
+    else if (type === 'sphere') dims = { r: mm('diameter_mm') / 2 };
+    else if (type === 'cylinder' || type === 'cone') dims = { r: mm('diameter_mm') / 2, h: mm('height_mm') };
+    if (!row.name || !dims || Object.values(dims).some(v => !(v > 0))) { console.warn('objects.csv: skipped line', line); continue; }
+    out.push({ label: row.name, type, dims, note: row.note || '' });
+  }
+  return out;
+}
+fetch('objects.csv', { cache: 'no-cache' }).then(r => r.ok ? r.text() : Promise.reject(r.status)).then(t => {
+  const list = parseObjects(t);
+  if (list.length) PALETTE.splice(0, PALETTE.length, ...list);
+}).catch(e => console.warn('objects.csv not loaded, using built-in shapes', e));
+const labelCounts = {};
 function shortDims(type, d) {
   const metric = state.units === 'metric', k = metric ? 100 : 1 / 0.0254, unit = metric ? 'cm' : 'in';
   const n = v => +(v * k).toFixed(metric ? 0 : 1);
@@ -668,7 +685,7 @@ function makePopup(tileW) {
   mesh.renderOrder = 35; mesh.visible = false; scene.add(mesh);
   return { canvas, tex, mesh, items: [], cols: 3, title: '', hover: null, open: false, tileW, target: null, point: null };
 }
-const palette = makePopup(0.085), ctxMenu = makePopup(0.09);
+const palette = makePopup(0.07), ctxMenu = makePopup(0.09);
 function layoutPopup(p, title, items, cols) {
   p.title = title; p.items = items; p.cols = cols; p.hover = null;
   const w = cols * TILE + 20, h = PHEAD + Math.ceil(items.length / cols) * TILE_H + 10;
@@ -712,7 +729,7 @@ function closePopup(p) { p.mesh.visible = false; p.open = false; p.hover = null;
 
 function openPalette(c) {
   const items = PALETTE.map((p, i) => ({ ...p, id: 'p' + i, sub: shortDims(p.type, p.dims), color: '#' + COLORS[p.type].toString(16).padStart(6, '0') }));
-  layoutPopup(palette, 'Shapes', items, 3);
+  layoutPopup(palette, 'Objects', items, 6);
   c.updateMatrixWorld(true);
   const head = camera.getWorldPosition(new V3()), pos = new V3().setFromMatrixPosition(c.matrixWorld);
   const away = pos.clone().sub(head).setY(0);
@@ -722,7 +739,8 @@ function openPalette(c) {
   haptic(c, 0.3, 20);
 }
 function spawnFromPalette(c, it, point) {
-  const s = makeShape(it.type, it.dims, point.clone());
+  labelCounts[it.label] = (labelCounts[it.label] || 0) + 1;
+  const s = makeShape(it.type, it.dims, point.clone(), null, `${it.label} ${labelCounts[it.label]}`);
   pushHistory({ undo: () => removeShape(s) });
   select(s); startFree(c, s, false); haptic(c, 0.5, 40);
   setStatus(`Placing ${s.name}`);

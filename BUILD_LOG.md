@@ -36,3 +36,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Stack: Godot 4.6.2 + Meta's GodotOpenXRVendors 5.0.0. Why: free, and CI builds the APK with no licence. Unity CI needs a licence tied to her account.
 - The whole web app was ported to GDScript by Claude (`native/`), plus new features: rooms auto-saved and pinned to Meta spatial anchors, Space Setup surfaces for snapping, a stick-click menu attached to the hand, and 20ft/40ft container presets.
 - CI (`.github/workflows/native.yml`) runs a headless self-test, builds the APK, fails if the manifest lacks BOUNDARYLESS_APP or PASSTHROUGH, and publishes `native-latest`.
+
+## 2026-11-19 (Brisbane): 25 true-scale objects, editable palette
+
+- Aurora asked for a pallet, then ~25 common objects to scale for simple planning, and for the list to be easy to update.
+- Added 25 objects (AU / EUR / US pallets, IBC, 205 L drum, racking bay, forklift, door, car park bay, car, ute, person and more), Australian standards where they exist.
+- Moved the whole palette into one shared `objects.csv` (sizes in mm) read by both the web and native apps. Why: one spreadsheet-style edit updates both builds, no code changes.
+- Placed objects are named after what they are ("AU pallet 2"), so exports are readable.
