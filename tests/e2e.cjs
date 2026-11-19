@@ -136,7 +136,11 @@ fs.mkdirSync(path.join(__dirname, '..', 'test-results'), { recursive: true });
   check('Releasing X closes the palette', !(await page.evaluate(() => window.__framespace.palette.open)));
   const pal = await page.evaluate(() => window.__framespace.PALETTE.map(p => [p.label, p.dims]));
   const pallet = pal.find(p => p[0] === 'AU pallet');
-  check('Palette loads objects.csv (37 objects incl. AU pallet 1165 mm)', pal.length === 37 && pallet && near(pallet[1].x, 1.165) && near(pallet[1].z, 1.165), `${pal.length} objects`);
+  check('Palette loads objects.csv (39 objects incl. AU pallet 1165 mm)', pal.length === 39 && pallet && near(pallet[1].x, 1.165) && near(pallet[1].z, 1.165), `${pal.length} objects`);
+  const van = await page.evaluate(() => window.__framespace.PALETTE.find(p => p.label === 'Farizon V7E'));
+  check('Farizon V7E has a van outline and 2 wheels', van && van.outline.pts.length === 10 && van.outline.wheels.length === 2 && near(van.dims.x, 4.995));
+  const open = await page.evaluate(() => window.__framespace.PALETTE.find(p => p.label === 'Farizon V7E open cargo'));
+  check('V7E open cargo is the whole van with the internal load box', open && near(open.dims.y, 1.985) && open.outline.inner.length === 1 && open.outline.wheels.length === 2);
   check('Palette shape is named after its object', crate.name === 'Crate 1', crate.name);
 
   // 7. Hold A on a shape: context menu → Copy. Hold A on empty floor → Paste.
