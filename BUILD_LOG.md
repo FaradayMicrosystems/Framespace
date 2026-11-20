@@ -49,3 +49,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Aurora asked for a wireframe Farizon V7E, then a second one showing the internal load area with no barn or sliding doors, both as the whole van on its wheels.
 - Dimensions from AU spec listings (CarsGuide, CarExpert; overhangs from VanReviewer): 4995 L x 1820 W x 1985 H, wheelbase 3200, 195/65 R16 tyres (660 mm), load area 2865 x 1690 x 1435 on a 510 mm floor.
 - Added optional `outline`, `wheels` and `inner` columns to `objects.csv`. Why: any vehicle or odd-shaped object can be drawn from the spreadsheet, while measuring and scaling stay box-simple.
+
+## 2026-11-20 (Brisbane): rooms drop where you stand
+
+- Scope agreed: keep Framespace a home layout planner and make the proof of concept measurable before expanding it.
+- Aurora asked for rooms to load where the user is standing, so that standing on the same spot, facing the same way and recentering puts everything back in place.
+- Native app: a room's origin is now the floor under your head, facing the way you look. Loading a room places it there, and recentering (hold the Meta button) re-places it. **Rooms... > Place room here** does the same from the menu. Spatial anchors are still there as an option (**Rooms... > Placement**), so the two methods can be compared.
+- 12 new self-test checks (43 total), including "back on the same spot, facing the same way, everything lines up exactly".

@@ -233,6 +233,11 @@ var counters := {"box": 0, "sphere": 0, "cylinder": 0, "cone": 0, "m": 0}
 var last_ctrl: Ctrl = null
 
 var room := {}                 # {id, name, anchor, created}
+# How a room is put back in the real world when it loads:
+#   stand  = on the floor where you are standing, facing the way you look. Stand on your usual spot,
+#            face your usual way and recenter (hold the Meta button): the room snaps back into place.
+#   anchor = pinned to a Meta spatial anchor; reappears on its own, but only where the headset finds it.
+var placement := "stand"
 var anchor_node: Node3D = null
 var anchor_state := "none"     # none | creating | loading | tracked | failed
 var anchor_wait := 0.0
@@ -299,6 +304,8 @@ func _init_xr() -> void:
 			xr_interface.environment_blend_mode = XRInterface.XR_ENV_BLEND_MODE_ALPHA_BLEND
 		xr_interface.session_begun.connect(_on_session_begun)
 		xr_interface.session_stopping.connect(_on_session_stopping)
+		if xr_interface.has_signal("pose_recentered"):
+			xr_interface.pose_recentered.connect(_on_recentered)
 	else:
 		print("Framespace: OpenXR not running (desktop/CI mode).")
 
@@ -1113,6 +1120,9 @@ func menu_items() -> Array:
 		out.append({"id": "newroom", "label": "New room", "color": C_CYAN})
 		out.append({"id": "save", "label": "Save room"})
 		out.append({"id": "delroom", "label": "Delete this room", "color": Color("ff6b6b")})
+		out.append({"id": "placehere", "label": "Place room here", "sub": "where you stand, facing your way"})
+		out.append({"id": "placement", "label": "Placement: where I stand" if placement == "stand" else "Placement: anchor",
+			"sub": "recenter to line up" if placement == "stand" else "pinned to this spot"})
 		for r in list_rooms():
 			out.append({"id": "room:" + r.id, "label": r.name, "sub": "%d shapes · %s" % [r.count, r.updated], "active": r.id == room.get("id", "")})
 		return out
@@ -1125,7 +1135,7 @@ func menu_items() -> Array:
 func menu_header() -> Array:
 	var clip = clipboard[clip_index] if clipboard.size() else null
 	var mode_name: String = {"select": "Move/Size", "tape": "Tape", "circle": "Circle 3-pt"}[mode]
-	var anchor_txt: String = {"none": "not anchored", "creating": "anchoring...", "loading": "finding anchor...", "tracked": "anchored", "failed": "anchor not found"}[anchor_state]
+	var anchor_txt: String = "placed where you stood" if placement == "stand" else {"none": "not anchored", "creating": "anchoring...", "loading": "finding anchor...", "tracked": "anchored", "failed": "anchor not found"}[anchor_state]
 	return [
 		[status, Color.WHITE],
 		["Mode: %s   ·   %s (%s)" % [mode_name, room.get("name", "-"), anchor_txt], Color(0.6, 0.65, 0.7)],
@@ -1282,6 +1292,11 @@ func on_button(id: String, c: Ctrl = null) -> void:
 		"delroom":
 			delete_current_room()
 			menu_page = "main"
+		"placehere":
+			place_here()
+			set_status("%s placed where you stand, facing where you face." % room.get("name", "Room"))
+		"placement":
+			set_placement("anchor" if placement == "stand" else "stand")
 		"export":
 			export_all()
 		"quit":
@@ -1926,12 +1941,13 @@ func load_settings() -> void:
 		var d = JSON.parse_string(f.get_as_text())
 		if d is Dictionary:
 			room["id"] = d.get("current_room", "")
+			placement = "anchor" if d.get("placement", "stand") == "anchor" else "stand"
 
 
 func save_settings() -> void:
 	var f := FileAccess.open("user://settings.json", FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"current_room": room.get("id", "")}))
+		f.store_string(JSON.stringify({"current_room": room.get("id", ""), "placement": placement}))
 
 
 func list_rooms() -> Array:
@@ -1978,25 +1994,82 @@ func new_room() -> void:
 	var n := list_rooms().size() + 1
 	room = {"id": "room-%d-%d" % [int(Time.get_unix_time_from_system()), Time.get_ticks_usec() % 100000], "name": "Room %d" % n, "anchor": "", "created": _now_iso()}
 	anchor_node = null
-	content.transform = Transform3D.IDENTITY
-	_create_room_anchor()
+	anchor_state = "none"
+	# The room's origin is the spot you're standing on, facing the way you look. The grid lines up with it.
+	content.transform = stand_frame()
+	if placement == "anchor":
+		_create_room_anchor()
 	save_room_now()
-	set_status("New room: %s. Everything you add is saved to it." % room.name)
+	set_status("New room: %s, starting where you stand. Everything you add is saved to it." % room.name)
+
+
+## Where you are standing: the floor under your head, turned to face the way you look (yaw only).
+## In tracking space (origin-local), which is what `content.transform` is in.
+func stand_frame() -> Transform3D:
+	var t := camera.transform
+	var fwd := -t.basis.z
+	fwd.y = 0
+	if fwd.length() < 0.2:
+		# Looking almost straight up or down: the top of the headset points the way you face (or away, looking up).
+		fwd = t.basis.y * (1.0 if t.basis.z.y > 0 else -1.0)
+		fwd.y = 0
+	var yaw := yaw_of_dir(fwd) if fwd.length() > 0.001 else 0.0
+	return Transform3D(Basis(Vector3.UP, yaw), Vector3(t.origin.x, 0, t.origin.z))
+
+
+## Move the whole room so its origin is where you are standing now, facing the way you look.
+func place_here() -> void:
+	content.transform = stand_frame()
+	content.visible = true
+	if placement == "anchor":
+		_repin_anchor()
+
+
+func _on_recentered() -> void:
+	if placement != "stand":
+		return   # an anchored room keeps its real-world spot by itself
+	# Let the new head pose arrive before reading it.
+	await get_tree().create_timer(0.3).timeout
+	place_here()
+	set_status("Recentered: %s is placed where you stand, facing where you face." % room.get("name", "room"))
+
+
+func set_placement(p: String) -> void:
+	placement = p
+	if p == "stand":
+		# Keep everything exactly where it is now; just stop following the anchor.
+		anchor_node = null
+		anchor_state = "none"
+		content.visible = true
+		set_status("Placement: where you stand. To line a room up, stand on your spot, face your way and recenter.")
+	else:
+		_repin_anchor()
+		set_status("Placement: spatial anchor. The room is pinned to this spot and reappears here on its own.")
+	save_settings()
+
+
+## Drop the room's old anchor (if any) and pin it to a new one where it is now.
+func _repin_anchor() -> void:
+	var uuid: String = room.get("anchor", "")
+	if uuid != "" and anchor_mgr != null and xr_active:
+		anchor_mgr.call("untrack_anchor", StringName(uuid))
+	room.anchor = ""
+	anchor_node = null
+	_create_room_anchor()
 
 
 func _create_room_anchor() -> void:
 	if anchor_mgr == null or not xr_active:
 		anchor_state = "none"
 		return
-	# Anchor on the floor under your head, square to the tracking space (= recenter heading),
-	# so the grid lines up with the way you faced when you last recentered.
-	var head := camera.global_position
-	var t := Transform3D(origin.global_basis, Vector3(head.x, origin.global_position.y, head.z))
+	# Anchor at the room's current origin (on the floor where you stood), so nothing moves when it's created.
 	anchor_state = "creating"
-	anchor_mgr.call("create_anchor", t, {"room": room.id})
+	anchor_mgr.call("create_anchor", content.global_transform, {"room": room.id})
 
 
 func _on_anchor_tracked(node: Node3D, entity: Object, is_new: bool) -> void:
+	if placement != "anchor":
+		return
 	var data: Dictionary = entity.get("custom_data")
 	var uuid := String(entity.get("uuid"))
 	if data.get("room", "") != room.get("id", "") and uuid != room.get("anchor", ""):
@@ -2019,8 +2092,9 @@ func _on_anchor_create_failed(_t, _data) -> void:
 
 func _on_anchor_load_failed(_uuid, _data, _loc) -> void:
 	anchor_state = "failed"
+	content.transform = stand_frame()
 	content.visible = true
-	set_status("Couldn't find this room's anchor (different place, or Space was cleared). Showing it relative to you.")
+	set_status("Couldn't find this room's anchor (different place, or Space was cleared). Placed where you stand.")
 
 
 func _follow_anchor(delta: float) -> void:
@@ -2150,9 +2224,13 @@ func load_room(id: String) -> void:
 		clipboard.append({"type": it.type, "dims": it.dims, "name": it.name, "rot": _q(it.quaternion), "outline": it.get("outline", {})})
 	clip_index = 0
 	anchor_node = null
-	content.transform = Transform3D.IDENTITY
+	anchor_state = "none"
+	content.transform = stand_frame()
+	content.visible = true
 	var uuid: String = room.anchor
-	if uuid != "" and anchor_mgr != null and xr_active:
+	if placement == "stand":
+		pass   # placed where you stand; recentering lines it up exactly
+	elif uuid != "" and anchor_mgr != null and xr_active:
 		var existing = anchor_mgr.call("get_anchor_node", StringName(uuid))
 		if existing:
 			anchor_node = existing
@@ -2164,10 +2242,11 @@ func load_room(id: String) -> void:
 			anchor_mgr.call("load_anchor", StringName(uuid), {"room": room.id})
 	elif uuid == "" and anchor_mgr != null and xr_active:
 		_create_room_anchor()
-	else:
-		anchor_state = "none"
 	save_settings()
-	set_status("Loaded %s (%d shapes, %d measurements)." % [room.name, shapes.size(), measures.size()])
+	if placement == "stand":
+		set_status("Loaded %s (%d shapes, %d measurements) where you stand. On your usual spot? Face your usual way and recenter." % [room.name, shapes.size(), measures.size()])
+	else:
+		set_status("Loaded %s (%d shapes, %d measurements)." % [room.name, shapes.size(), measures.size()])
 
 
 func delete_current_room() -> void:

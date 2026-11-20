@@ -120,6 +120,40 @@ func run(m) -> void:
 	check("...and its measurements", main.measures.size() == 2)
 	check("Rooms list has 2 rooms", main.list_rooms().size() == 2)
 
+	# Placement: rooms drop where you stand, facing the way you look; recentering re-places them.
+	check("Placement defaults to 'where I stand'", main.placement == "stand", main.placement)
+	var cam0: Transform3D = main.camera.transform
+	main.camera.transform = Transform3D(Basis(Vector3.UP, PI / 2), Vector3(2, 1.6, -1))
+	var sf: Transform3D = main.stand_frame()
+	check("Stand frame is on the floor under your head", sf.origin.is_equal_approx(Vector3(2, 0, -1)), str(sf.origin))
+	check("Stand frame faces the way you look", absf(main.yaw_of_quat(sf.basis.get_rotation_quaternion()) - PI / 2) < 0.001)
+	main.camera.transform = Transform3D(Basis(Vector3.UP, PI / 2) * Basis(Vector3.RIGHT, -PI / 2 + 0.01), Vector3(2, 1.6, -1))
+	check("Looking straight down still keeps your heading", absf(main.yaw_of_quat(main.stand_frame().basis.get_rotation_quaternion()) - PI / 2) < 0.01)
+	main.camera.transform = Transform3D(Basis(Vector3.UP, PI / 2), Vector3(2, 1.6, -1))
+	var s0 = main.shapes[0]
+	var local0: Vector3 = s0.node.position
+	main.place_here()
+	check("Place here moves the room to where you stand", s0.node.global_position.is_equal_approx(sf * local0), "%s vs %s" % [s0.node.global_position, sf * local0])
+	check("...without changing its saved layout", s0.node.position.is_equal_approx(local0))
+	main.camera.transform = Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-3, 1.6, 4))
+	main.save_room_now()
+	main.load_room(main.room.id)
+	check("Loading a room drops it where you stand", main.content.transform.origin.is_equal_approx(Vector3(-3, 0, 4)) and absf(main.yaw_of_quat(main.content.quaternion) + PI / 2) < 0.001, str(main.content.transform))
+	main.camera.transform = cam0
+	main.place_here()
+	check("Back at the spot you started, facing the same way, it lines up exactly", main.shapes[0].node.global_position.is_equal_approx(local0), str(main.shapes[0].node.global_position))
+	main.open_menu(main.ctrls[0], true)
+	main.on_button("rooms")
+	main.rebuild_menu()
+	check("Rooms page has Place here + Placement", main.menu.item("placehere") != null and main.menu.item("placement") != null)
+	main.on_button("placement")
+	var st := FileAccess.get_file_as_string("user://settings.json")
+	check("Placement switches to anchor and is remembered", main.placement == "anchor" and st.contains("\"anchor\""), st)
+	main.on_button("placement")
+	check("...and back to where I stand", main.placement == "stand")
+	main.on_button("back")
+	main.close_menu()
+
 	# Export.
 	var res: Dictionary = main.export_all()
 	check("CSV export written", FileAccess.file_exists(res.base + ".csv"), res.base)

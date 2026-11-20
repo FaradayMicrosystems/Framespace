@@ -38,20 +38,34 @@ Uninstalling the app deletes its saved rooms.
 | Hold **X** | Object palette from [`objects.csv`](../objects.csv) (shared with the web app): pallets, containers, IBC, forklift, door, car, person and more |
 | Yellow / orange cubes on a selected shape | Drag with trigger to resize one side / the radius |
 
-The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete), export and quit.
+The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here, placement), export and quit.
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
 
 ## Rooms
 
 - Everything you place is **auto-saved** to the current room about half a second after each change.
-- Each room is pinned to a **Meta spatial anchor** on the floor where you created it. When you load a room, it reappears in the same physical spot.
 - **Rooms...** in the menu lists your saved rooms. Pick one to load it. You can also start a **New room** or **Delete this room**.
-- If the headset can't find the anchor (another location, or you cleared Space Setup), the room still loads, placed relative to where you are standing.
+
+### Putting a room back in place (default: where you stand)
+
+A room is saved relative to **the spot you stood on and the way you faced** when you created it. It loads on the floor where you are standing, facing the way you look. To get it back exactly where it was:
+
+1. Pick a spot you can find again, such as a mark on the floor or the corner of a rug, and a direction to face, such as a wall or a door frame.
+2. Create the room standing there, facing that way.
+3. Next time, stand on the same spot, face the same way, and **hold the Meta button to recenter**. The room snaps back into place.
+
+Small errors in where you stand or which way you face carry straight into the room: 2 cm off on the floor is 2 cm off everywhere, and 1° off in heading is about 3.5 cm off at 2 m away. A floor mark and a clear target to face help most.
+
+**Rooms... > Place room here** does the same as recentering, without leaving the app.
+
+### Spatial anchor (optional)
+
+**Rooms... > Placement** switches to pinning the room to a **Meta spatial anchor** instead. The room then reappears on its own in the same physical spot, with no recentering, but only where this headset has mapped the space. If the anchor can't be found (another location, or Space Setup was cleared), the room loads where you stand. The choice is remembered.
 
 ## Boundary
 
 The app declares `com.oculus.feature.BOUNDARYLESS_APP` and requires passthrough, so the guardian boundary is off while it runs. The CI build fails if the manifest is missing either one.
-Grid snapping doesn't use the boundary. The grid follows the room anchor, which is square to the direction you faced when the room was created.
+Grid snapping doesn't use the boundary. The grid follows the room, which is square to the direction you faced when the room was created.
 
 Real limits:
 - Boundaryless only works in passthrough. If the system drops you into VR (a system dialog, for example), the boundary can come back until you return to the app.
