@@ -13,6 +13,7 @@ const BUILD := "0.3.0-native"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
+const SCALE_STEP := 1.1       # stick up / down: +10% / -10% (reversible)
 
 const LAYER_ROOM := 2
 const LAYER_SHAPE := 4
@@ -164,6 +165,7 @@ const MENU_MAIN := [
 	"duplicate", "drop", "delete", "undo",
 	"grid", "roomvis", "scan", "clear",
 	"save", "rooms", "export", "quit",
+	"turnl5", "turnl1", "turnr1", "turnr5",
 ]
 
 
@@ -238,6 +240,7 @@ var room := {}                 # {id, name, anchor, created}
 #            face your usual way and recenter (hold the Meta button): the room snaps back into place.
 #   anchor = pinned to a Meta spatial anchor; reappears on its own, but only where the headset finds it.
 var placement := "stand"
+var room_turn := 0.0           # degrees turned with Turn room since the room was last placed
 var anchor_node: Node3D = null
 var anchor_state := "none"     # none | creating | loading | tracked | failed
 var anchor_wait := 0.0
@@ -1102,6 +1105,10 @@ func button_text(id: String) -> String:
 		"rooms": return "Rooms..."
 		"export": return "Export"
 		"quit": return "Quit app"
+		"turnl5": return "Turn room 5° left"
+		"turnl1": return "Turn room 1° left"
+		"turnr1": return "Turn room 1° right"
+		"turnr5": return "Turn room 5° right"
 	return id
 
 
@@ -1302,6 +1309,10 @@ func on_button(id: String, c: Ctrl = null) -> void:
 		"quit":
 			save_room_now()
 			get_tree().quit()
+		"turnl5": turn_room(5.0)
+		"turnl1": turn_room(1.0)
+		"turnr1": turn_room(-1.0)
+		"turnr5": turn_room(-5.0)
 	menu_dirty = true
 
 
@@ -1633,7 +1644,7 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 	if up.call("trigger"):
 		c.press_shape = null
 	var t = c.drag.type if c.drag != null else ""
-	if (t == "handle" and up.call("trigger")) or (t == "scale" and up.call("grip")) or ((t == "move" or t == "free") and (up.call("trigger") or up.call("grip"))):
+	if (t == "handle" and up.call("trigger")) or ((t == "move" or t == "free") and (up.call("trigger") or up.call("grip"))):
 		on_drag_release(c)
 	if c.drag != null and (c.drag.type == "move" or c.drag.type == "free"):
 		if absf(b.sx) < 0.3:
@@ -1646,7 +1657,7 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 			haptic(c, 0.3, 0.02)
 		if not c.latch_y and absf(b.sy) > 0.7:
 			c.latch_y = true
-			scale_held(c, 1.05 if b.sy > 0 else 0.95)
+			scale_held(c, SCALE_STEP if b.sy > 0 else 1.0 / SCALE_STEP)
 			haptic(c, 0.3, 0.02)
 	else:
 		c.latch_x = true     # stick must return to centre after a grab starts
@@ -1673,11 +1684,6 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 		return
 	if ctx.is_open:
 		ctx.close()
-		return
-	if c.drag != null and c.drag.type == "scale":
-		var s: Shape = c.drag.shape
-		c.drag = null
-		start_move(c, s)
 		return
 	if c.handle_hit != null:
 		start_handle(c, c.handle_hit)
@@ -1713,10 +1719,8 @@ func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 	if s == null:
 		return
 	select(s)
-	if b.get("trigger", false):
-		start_move(c, s)
-	else:
-		start_scale(c, s)
+	# Grabbing only ever moves a shape. Size and rotation change only with the stick (snap steps).
+	start_move(c, s)
 	haptic(c)
 
 
@@ -1769,7 +1773,8 @@ func start_free(c: Ctrl, s: Shape, push_undo: bool) -> void:
 	if push_undo:
 		push_history(_snap_undo(s))
 	falling = falling.filter(func(f): return f.shape != s)
-	c.drag = {"type": "free", "shape": s, "rel": _ctrl_local_xform(c).affine_inverse() * s.node.transform}
+	# Position follows the controller; the shape keeps its rotation (only the stick turns it).
+	c.drag = {"type": "free", "shape": s, "off": _ctrl_local_xform(c).affine_inverse() * s.node.position, "rot": s.node.quaternion}
 	set_status("Carrying %s" % s.name)
 
 
@@ -1780,8 +1785,8 @@ func convert_to_free(c: Ctrl) -> void:
 
 func update_free(c: Ctrl, dr: Dictionary) -> void:
 	var s: Shape = dr.shape
-	var t: Transform3D = _ctrl_local_xform(c) * dr.rel
-	s.node.transform = t.orthonormalized()
+	s.node.position = _ctrl_local_xform(c) * dr.off
+	s.node.quaternion = dr.rot
 	refresh_shape(s)
 	show_grid_patch(s.node.position.x, support_below(s.node.position.x, s.node.position.z, s.node.position.y, s), s.node.position.z)
 
@@ -1794,7 +1799,7 @@ func rotate_held(c: Ctrl, ang: float) -> void:
 		s.node.quaternion = snap_yaw_quat(qy * s.node.quaternion)
 	else:
 		s.node.quaternion = qy * s.node.quaternion
-		dr.rel = _ctrl_local_xform(c).affine_inverse() * s.node.transform
+		dr.rot = s.node.quaternion
 	refresh_shape(s)
 	set_status("%s: rotated 45° %s" % [s.name, "clockwise" if ang < 0 else "counter-clockwise"])
 
@@ -1808,26 +1813,6 @@ func scale_held(c: Ctrl, f: float) -> void:
 	if dr.type == "move":
 		dr.base_y = bottom + half_height(s)
 		s.node.position.y = dr.base_y
-	refresh_shape(s)
-	set_status("%s: %s" % [s.name, dims_text(s)])
-
-
-# Grip alone on a shape: push the controller forward to grow, pull back to shrink (x2 per 20 cm).
-func start_scale(c: Ctrl, s: Shape) -> void:
-	push_history(_snap_undo(s))
-	var bottom := s.node.position.y - half_height(s)
-	var resting := absf(bottom - support_below(s.node.position.x, s.node.position.z, bottom + 0.02, s)) < 0.01
-	c.drag = {"type": "scale", "shape": s, "o0": c.o, "d0": c.d, "dims0": s.dims.duplicate(), "bottom": bottom, "resting": resting}
-	set_status("Scaling %s: push to grow, pull to shrink" % s.name)
-
-
-func update_scale(c: Ctrl, dr: Dictionary) -> void:
-	var ratio := clampf(pow(2.0, (c.o - dr.o0).dot(dr.d0) / 0.2), 0.05, 20.0)
-	var s: Shape = dr.shape
-	for k in s.dims.keys():
-		s.dims[k] = maxf(MIN_SIZE, roundf(dr.dims0[k] * ratio * 1000.0) / 1000.0)
-	if dr.resting:
-		s.node.position.y = dr.bottom + half_height(s)
 	refresh_shape(s)
 	set_status("%s: %s" % [s.name, dims_text(s)])
 
@@ -1908,7 +1893,6 @@ func _process(delta: float) -> void:
 			match dr.type:
 				"move": update_move(c, dr)
 				"free": update_free(c, dr)
-				"scale": update_scale(c, dr)
 				"handle": update_handle(c, dr)
 	update_hovers()
 	update_falling()
@@ -1997,6 +1981,7 @@ func new_room() -> void:
 	anchor_state = "none"
 	# The room's origin is the spot you're standing on, facing the way you look. The grid lines up with it.
 	content.transform = stand_frame()
+	room_turn = 0.0
 	if placement == "anchor":
 		_create_room_anchor()
 	save_room_now()
@@ -2020,9 +2005,24 @@ func stand_frame() -> Transform3D:
 ## Move the whole room so its origin is where you are standing now, facing the way you look.
 func place_here() -> void:
 	content.transform = stand_frame()
+	room_turn = 0.0
 	content.visible = true
 	if placement == "anchor":
 		_repin_anchor()
+
+
+## Turn the whole room (and its grid) around the spot you're standing on. Positive = left (counter-clockwise from above).
+## Only moves where the room sits in the real world; the saved layout doesn't change.
+func turn_room(deg: float) -> void:
+	var head := camera.transform.origin
+	var pivot := Vector3(head.x, content.transform.origin.y, head.z)
+	var r := Transform3D(Basis(Vector3.UP, deg_to_rad(deg)), Vector3.ZERO)
+	content.transform = Transform3D.IDENTITY.translated(pivot) * r * Transform3D.IDENTITY.translated(-pivot) * content.transform
+	content.transform = content.transform.orthonormalized()
+	room_turn += deg
+	if placement == "anchor":
+		_repin_anchor()
+	set_status("Room turned %d° %s (%+d° since placed)." % [absi(roundi(deg)), "left" if deg > 0 else "right", roundi(room_turn)])
 
 
 func _on_recentered() -> void:
@@ -2093,6 +2093,7 @@ func _on_anchor_create_failed(_t, _data) -> void:
 func _on_anchor_load_failed(_uuid, _data, _loc) -> void:
 	anchor_state = "failed"
 	content.transform = stand_frame()
+	room_turn = 0.0
 	content.visible = true
 	set_status("Couldn't find this room's anchor (different place, or Space was cleared). Placed where you stand.")
 
@@ -2226,6 +2227,7 @@ func load_room(id: String) -> void:
 	anchor_node = null
 	anchor_state = "none"
 	content.transform = stand_frame()
+	room_turn = 0.0
 	content.visible = true
 	var uuid: String = room.anchor
 	if placement == "stand":

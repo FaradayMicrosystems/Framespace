@@ -56,3 +56,9 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Aurora asked for rooms to load where the user is standing, so that standing on the same spot, facing the same way and recentering puts everything back in place.
 - Native app: a room's origin is now the floor under your head, facing the way you look. Loading a room places it there, and recentering (hold the Meta button) re-places it. **Rooms... > Place room here** does the same from the menu. Spatial anchors are still there as an option (**Rooms... > Placement**), so the two methods can be compared.
 - 12 new self-test checks (43 total), including "back on the same spot, facing the same way, everything lines up exactly".
+
+## 2026-11-20 (Brisbane): grabbing only moves, Turn room
+
+- Aurora asked that grabbing never changes a shape's size, that size and rotation only change with the stick's snap steps, in 10% steps, and for a fine way to square the room and grid after recentering.
+- Native app: grip alone now grabs and moves (no more push/pull scaling), and a free carry keeps the shape's rotation. Stick up / down is now ±10% (reversible), and rotation stays at 45° steps.
+- New main-menu buttons, **Turn room 5° / 1° left / right**, turn the whole room and grid around where you stand. 50 self-test checks.

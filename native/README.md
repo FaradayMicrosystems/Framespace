@@ -28,17 +28,18 @@ Uninstalling the app deletes its saved rooms.
 | **Click a thumbstick** | Main menu, attached to that hand. Point and trigger with the other hand. Click again to close it |
 | **Click both thumbsticks** | Main menu, fixed in front of you |
 | Point + **trigger** | Select a shape / press a button |
-| Point + **grip**, push or pull | Scale the shape (push = bigger, pull = smaller, x2 per 20 cm) |
-| **Grip + trigger** on a shape | Slide it along the floor, snapped to the grid |
-| **Grip + trigger + B** | Pick it up freely. Let go and it drops onto the floor, a table or another shape, squared to the grid |
-| Stick **up / down** while holding | Scale +5% / -5% |
+| Point + **grip** (or grip + trigger) on a shape | Slide it along the floor, snapped to the grid. Grabbing never changes its size |
+| **Grip + B** while holding | Pick it up freely. It follows your hand but keeps its rotation. Let go and it drops onto the floor, a table or another shape |
+| Stick **up / down** while holding | Scale +10% / -10% |
 | Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
 | Hold **A** on a shape | Cut / Copy / Delete / Duplicate |
 | Hold **A** on empty space | Paste / Next clip |
 | Hold **X** | Object palette from [`objects.csv`](../objects.csv) (shared with the web app): pallets, containers, IBC, forklift, door, car, person and more |
 | Yellow / orange cubes on a selected shape | Drag with trigger to resize one side / the radius |
 
-The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here, placement), export and quit.
+Size and rotation only change in steps, with the stick (or the yellow / orange resize cubes), never by moving your hand.
+
+The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here, placement), export, quit and **Turn room** (5° or 1°, left or right).
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
 
 ## Rooms
@@ -57,6 +58,8 @@ A room is saved relative to **the spot you stood on and the way you faced** when
 Small errors in where you stand or which way you face carry straight into the room: 2 cm off on the floor is 2 cm off everywhere, and 1° off in heading is about 3.5 cm off at 2 m away. A floor mark and a clear target to face help most.
 
 **Rooms... > Place room here** does the same as recentering, without leaving the app.
+
+If the room or its grid is still a little off square after recentering, use **Turn room 1° / 5° left / right** in the main menu. It turns the whole room and grid around the spot you're standing on. Your saved layout isn't changed.
 
 ### Spatial anchor (optional)
 
