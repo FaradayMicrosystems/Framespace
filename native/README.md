@@ -36,10 +36,12 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 | **Grip** on an object | Slide it on the grid, staying on its floor/surface |
 | Stick **left / right** while holding | Turn it smoothly (gentle near the centre, fast at full tilt) |
 | Stick **forward / back** while holding | Push it away / pull it in, continuously. Your hand does the fine positioning |
-| Yellow / orange cubes on a selected shape | Trigger-drag to resize one side / the radius (Rotate/Move only). Reset size undoes any resizing |
+| **Scale** tool | Trigger an object, then trigger-drag its yellow / orange cubes to resize one side / the radius. Reset size puts it back |
 | **Cut / Copy / Duplicate / Delete / Reset size / Drop / Pin** tool | Trigger on an object does that. Cut and Copy switch you to Paste |
 | **Paste** tool | Trigger where you want the clipboard item. Next clip cycles the clipboard |
 | **Reset size** | Back to the size it was created with (from the tray or objects.csv) |
+
+**Building blocks** at the top of the tray: bricks (1×1, 2×1, 4×1, 2×2 at 10 cm), big block, slabs, 1 m / 2 m beams, post, wall, peg, pillar, cap and ball, sized to stack on the 5 cm grid like Lego. Edit them in `objects.csv`.
 
 **Measuring tools** (sidebar, yellow): **Tape**, **Circle 3-pt** (radius/diameter), **Rect 3-pt** (two corners + the far edge: W × D, area, perimeter), **Height** (point to floor), **Angle 3-pt** (arm, corner, arm), **Path** (multi-leg total; tap the last point again to finish), **Area** (tap an outline, tap the first point to close: area + perimeter). Points snap to corners and existing points.
 

@@ -80,3 +80,4 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Tests: native self-test 81 checks (was 62), run locally with the same Godot build as CI before pushing.
 - Web app unchanged (Aurora is on the APK only).
 - Follow-up (same day, after first headset test): menus are stuck to the hands. Y/B tap = main menu (sidebar + tray), X/A = tool menu; hold Y/B = undo. "Move/Scale" became **Rotate/Move**: while holding, stick left/right turns smoothly and forward/back pushes/pulls continuously; hands do fine adjustment. Self-test 91 checks.
+- Then: wrist-twist rotation kept ("really nice"); resizing moved into its own **Scale** tool (rarely used); 15 Lego-style **building blocks** added to objects.csv (bricks, slabs, beams, post, wall, peg, pillar, cap, ball). Self-test 93 checks.

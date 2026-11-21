@@ -166,17 +166,17 @@ const MENU_MAIN := [
 	"tape", "circle", "rect", "height",
 	"angle", "path", "area", "grid",
 	"roomvis", "scan", "save", "rooms",
-	"export", "clear", "placehere", "quit",
+	"export", "clear", "scale", "quit",
 	"turnl5", "turnl1", "turnr1", "turnr5",
 ]
 # Press X or A: tool menu. The picked tool is what trigger does on an object.
-const TOOLS_MENU := ["select", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin", "nextclip"]
+const TOOLS_MENU := ["select", "scale", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin", "nextclip"]
 const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area"]
-const EDIT_TOOLS := ["cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin"]
+const EDIT_TOOLS := ["scale", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin"]
 const MODE_NAMES := {"select": "Rotate/Move", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
 	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
-	"reset": "Reset size", "drop": "Drop", "pin": "Pin/Unpin"}
+	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin"}
 const HOLD_UNDO := 0.5          # seconds holding B or Y
 const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
 const ROT_SPEED := 120.0        # degrees/s at full stick left/right while holding
@@ -766,8 +766,8 @@ func select(s: Shape) -> void:
 	if s:
 		s.wire_mat.albedo_color = Color.WHITE
 		s.fill_mat.albedo_color = Color(s.color, 0.14)
-		# Resize cubes only in Move/Scale mode, and never on a pinned shape.
-		for hd in ([] if s.pinned or mode != "select" else handle_defs(s.type)):
+		# Resize cubes only in the Scale tool, and never on a pinned shape.
+		for hd in ([] if s.pinned or mode != "scale" else handle_defs(s.type)):
 			var h := MeshInstance3D.new()
 			h.mesh = mesh_handle
 			h.material_override = mat_handle[hd.mode]
@@ -1220,6 +1220,7 @@ func button_text(id: String) -> String:
 		"area": return "Area"
 		"settings": return "Settings..."
 		"reset": return "Reset size"
+		"scale": return "Scale"
 		"pin": return "Pin / Unpin"
 		"select": return "Rotate/Move"
 		"units": return "Units: cm" if units == "metric" else "Units: in"
@@ -1522,7 +1523,7 @@ func spawn_object(i: int, c: Ctrl = null, point_w = null) -> Shape:
 func set_tool(t: String, announce := true) -> void:
 	mode = t
 	clear_pending()
-	select(selected if t == "select" else null)
+	select(selected if t in ["select", "scale"] else null)
 	menu_dirty = true
 	if not announce:
 		return
@@ -1531,7 +1532,8 @@ func set_tool(t: String, announce := true) -> void:
 		return
 	var clip = clipboard[clip_index] if clipboard.size() else null
 	set_status({
-		"select": "Rotate/Move: trigger picks up, grip slides. While holding: stick left/right turns, forward/back pushes/pulls. Yellow cubes resize.",
+		"select": "Rotate/Move: trigger picks up (twist your wrist to turn it), grip slides. While holding: stick left/right turns, forward/back pushes/pulls.",
+		"scale": "Scale: trigger an object to select it, then drag its yellow cubes.",
 		"cut": "Cut: trigger on an object.",
 		"copy": "Copy: trigger on an object.",
 		"paste": ("Paste: trigger where you want %s." % clip.name) if clip else "Paste: clipboard is empty. Cut or Copy something first.",
@@ -1601,6 +1603,8 @@ func apply_tool(c: Ctrl, s: Shape) -> void:
 			persist()
 		"reset":
 			reset_size(s)
+		"scale":
+			select(s)
 		"drop":
 			if refuse_pinned(c, s):
 				return
@@ -1884,17 +1888,24 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 		haptic(c, 0.4, 0.03)
 		paste_at(pp)
 		return
+	if mode == "scale":
+		if c.handle_hit != null and not b.get("grip", false) and not _anyone_carrying():
+			start_handle(c, c.handle_hit)
+			haptic(c)
+		elif c.shape_hit != null:
+			select(c.shape_hit.shape)
+			haptic(c, 0.2, 0.015)
+			set_status(("%s is pinned: unpin it to resize." if selected.pinned else "Scale %s: drag a yellow cube.") % selected.name)
+		elif selected:
+			select(null)
+		return
 	if mode in EDIT_TOOLS:
 		if c.shape_hit != null:
 			apply_tool(c, c.shape_hit.shape)
 		else:
 			set_status("%s: point at an object." % MODE_NAMES[mode])
 		return
-	# Move/Scale.
-	if c.handle_hit != null and not b.get("grip", false) and not _anyone_carrying():
-		start_handle(c, c.handle_hit)
-		haptic(c)
-		return
+	# Rotate/Move.
 	if c.drag != null:
 		return
 	if c.shape_hit != null:

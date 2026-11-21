@@ -49,7 +49,7 @@ func run(m) -> void:
 	check("Palette has 20ft / 40ft / 40ft HC containers", labels.has("20ft container") and labels.has("40ft container") and labels.has("40ft high cube"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container interior volume ~33.2 m3", absf(main.volume_of("box", c20.dims) - 33.2) < 0.1, str(main.volume_of("box", c20.dims)))
-	check("Palette loaded from objects.csv (39 objects)", main.PALETTE.size() == 39, str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (54 objects incl. 15 building blocks)", main.PALETTE.size() == 54 and labels.has("Brick 2x1") and labels.has("Slab 100"), str(main.PALETTE.size()))
 	var pallet = main.PALETTE[labels.find("AU pallet")] if labels.has("AU pallet") else null
 	var van = main.PALETTE[labels.find("Farizon V7E open cargo")] if labels.has("Farizon V7E open cargo") else null
 	check("V7E open cargo: whole van with load box and wheels", van != null and van.has("outline") and van.outline.inner.size() == 1 and van.outline.wheels.size() == 2, str(van))
@@ -181,7 +181,7 @@ func run(m) -> void:
 	# X / A tool menu: cut -> paste via trigger.
 	var ct = main.ctrls[1]
 	main.open_tools(ct)
-	check("X / A opens the tool menu with 10 tools", main.ctx.is_open and main.ctx.items.size() == 10, str(main.ctx.items.size()))
+	check("X / A opens the tool menu with 11 tools", main.ctx.is_open and main.ctx.items.size() == 11, str(main.ctx.items.size()))
 	check("...stuck to that hand", main.ctx_attach == ct and main.ctx.global_position.distance_to(ct.node.global_position) < 0.4)
 	check("...first tool is Rotate/Move", main.ctx.items[0].label == "Rotate/Move")
 	main.run_tool("cut")
@@ -227,21 +227,26 @@ func run(m) -> void:
 	check("Unpin makes it grabbable again", not box.pinned and cp.drag != null and cp.drag.type == "move")
 	main.on_drag_release(cp)
 
-	# Resize cubes can never fire while grabbing (the accidental-scaling bug).
+	# Resize cubes live in the Scale tool only, and never fire while grabbing (the accidental-scaling bug).
 	main.select(box)
+	check("Rotate/Move shows no resize cubes (scaling lives in the Scale tool)", box.handles.size() == 0)
+	main.set_tool("scale")
+	main.select(box)
+	check("Scale tool shows the resize cubes", box.handles.size() > 0)
 	var dims0: Dictionary = box.dims.duplicate()
 	cp.handle_hit = box.handles[0]
 	main.on_trigger_down(cp, {"trigger": true, "grip": true})
 	check("Trigger on a resize cube while gripping doesn't start a resize", cp.drag == null or cp.drag.type != "handle")
 	cp.drag = null
 	main.on_trigger_down(cp, {"trigger": true})
-	check("Trigger alone on a resize cube still resizes (Move/Scale)", cp.drag != null and cp.drag.type == "handle")
+	check("Trigger alone on a resize cube resizes (Scale tool)", cp.drag != null and cp.drag.type == "handle")
 	main.on_grip_down(cp, {"grip": true, "trigger": true})
 	check("Grip during a resize switches to sliding, size unchanged", cp.drag != null and cp.drag.type == "move" and box.dims == dims0, str(box.dims))
 	main.on_drag_release(cp)
 	cp.handle_hit = null
 	cp.shape_hit = null
 	box.node.position = pos_pinned
+	main.set_tool("select")
 
 	# Stacking: drop a box on top of another.
 	main.select(box)
