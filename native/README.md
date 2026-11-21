@@ -5,7 +5,8 @@ Built with Godot 4.6.2 and Meta's official OpenXR plugin (GodotOpenXRVendors 5.0
 
 ## Get the APK
 
-- **Latest build from `main`:** [Releases > native-latest](https://github.com/FaradayMicrosystems/Framespace/releases/tag/native-latest), file `framespace.apk`.
+- **Latest release (v0.21):** [Releases > latest](https://github.com/FaradayMicrosystems/Framespace/releases/latest), file `framespace.apk`. Direct link: https://github.com/FaradayMicrosystems/Framespace/releases/latest/download/framespace.apk
+- **Newest build from `main` (may be ahead of the release):** [Releases > native-latest](https://github.com/FaradayMicrosystems/Framespace/releases/tag/native-latest), file `framespace.apk`.
 - **Any branch or PR:** Actions > "Native Quest APK" > pick a run > Artifacts > `framespace-quest-apk` (a zip that holds the APK).
 
 ## Sideload it (one-time setup, then about 1 minute per update)
@@ -23,26 +24,43 @@ Uninstalling the app deletes its saved rooms.
 
 ## Controls
 
+Think brush and canvas: point at things, pick them up with the trigger, put them down where you want.
+
 | Do this | Get this |
 |---|---|
-| **Click a thumbstick** | Main menu, attached to that hand. Point and trigger with the other hand. Click again to close it |
+| **Click a thumbstick** | Main menu, stuck to that hand: tools and settings. Point and trigger with the other hand. Click again to close |
 | **Click both thumbsticks** | Main menu, fixed in front of you |
-| Point + **trigger** | Select a shape / press a button |
-| Point + **grip** (or grip + trigger) on a shape | Slide it along the floor, snapped to the grid. Grabbing never changes its size |
-| **Grip + B** while holding | Pick it up freely. It follows your hand but keeps its rotation. Let go and it drops onto the floor, a table or another shape |
-| Stick **up / down** while holding | Scale +5% / -5% |
-| Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
-| Hold **A** on a shape | Cut / Copy / Delete / Duplicate / **Pin** (a pinned shape can't be grabbed, moved or resized until you Unpin it) |
-| Hold **A** on empty space | Paste / Next clip |
+| **X** or **A** | Objects menu, stuck to that hand (press to open / close) from [`objects.csv`](../objects.csv): pallets, walk-in 20ft / 40ft containers, IBC, forklift, pallet jack, motorcycle, vans, furniture and more. Trigger or grip one with the other hand and it's in your hand |
+| **Y** or **B** pointing at a shape | Clipboard menu, stuck to that hand (press to open / close): Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Bigger 5%** / **Smaller 5%** / **Reset size** / **Undo** |
+| **Y** or **B** pointing at empty space | Paste (where you pointed) / Next clip / **Undo** |
+| **Rotate/Move:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** (floor, table, another object's top) and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
+| **Rotate/Move:** quick trigger **tap** on an object | Select it (nothing moves) |
+| **Grip** on an object | Slide it on the grid, staying on its floor (steps up onto floors up to 30 cm high, e.g. into a container) |
+| **Grip + trigger** | Lift it off the floor (same as a trigger carry) |
+| Stick **left / right** while holding | Turn it smoothly (gentle near the centre, fast at full tilt) |
+| Stick **forward / back** while holding | Push it away / pull it in, continuously |
+| **Scale** tool (main menu) | Trigger an object, then trigger-drag its yellow / orange cubes to resize one side / the radius |
 
-The hold-A menu opens next to your hand, with a dotted line (in the object's colour) to the object, so far-away objects are easy to work on.
-| Hold **X** | Object palette from [`objects.csv`](../objects.csv) (shared with the web app): pallets, containers, IBC, forklift, door, car, person and more |
-| Yellow / orange cubes on a selected shape | Drag with trigger alone to resize one side / the radius. Ignored while you're gripping or holding anything |
+**Walk-in loading:** the 20ft / 40ft containers and the V7E open cargo are hollow. Pin one, walk in, and drop or slide pallets onto its floor. Things dropped from above land on the roof.
 
-Size and rotation only change in steps, with the stick (or the yellow / orange resize cubes), never by moving your hand.
+**Measuring tools** (main menu, yellow): **Tape**, **Circle 3-pt** (radius/diameter), **Rect 3-pt** (two corners + the far edge: W × D, area, perimeter), **Height** (point to floor), **Angle 3-pt** (arm, corner, arm), **Path** (multi-leg total; tap the last point again to finish), **Area** (tap an outline, tap the first point to close: area + perimeter). Points snap to corners and existing points.
 
-The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here), export, quit and **Turn room** (5° or 1°, left or right).
+The main menu also has units, grid, room lines, room scan, save, **Rooms...** (load, new, delete, place here), export, clear, quit, **Turn room** (5° or 1°, left or right), **Accuracy test**, **Room info** and **Fit check**.
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
+
+## Accuracy test
+
+Menu > **Accuracy test...** measures things whose true size you know, so you get a real error figure.
+
+1. Pick a reference: A4 sheet (long 297 mm / short 210 mm), bank card (85.6 mm), door leaf height (2040 mm) or width (820 mm), or **Custom length** (tape-measure it first, then set it with the -100 … +100 mm buttons).
+2. Tap its two ends with the trigger (same snapping as Tape). The label shows measured mm and the error; the status shows the running average.
+3. Repeat as often as you like; switch references from the menu. Results are kept between sessions.
+4. **Export results** writes `framespace-accuracy-<time>.csv` to `Download/Framespace/` (per-trial rows, then a summary: trials, average error mm and %, RMS, worst, bias, average distance from your head). **Clear results** starts over (Undo brings them back).
+
+## Room info and Fit check
+
+- Menu > **Room info...** shows the room from your Space Setup scan: floor size and area (L-shaped rooms use the real outline), ceiling height, room volume, wall count and perimeter, doors, windows and furniture. It's in the JSON export too (`room_scan`).
+- **Fit check** (on by default, in the main menu and on the Room info page): any object that pushes more than 2 cm into a wall, the ceiling, a piece of scanned furniture or another object turns **red**, and its label says what it hits ("DOESN'T FIT: hits wall face"). It updates live while you carry things. Sitting on the floor, or flush against a wall or another object, is fine.
 
 ## Rooms
 

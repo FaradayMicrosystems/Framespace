@@ -9,6 +9,7 @@ const COMPONENT_SEMANTIC_LABELS := 5
 
 var label_name := "surface"
 var size_2d := Vector2.ZERO
+var boundary := PackedVector2Array()   # floor / ceiling outline (L-shaped rooms), plane-local
 
 
 func setup_scene(entity) -> void:
@@ -26,6 +27,8 @@ func setup_scene(entity) -> void:
 		body.collision_mask = 0
 		body.add_child(col)
 		add_child(body)
+		if main and (is_global_mesh or label_name == "floor"):
+			main.ignore_for_fit(body.get_rid())
 
 	if not is_global_mesh:
 		var mi = entity.create_mesh_instance()
@@ -40,6 +43,8 @@ func setup_scene(entity) -> void:
 		if entity.is_component_enabled(COMPONENT_BOUNDED_2D):
 			var r: Rect2 = entity.get_bounding_box_2d()
 			size_2d = r.size
+			if entity.has_method("get_boundary_2d"):
+				boundary = entity.get_boundary_2d()
 			if main:
 				var lbl: Label3D = main.make_room_label(label_name, r.size)
 				var c := r.get_center()

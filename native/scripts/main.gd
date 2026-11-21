@@ -9,11 +9,13 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.3.0-native"
+const BUILD := "0.21"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
-const SCALE_STEP := 1.05      # stick up / down: +5% / -5% (reversible)
+const SCALE_STEP := 1.05      # Y / B menu Bigger / Smaller: +5% / -5% (reversible)
+const STEP_UP := 0.3          # sliding shapes step up onto surfaces up to 30 cm higher (container / van floors)
+const PUSH_MIN := 0.1         # closest a pushed/pulled shape gets to the controller (m)
 
 const LAYER_ROOM := 2
 const LAYER_SHAPE := 4
@@ -26,7 +28,7 @@ const DEFAULT_DIMS := {"box": {"x": 0.3, "y": 0.3, "z": 0.3}, "sphere": {"r": 0.
 const C_YELLOW := Color("ffe14d")
 const C_CYAN := Color("00e5ff")
 
-# Hold X palette. Loaded at startup from res://objects.txt, which CI copies from the repo's objects.csv
+# X / A objects menu. Loaded at startup from res://objects.txt, which CI copies from the repo's objects.csv
 # (one object per line, sizes in mm). Edit objects.csv, not this file. Fallback below if the file is missing.
 const PALETTE_FALLBACK := [
 	{"label": "Cube", "type": "box", "dims": {"x": 0.1, "y": 0.1, "z": 0.1}},
@@ -57,22 +59,65 @@ static func _groups(t: String, n: int) -> Array:
 	return out
 
 
-static func parse_outline(outline: String, wheels: String, inner: String, L: float, H: float, W: float) -> Dictionary:
+## Detail parts (mm; x back from the front, y up from the ground, z across from the left side), space-separated:
+##   b:x/y/z/length/width/height   box, drawn only
+##   s:x/y/z/length/width/height   solid box: drawn, and you can stand things on it / it blocks the pointer
+##   c:x/y/z/length/width/height   solid box, not drawn
+##   l:x1/y1/z1/x2/y2/z2           line
+##   w:x/y/z/diameter/thickness    wheel (axle across the width), y = axle height
+## An object with any s: or c: parts is hollow: only those parts are solid (walk-in containers, van load beds).
+static func parse_parts(text: String, L: float, H: float, W: float) -> Dictionary:
+	var draw := []
+	var solids := []
+	var u := func(x: float) -> float: return 0.5 - x / L
+	var v := func(y: float) -> float: return y / H - 0.5
+	var w := func(z: float) -> float: return z / W - 0.5
+	for tok in text.strip_edges().split(" ", false):
+		var kv := tok.split(":")
+		if kv.size() != 2:
+			continue
+		var g := _groups(kv[1], 6 if kv[0] in ["b", "s", "c", "l"] else 5)
+		if g.is_empty():
+			continue
+		var n: Array = g[0]
+		match kv[0]:
+			"b", "s", "c":
+				var bx := [u.call(n[0] + n[3] / 2.0), v.call(n[1] + n[5] / 2.0), w.call(n[2] + n[4] / 2.0), n[3] / 2.0 / L, n[5] / 2.0 / H, n[4] / 2.0 / W]
+				if kv[0] != "c":
+					draw.append(["b"] + bx)
+				if kv[0] != "b":
+					solids.append(bx)
+			"l":
+				draw.append(["l", u.call(n[0]), v.call(n[1]), w.call(n[2]), u.call(n[3]), v.call(n[4]), w.call(n[5])])
+			"w":
+				draw.append(["w", u.call(n[0]), v.call(n[1]), w.call(n[2]), n[3] / 2.0 / L, n[3] / 2.0 / H, n[4] / 2.0 / W])
+	return {"parts": draw, "solids": solids}
+
+
+static func parse_outline(outline: String, wheels: String, inner: String, L: float, H: float, W: float, parts := "") -> Dictionary:
 	var pts := []
 	for p in _groups(outline, 2):
 		pts.append([0.5 - p[0] / L, p[1] / H - 0.5])
+	var extra := parse_parts(parts, L, H, W)
 	if pts.size() < 3:
-		return {}
+		pts = []
+		if extra.parts.is_empty() and extra.solids.is_empty():
+			return {}
 	var wh := []
 	for p in _groups(wheels, 2):
 		wh.append([0.5 - p[0] / L, p[1] / 2.0 / L, p[1] / 2.0 / H])
 	var inn := []
 	for p in _groups(inner, 5):
 		inn.append([0.5 - (p[0] + p[2]) / L, 0.5 - p[0] / L, p[1] / H - 0.5, (p[1] + p[4]) / H - 0.5, p[3] / 2.0 / W])
-	return {"pts": pts, "wheels": wh, "inner": inn}
+	return {"pts": pts, "wheels": wh, "inner": inn, "parts": extra.parts, "solids": extra.solids}
 
 
 var _outline_cache := {}
+const _BOX_EDGES := [
+	[Vector3(-1, -1, -1), Vector3(1, -1, -1)], [Vector3(-1, 1, -1), Vector3(1, 1, -1)], [Vector3(-1, -1, 1), Vector3(1, -1, 1)], [Vector3(-1, 1, 1), Vector3(1, 1, 1)],
+	[Vector3(-1, -1, -1), Vector3(-1, 1, -1)], [Vector3(1, -1, -1), Vector3(1, 1, -1)], [Vector3(-1, -1, 1), Vector3(-1, 1, 1)], [Vector3(1, -1, 1), Vector3(1, 1, 1)],
+	[Vector3(-1, -1, -1), Vector3(-1, -1, 1)], [Vector3(1, -1, -1), Vector3(1, -1, 1)], [Vector3(-1, 1, -1), Vector3(-1, 1, 1)], [Vector3(1, 1, -1), Vector3(1, 1, 1)],
+]
 
 
 func outline_mesh(o: Dictionary) -> ArrayMesh:
@@ -97,6 +142,25 @@ func outline_mesh(o: Dictionary) -> ArrayMesh:
 				v.append_array([Vector3(c[i].x, c[i].y, z), Vector3(c[(i + 1) % 4].x, c[(i + 1) % 4].y, z)])
 		for p in c:
 			v.append_array([Vector3(p.x, p.y, -zw), Vector3(p.x, p.y, zw)])
+	for p in o.get("parts", []):
+		match p[0]:
+			"b":
+				var c := Vector3(p[1], p[2], p[3])
+				var h := Vector3(p[4], p[5], p[6])
+				for e in _BOX_EDGES:
+					v.append_array([c + h * e[0], c + h * e[1]])
+			"l":
+				v.append_array([Vector3(p[1], p[2], p[3]), Vector3(p[4], p[5], p[6])])
+			"w":
+				var cu: float = p[1]
+				var cv: float = p[2]
+				var ru2: float = p[4]
+				var rv2: float = p[5]
+				for z in [p[3] - p[6], p[3] + p[6]]:
+					_circle_pts(v, func(t): return Vector3(cu + cos(t) * ru2, cv + sin(t) * rv2, z), 16)
+				for k in 4:
+					var t := k * PI / 4.0
+					v.append_array([Vector3(cu + cos(t) * ru2, cv + sin(t) * rv2, p[3]), Vector3(cu - cos(t) * ru2, cv - sin(t) * rv2, p[3])])
 	for w in o.get("wheels", []):
 		var u: float = w[0]
 		var ru: float = w[1]
@@ -142,8 +206,8 @@ static func parse_objects(text: String) -> Array:
 			push_warning("objects.csv: skipped line " + line)
 			continue
 		var item := {"label": row.name, "type": type, "dims": dims, "note": row.get("note", "")}
-		if type == "box" and String(row.get("outline", "")) != "":
-			var o := parse_outline(row.outline, row.get("wheels", ""), row.get("inner", ""), dims.x * 1000.0, dims.y * 1000.0, dims.z * 1000.0)
+		if type == "box" and (String(row.get("outline", "")) != "" or String(row.get("parts", "")) != ""):
+			var o := parse_outline(row.get("outline", ""), row.get("wheels", ""), row.get("inner", ""), dims.x * 1000.0, dims.y * 1000.0, dims.z * 1000.0, row.get("parts", ""))
 			if not o.is_empty():
 				item["outline"] = o
 		out.append(item)
@@ -157,16 +221,39 @@ func load_palette() -> void:
 		push_warning("objects.txt missing or empty, using built-in shapes")
 		PALETTE = PALETTE_FALLBACK.duplicate(true)
 
-# Stick-click main menu, page "main". Rows of 4.
+# Stick-click main menu: tools and settings, rows of 4. Objects live in the X / A objects menu;
+# cut, copy, paste, duplicate, delete, pin, size and undo in the Y / B clipboard menu.
 const MENU_MAIN := [
-	"box", "sphere", "cylinder", "cone",
-	"tape", "circle", "select", "units",
-	"copy", "cut", "paste", "nextclip",
-	"duplicate", "drop", "delete", "undo",
-	"grid", "roomvis", "scan", "clear",
-	"save", "rooms", "export", "quit",
+	"select", "scale", "units", "grid",
+	"tape", "circle", "rect", "height",
+	"angle", "path", "area", "roomvis",
+	"scan", "save", "rooms", "export",
+	"clear", "quit",
 	"turnl5", "turnl1", "turnr1", "turnr5",
+	"accuracy", "roominfo", "fitcheck",
 ]
+# Accuracy test references: things with a known true size. True sizes in mm.
+const ACC_REFS := [
+	{"id": "a4l", "label": "A4 sheet, long side", "mm": 297.0},
+	{"id": "a4s", "label": "A4 sheet, short side", "mm": 210.0},
+	{"id": "card", "label": "Bank card, long side", "mm": 85.6},
+	{"id": "door", "label": "Door leaf height", "mm": 2040.0},
+	{"id": "doorw", "label": "Door leaf width (820)", "mm": 820.0},
+]
+const FIT_MARGIN := 0.02        # overlaps under 2 cm (scan noise, flush contact) don't count as "doesn't fit"
+const FIT_EVERY := 0.2          # seconds between fit checks
+const C_RED := Color("ff4d4d")
+const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area", "acctest"]
+const EDIT_TOOLS := ["scale", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin"]
+const MODE_NAMES := {"select": "Rotate/Move", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
+	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "area": "Area",
+	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
+	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test"}
+const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
+const ROT_SPEED := 120.0        # degrees/s at full stick left/right while holding
+const PUSH_SPEED := 1.5         # m/s at full stick forward/back while holding
+const SNAP_TOUCH := 0.03        # carried shape snaps onto a surface when its bottom is within 3 cm
+const TAP_SEC := 0.25           # a trigger tap shorter than this (and not moved) only selects
 
 
 class Shape:
@@ -184,17 +271,22 @@ class Shape:
 	var wire_mat: StandardMaterial3D
 	var fill_mat: StandardMaterial3D
 	var outline: Dictionary = {}
+	var cols: Array = []          # extra CollisionShape3Ds for hollow objects (solid parts)
 	var pinned := false
+	var orig_dims: Dictionary = {}   # size it was created with (Reset size)
+	var fit_hits: Array = []         # names of walls / furniture / shapes it overlaps (Fit check)
 
 
 class Measure:
-	var type: String          # line | circle
+	var type: String          # line | circle | rect | height | angle | path | area
 	var name: String
 	var points: Array = []    # content-local Vector3
 	var node: Node3D
 	var center := Vector3.ZERO
 	var normal := Vector3.UP
 	var r := 0.0
+	var w := 0.0              # rect width / depth
+	var dp := 0.0
 
 
 class Ctrl:
@@ -210,7 +302,7 @@ class Ctrl:
 	var shape_hit = null            # {shape, point, normal, dist}
 	var drag = null                 # Dictionary
 	var btn := {}
-	var a_down_at := -1.0
+	var last_t := -1.0              # last input time (stick speeds)
 	var stick_down_at := -10.0
 	var latch_x := true
 	var latch_y := true
@@ -219,7 +311,7 @@ class Ctrl:
 
 # ---------------------------------------------------------------- state
 var units := "metric"
-var mode := "select"           # select | tape | circle
+var mode := "select"           # select | a MEASURE_TOOLS entry | an EDIT_TOOLS entry
 var grid := 0.05               # metres; 0 = off
 var room_visible := true
 var status := "Pick a shape or a measuring tool."
@@ -244,8 +336,19 @@ var save_dirty := false
 var save_timer := 0.0
 var menu_page := "main"
 var menu_attach: Ctrl = null   # null = fixed in place
+var menu_anchor := Vector3.ZERO
+var ctx_attach: Ctrl = null    # hand the Y / B clipboard menu is stuck to
+var tray_attach: Ctrl = null   # hand the X / A objects menu is stuck to
 var menu_dirty := true
 var selftest := false
+
+var fit_check := true          # shapes overlapping walls, furniture or each other turn red
+var fit_timer := 0.0
+var fit_ignore: Array[RID] = []   # floor + whole-room mesh: never count as "doesn't fit"
+var acc_ref := {}              # current accuracy reference {id, label, mm}
+var acc_custom_mm := 1000.0
+var acc_trials: Array = []     # [{time, ref, true_mm, measured_mm, error_mm, error_pct, distance_m}]
+var acc_line: Node3D = null    # the last accuracy trial, drawn until the next one
 
 var xr_interface: XRInterface
 var xr_active := false
@@ -255,9 +358,8 @@ var content: Node3D
 var ctrls: Array = []
 var scene_mgr: Node = null
 var menu: Node3D
-var palette: Node3D
-var ctx: Node3D
-var ctx_link: MeshInstance3D   # dotted line from the context menu to its object
+var ctx: Node3D                # Y / B clipboard menu
+var tray: Node3D               # object tray beside the stick-click menu
 var grid_patch: MeshInstance3D
 var grid_patch_size := -1.0
 var preview: MeshInstance3D
@@ -281,6 +383,7 @@ func _ready() -> void:
 	_build_world()
 	_init_xr()
 	load_settings()
+	load_accuracy()
 	if not xr_active:
 		# Desktop / CI: no headset, so start the room straight away.
 		start_rooms.call_deferred()
@@ -473,15 +576,12 @@ func _build_world() -> void:
 	menu = UIPanel.new()
 	menu.name = "Menu"
 	add_child(menu)
-	palette = UIPanel.new()
-	palette.name = "Palette"
-	add_child(palette)
 	ctx = UIPanel.new()
-	ctx.name = "Context"
+	ctx.name = "Tools"
 	add_child(ctx)
-	ctx_link = MeshInstance3D.new()
-	ctx_link.visible = false
-	add_child(ctx_link)
+	tray = UIPanel.new()
+	tray.name = "Tray"
+	add_child(tray)
 
 	grid_patch = MeshInstance3D.new()
 	grid_patch.material_override = _unlit(Color(0, 0.9, 1, 0.35))
@@ -519,9 +619,9 @@ func AREA(m2: float) -> String:
 
 
 # ================================================================ labels
-func make_label(accent: Color) -> Node3D:
+func make_label(accent: Color, lines := 3) -> Node3D:
 	var n := Node3D.new()
-	for i in 3:
+	for i in lines:
 		var l := Label3D.new()
 		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		l.no_depth_test = true
@@ -559,6 +659,12 @@ func make_room_label(label_name: String, size: Vector2) -> Label3D:
 
 func register_surface(n: Node3D) -> void:
 	surfaces.append(n)
+	menu_dirty = true
+
+
+## Floor and the whole-room mesh: things always touch them, so they never count for Fit check.
+func ignore_for_fit(rid: RID) -> void:
+	fit_ignore.append(rid)
 
 
 func _on_scene_data_missing() -> void:
@@ -569,6 +675,7 @@ func _on_scene_capture_completed(_ok: bool) -> void:
 	if scene_mgr:
 		scene_mgr.call("remove_scene_anchors")
 		surfaces.clear()
+		fit_ignore.clear()
 		scene_mgr.call("create_scene_anchors")
 	set_status("Room scan finished.")
 
@@ -622,10 +729,11 @@ func handle_defs(type: String) -> Array:
 		{"axis": Vector3.UP, "key": "h", "mode": "face"}, {"axis": Vector3.DOWN, "key": "h", "mode": "face"}]
 
 
-func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.IDENTITY, sname := "", outline = null) -> Shape:
+func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.IDENTITY, sname := "", outline = null, orig = null) -> Shape:
 	var s := Shape.new()
 	s.type = type
 	s.dims = dims.duplicate()
+	s.orig_dims = (orig if orig is Dictionary and not orig.is_empty() else dims).duplicate()
 	s.color = COLORS[type]
 	if sname == "":
 		counters[type] += 1
@@ -635,7 +743,7 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	s.node.position = pos
 	s.node.quaternion = rot
 	s.wire = MeshInstance3D.new()
-	if type == "box" and outline is Dictionary and outline.has("pts"):
+	if type == "box" and outline is Dictionary and (not outline.get("pts", []).is_empty() or not outline.get("parts", []).is_empty()):
 		s.outline = outline
 		s.wire.mesh = outline_mesh(outline)
 	else:
@@ -654,7 +762,7 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	s.body.set_meta("shape", s)
 	s.col = CollisionShape3D.new()
 	s.body.add_child(s.col)
-	s.label = make_label(s.color)
+	s.label = make_label(s.color, 4)   # 4th line: Fit check warning
 	s.node.add_child(s.wire)
 	s.node.add_child(s.fill)
 	s.node.add_child(s.body)
@@ -671,11 +779,26 @@ func refresh_shape(s: Shape) -> void:
 	s.fill.scale = sc
 	match s.type:
 		"box":
-			var bs := s.col.shape as BoxShape3D
-			if bs == null:
-				bs = BoxShape3D.new()
-				s.col.shape = bs
-			bs.size = sc
+			var solids: Array = s.outline.get("solids", [])
+			if solids.is_empty():
+				var bs := s.col.shape as BoxShape3D
+				if bs == null:
+					bs = BoxShape3D.new()
+					s.col.shape = bs
+				bs.size = sc
+			else:
+				# Hollow: only the solid parts block the pointer and hold things up.
+				s.fill.visible = false
+				while s.cols.size() < solids.size():
+					var cs2 := CollisionShape3D.new() if s.cols.size() > 0 else s.col
+					if cs2 != s.col:
+						s.body.add_child(cs2)
+					cs2.shape = BoxShape3D.new()
+					s.cols.append(cs2)
+				for i in solids.size():
+					var sd: Array = solids[i]
+					s.cols[i].position = Vector3(sd[0], sd[1], sd[2]) * sc
+					(s.cols[i].shape as BoxShape3D).size = Vector3(sd[3], sd[4], sd[5]) * 2.0 * sc
 		"sphere":
 			var ss := s.col.shape as SphereShape3D
 			if ss == null:
@@ -698,7 +821,12 @@ func refresh_shape(s: Shape) -> void:
 			cv.points = pts
 			s.col.shape = cv
 	s.label.position = Vector3(0, sc.y / 2.0 + 0.09, 0)
-	set_label(s.label, shape_lines(s.type, ("%s (pinned)" % s.name) if s.pinned else s.name, s.dims))
+	var lines := shape_lines(s.type, ("%s (pinned)" % s.name) if s.pinned else s.name, s.dims)
+	if s.fit_hits.size():
+		lines.append("DOESN'T FIT: hits " + ", ".join(s.fit_hits))
+	set_label(s.label, lines)
+	if s.label.get_child_count() > 3:
+		(s.label.get_child(3) as Label3D).modulate = C_RED
 	for h in s.handles:
 		var hd: Dictionary = h.get_meta("hd")
 		var e: float = s.dims.r if hd.mode == "radius" else extent(s, hd.key) / 2.0
@@ -736,17 +864,16 @@ func apply_snapshot(s: Shape, sn: Dictionary) -> void:
 
 func select(s: Shape) -> void:
 	var prev := selected
+	selected = s
 	if prev:
-		prev.wire_mat.albedo_color = prev.color
-		prev.fill_mat.albedo_color = Color(prev.color, 0.06)
+		apply_shape_colors(prev)
 		for h in prev.handles:
 			h.queue_free()
 		prev.handles = []
-	selected = s
 	if s:
-		s.wire_mat.albedo_color = Color.WHITE
-		s.fill_mat.albedo_color = Color(s.color, 0.14)
-		for hd in ([] if s.pinned else handle_defs(s.type)):
+		apply_shape_colors(s)
+		# Resize cubes only in the Scale tool, and never on a pinned shape.
+		for hd in ([] if s.pinned or mode != "scale" else handle_defs(s.type)):
 			var h := MeshInstance3D.new()
 			h.mesh = mesh_handle
 			h.material_override = mat_handle[hd.mode]
@@ -780,11 +907,83 @@ func circle_from_3(a: Vector3, b: Vector3, c: Vector3):
 	return {"center": center, "normal": n.normalized(), "r": center.distance_to(a)}
 
 
+## Tool type -> stored measure type (tape is saved as "line" for older rooms).
+func measure_type(tool: String) -> String:
+	return "line" if tool == "tape" else tool
+
+
+func newell(pts: Array) -> Vector3:
+	var n := Vector3.ZERO
+	for i in pts.size():
+		var a: Vector3 = pts[i]
+		var b: Vector3 = pts[(i + 1) % pts.size()]
+		n += Vector3((a.y - b.y) * (a.z + b.z), (a.z - b.z) * (a.x + b.x), (a.x - b.x) * (a.y + b.y))
+	return n
+
+
+func poly_area(pts: Array) -> float:
+	return newell(pts).length() / 2.0 if pts.size() >= 3 else 0.0
+
+
+func path_len(pts: Array, closed := false) -> float:
+	var t := 0.0
+	for i in pts.size() - 1:
+		t += (pts[i] as Vector3).distance_to(pts[i + 1])
+	if closed and pts.size() > 2:
+		t += (pts[-1] as Vector3).distance_to(pts[0])
+	return t
+
+
+## Rect 3-pt: A-B is one edge, C sets the depth (squared off to A-B). Returns 4 corners, width, depth.
+func rect_from_3(a: Vector3, b: Vector3, c: Vector3):
+	var ab := b - a
+	if ab.length() < 1e-4:
+		return null
+	var u := ab.normalized()
+	var ac := c - a
+	var dv := ac - u * ac.dot(u)
+	if dv.length() < 1e-4:
+		return null
+	return {"corners": [a, b, b + dv, a + dv], "w": ab.length(), "d": dv.length()}
+
+
+func floor_foot(p: Vector3) -> Vector3:
+	return Vector3(p.x, 0.0, p.z)
+
+
+func angle_deg(a: Vector3, v: Vector3, b: Vector3) -> float:
+	return rad_to_deg((a - v).angle_to(b - v))
+
+
+## The polyline drawn for a measurement: {pts, closed}.
+func measure_poly(type: String, points: Array) -> Dictionary:
+	match type:
+		"rect":
+			var r = rect_from_3(points[0], points[1], points[2])
+			return {"pts": r.corners if r else points, "closed": true}
+		"height": return {"pts": [points[0], floor_foot(points[0])], "closed": false}
+		"area": return {"pts": points, "closed": true}
+	return {"pts": points, "closed": false}
+
+
 func measure_lines(m: Measure) -> Array:
-	if m.type == "line":
-		var dv: Vector3 = m.points[1] - m.points[0]
-		return ["%s  %s" % [m.name, L(dv.length())], "vert %s · horiz %s" % [L(absf(dv.y)), L(Vector2(dv.x, dv.z).length())]]
-	return ["%s  Ø %s" % [m.name, L(2 * m.r)], "r %s · circ %s" % [L(m.r), L(TAU * m.r)]]
+	match m.type:
+		"line":
+			var dv: Vector3 = m.points[1] - m.points[0]
+			return ["%s  %s" % [m.name, L(dv.length())], "vert %s · horiz %s" % [L(absf(dv.y)), L(Vector2(dv.x, dv.z).length())]]
+		"circle":
+			return ["%s  Ø %s" % [m.name, L(2 * m.r)], "r %s · circ %s" % [L(m.r), L(TAU * m.r)]]
+		"rect":
+			return ["%s  %s × %s" % [m.name, L(m.w), L(m.dp)], "area %s · perim %s" % [AREA(m.w * m.dp), L(2 * (m.w + m.dp))]]
+		"height":
+			return ["%s  H %s" % [m.name, L(m.points[0].y)], "above the floor"]
+		"angle":
+			return ["%s  %.1f°" % [m.name, angle_deg(m.points[0], m.points[1], m.points[2])], "at the middle point"]
+		"path":
+			return ["%s  %s" % [m.name, L(path_len(m.points))], "%d segments" % (m.points.size() - 1)]
+		"area":
+			return ["%s  %s" % [m.name, AREA(poly_area(m.points))], "perim %s · %d sides" % [L(path_len(m.points, true)), m.points.size()]]
+	return [m.name]
 
 
 func _dot(p: Vector3) -> MeshInstance3D:
@@ -799,20 +998,13 @@ func create_measure(type: String, points: Array, mname := "") -> Measure:
 	var m := Measure.new()
 	m.type = type
 	m.points = points.duplicate()
-	if mname == "":
-		counters.m += 1
-		mname = "M%d" % counters.m
-	m.name = mname
-	m.node = Node3D.new()
-	var label_pos: Vector3
+	var label_pos: Vector3 = Vector3.ZERO
 	for p in m.points:
-		m.node.add_child(_dot(p))
+		label_pos += p
+	label_pos /= maxf(1.0, m.points.size())
 	var li := MeshInstance3D.new()
 	li.material_override = mat_measure
-	if type == "line":
-		li.mesh = _lines_mesh(PackedVector3Array(m.points))
-		label_pos = (m.points[0] + m.points[1]) / 2.0
-	else:
+	if type == "circle":
 		var c = circle_from_3(m.points[0], m.points[1], m.points[2])
 		if c == null:
 			return null
@@ -826,8 +1018,35 @@ func create_measure(type: String, points: Array, mname := "") -> Measure:
 			var t := float(i) / 64 * TAU
 			pts.append(m.center + u * cos(t) * m.r + v * sin(t) * m.r)
 		li.mesh = _lines_mesh(pts, true)
-		m.node.add_child(_dot(m.center))
 		label_pos = m.center
+	else:
+		if type == "rect":
+			var r = rect_from_3(m.points[0], m.points[1], m.points[2])
+			if r == null:
+				return null
+			m.w = r.w
+			m.dp = r.d
+			label_pos = (r.corners[0] + r.corners[2]) / 2.0
+		elif type == "angle" and ((m.points[0] - m.points[1]).length() < 1e-4 or (m.points[2] - m.points[1]).length() < 1e-4):
+			return null
+		elif type == "area" and poly_area(m.points) < 1e-6:
+			return null
+		elif type == "height":
+			label_pos = (m.points[0] + floor_foot(m.points[0])) / 2.0
+		var mp := measure_poly(type, m.points)
+		var pts := PackedVector3Array(mp.pts)
+		if mp.closed:
+			pts.append(mp.pts[0])
+		li.mesh = _lines_mesh(pts, true)
+	if mname == "":
+		counters.m += 1
+		mname = "M%d" % counters.m
+	m.name = mname
+	m.node = Node3D.new()
+	for p in m.points:
+		m.node.add_child(_dot(p))
+	if type == "circle":
+		m.node.add_child(_dot(m.center))
 	m.node.add_child(li)
 	var lbl := make_label(C_YELLOW)
 	lbl.position = label_pos + Vector3(0, 0.05, 0)
@@ -866,19 +1085,50 @@ func clear_pending() -> void:
 	preview_label.visible = false
 
 
+const TOOL_POINTS := {"tape": 2, "circle": 3, "rect": 3, "angle": 3, "height": 1, "acctest": 2}
+
+func tool_hint(t: String, n: int) -> String:
+	match t:
+		"tape": return "Tape: point at the first end and press trigger." if n == 0 else "Now point at the second end."
+		"circle": return "Circle: tap 3 points around a round edge." if n == 0 else "Point %d of 3 on the round edge." % (n + 1)
+		"rect": return ["Rect: tap one corner.", "Tap the next corner along the same edge.", "Tap anywhere on the opposite edge."][mini(n, 2)]
+		"height": return "Height: tap a point. Shows its height above the floor."
+		"angle": return ["Angle: tap a point on the first arm.", "Tap the corner (vertex).", "Tap a point on the second arm."][mini(n, 2)]
+		"path": return "Path: tap points along the route. Tap the last point again to finish." if n < 2 else "Path: keep tapping. Tap the last point again to finish."
+		"area": return "Area: tap the corners of the outline. Tap the first point again to close it." if n < 3 else "Area: keep tapping, or tap the first point to close."
+		"acctest":
+			var lbl: String = acc_ref.get("label", "reference")
+			return ("Accuracy: tap one end of the %s (true %.1f mm)." % [lbl, acc_ref.get("mm", 0.0)]) if n == 0 else "Now tap the other end of the %s." % lbl
+	return ""
+
+
 func add_pending_point(p: Vector3) -> void:
-	pending.append(p)
-	var dot := _dot(p)
-	content.add_child(dot)
-	pending_dots.append(dot)
-	var need := 2 if mode == "tape" else 3
-	if pending.size() < need:
-		set_status("Now point at the second end." if mode == "tape" else "Point %d of 3 on the round edge." % (pending.size() + 1))
+	var finish := false
+	if mode == "path" and pending.size() >= 2 and p.distance_to(pending[-1]) < 0.01:
+		finish = true
+	elif mode == "area" and pending.size() >= 3 and p.distance_to(pending[0]) < SNAP_POINT:
+		finish = true
+	if not finish:
+		if mode in ["path", "area"] and pending.size() and p.distance_to(pending[-1]) < 0.01:
+			return     # double tap on the same spot too early: ignore
+		pending.append(p)
+		var dot := _dot(p)
+		content.add_child(dot)
+		pending_dots.append(dot)
+		var need: int = TOOL_POINTS.get(mode, 1 << 20)
+		if pending.size() < need:
+			set_status(tool_hint(mode, pending.size()))
+			return
+	if mode == "acctest":
+		var a: Vector3 = pending[0]
+		var b: Vector3 = pending[1]
+		clear_pending()
+		record_trial(a, b)
 		return
-	var m := create_measure("line" if mode == "tape" else "circle", pending)
+	var m := create_measure(measure_type(mode), pending)
 	clear_pending()
 	if m == null:
-		set_status("Those 3 points are in a line. Try again, spread them out.")
+		set_status("Those points don't make a shape (in a line or on top of each other). Try again, spread them out.")
 		return
 	push_history(func(): remove_measure(m))
 	set_status("%s: %s" % [m.name, measure_lines(m)[0].replace(m.name, "").strip_edges()])
@@ -907,7 +1157,7 @@ func undo() -> void:
 
 
 func clip_item(s: Shape) -> Dictionary:
-	return {"type": s.type, "dims": s.dims.duplicate(), "rot": s.node.quaternion, "name": s.name, "outline": s.outline}
+	return {"type": s.type, "dims": s.dims.duplicate(), "rot": s.node.quaternion, "name": s.name, "outline": s.outline, "orig": s.orig_dims.duplicate()}
 
 
 func copy_selected(cut: bool) -> void:
@@ -934,7 +1184,7 @@ func paste_at(point: Vector3, it = null, offset = null) -> void:
 	if it == null:
 		set_status("Clipboard is empty. Copy or Cut a shape first.")
 		return
-	var s := make_shape(it.type, it.dims, point, it.rot, "", it.get("outline"))
+	var s := make_shape(it.type, it.dims, point, it.rot, "", it.get("outline"), it.get("orig"))
 	if offset != null:
 		s.node.position += offset
 	else:
@@ -963,7 +1213,7 @@ func yaw_of_quat(q: Quaternion) -> float:
 
 
 func snap_yaw_quat(q: Quaternion) -> Quaternion:
-	var step := PI / 4.0
+	var step := deg_to_rad(YAW_STEP_DEG)
 	return Quaternion(Vector3.UP, roundf(yaw_of_quat(q) / step) * step)
 
 
@@ -994,7 +1244,7 @@ func support_below(x: float, z: float, max_y: float, exclude: Shape) -> float:
 	for s in shapes:
 		if s == exclude or _is_falling(s):
 			continue
-		var top = _shape_top_at(s, x, z)
+		var top = _shape_top_at(s, x, z, max_y)
 		if top != null and top <= max_y + 0.01 and top > best:
 			best = top
 	return best
@@ -1008,9 +1258,23 @@ func _is_falling(s: Shape) -> bool:
 
 
 ## Top of a shape's axis-aligned bounds at (x, z), or null when (x, z) is outside it.
-func _shape_top_at(s: Shape, x: float, z: float):
+func _shape_top_at(s: Shape, x: float, z: float, max_y := INF):
 	var sc := scale_of(s.type, s.dims) / 2.0
 	var b := Basis(s.node.quaternion)
+	var solids: Array = s.outline.get("solids", []) if s.type == "box" else []
+	if not solids.is_empty():
+		# Hollow: the highest solid part under (x, z) that is not above max_y (container floor, not its roof).
+		var best = null
+		for sd in solids:
+			var cen: Vector3 = s.node.position + b * (Vector3(sd[0], sd[1], sd[2]) * sc * 2.0)
+			var e2 := Vector3.ZERO
+			for i in 3:
+				e2 += (b[i] * sd[3 + i] * sc[i] * 2.0).abs()
+			if x >= cen.x - e2.x and x <= cen.x + e2.x and z >= cen.z - e2.z and z <= cen.z + e2.z:
+				var t := cen.y + e2.y
+				if t <= max_y + 0.01 and (best == null or t > best):
+					best = t
+		return best
 	var ext := Vector3.ZERO
 	for i in 3:
 		var axis: Vector3 = b[i] * sc[i]
@@ -1022,14 +1286,15 @@ func _shape_top_at(s: Shape, x: float, z: float):
 
 
 ## Square the shape to the grid (yaw in 45° steps, X/Z on grid points) and let it fall onto what is below.
-func settle(s: Shape) -> void:
+## step: how far above the shape's bottom a surface can be and still be stepped onto (sliding into a container).
+func settle(s: Shape, step := 0.02) -> void:
 	s.node.quaternion = snap_yaw_quat(s.node.quaternion)
 	s.node.position.x = snap_grid(s.node.position.x)
 	s.node.position.z = snap_grid(s.node.position.z)
 	refresh_shape(s)
 	var hh := half_height(s)
 	var bottom := s.node.position.y - hh
-	var sup := support_below(s.node.position.x, s.node.position.z, bottom + 0.02, s)
+	var sup := support_below(s.node.position.x, s.node.position.z, bottom + step, s)
 	falling = falling.filter(func(f): return f.shape != s)
 	if bottom - sup > 0.005 and not selftest:
 		falling.append({"shape": s, "from": s.node.position.y, "to": sup + hh, "t0": Time.get_ticks_msec()})
@@ -1078,7 +1343,16 @@ func button_text(id: String) -> String:
 		"cone": return "+ Cone"
 		"tape": return "Tape"
 		"circle": return "Circle 3-pt"
-		"select": return "Move/Size"
+		"rect": return "Rect 3-pt"
+		"height": return "Height"
+		"angle": return "Angle 3-pt"
+		"path": return "Path"
+		"area": return "Area"
+		"settings": return "Settings..."
+		"reset": return "Reset size"
+		"scale": return "Scale"
+		"pin": return "Pin / Unpin"
+		"select": return "Rotate/Move"
 		"units": return "Units: cm" if units == "metric" else "Units: in"
 		"copy": return "Copy"
 		"cut": return "Cut"
@@ -1100,16 +1374,19 @@ func button_text(id: String) -> String:
 		"turnl1": return "Turn room 1° left"
 		"turnr1": return "Turn room 1° right"
 		"turnr5": return "Turn room 5° right"
+		"accuracy": return "Accuracy test..."
+		"roominfo": return "Room info..."
+		"fitcheck": return "Fit check: on" if fit_check else "Fit check: off"
+		"accexport": return "Export results"
+		"accclear": return "Clear results"
 	return id
 
 
 func button_enabled(id: String) -> bool:
-	if id == "drop":
-		return selected != null and not selected.pinned
-	if id in ["copy", "cut", "duplicate", "delete"]:
-		return selected != null
-	if id in ["paste", "nextclip"]:
+	if id == "paste":
 		return clipboard.size() > 0
+	if id == "nextclip":
+		return clipboard.size() > 1
 	return true
 
 
@@ -1124,52 +1401,114 @@ func menu_items() -> Array:
 		for r in list_rooms():
 			out.append({"id": "room:" + r.id, "label": r.name, "sub": "%d shapes · %s" % [r.count, r.updated], "active": r.id == room.get("id", "")})
 		return out
+	if menu_page == "accuracy":
+		return accuracy_items()
+	if menu_page == "roominfo":
+		return [
+			{"id": "back", "label": "< Back"},
+			{"id": "scan", "label": button_text("scan"), "sub": "Meta Space Setup"},
+			{"id": "fitcheck", "label": button_text("fitcheck"), "sub": "red = overlaps", "active": fit_check},
+			{"id": "roomvis", "label": button_text("roomvis")},
+		]
 	for id in MENU_MAIN:
-		out.append({"id": id, "label": button_text(id), "enabled": button_enabled(id),
-			"active": (id == mode), "color": Color("ff6b6b") if id == "quit" else Color.WHITE})
+		var col := Color.WHITE
+		if id in MEASURE_TOOLS:
+			col = C_YELLOW
+		elif id in ["quit", "delete", "clear"]:
+			col = Color("ff6b6b")
+		elif id.begins_with("turn") or id == "placehere":
+			col = Color(0.6, 0.8, 1.0)
+		out.append({"id": id, "label": button_text(id), "active": id == mode, "enabled": button_enabled(id), "color": col})
+	return out
+
+
+func tray_items() -> Array:
+	var out := []
+	for i in PALETTE.size():
+		var p: Dictionary = PALETTE[i]
+		out.append({"id": "obj:%d" % i, "label": p.label, "sub": short_dims(p.type, p.dims), "color": COLORS[p.type]})
 	return out
 
 
 func menu_header() -> Array:
+	if menu_page == "accuracy":
+		var last = acc_trials[-1] if acc_trials.size() else null
+		return [
+			[status, Color.WHITE],
+			[accuracy_summary(), C_YELLOW],
+			[("Last: %s  %.1f mm (true %.1f, error %+.1f)" % [last.ref, last.measured_mm, last.true_mm, last.error_mm]) if last else "Pick a reference, then tap its two ends with the trigger.", Color(0.6, 0.65, 0.7)],
+		]
+	if menu_page == "roominfo":
+		var out := [[status, Color.WHITE]]
+		for l in room_info_lines():
+			out.append([l, C_CYAN])
+		return out
 	var clip = clipboard[clip_index] if clipboard.size() else null
-	var mode_name: String = {"select": "Move/Size", "tape": "Tape", "circle": "Circle 3-pt"}[mode]
 	return [
 		[status, Color.WHITE],
-		["Mode: %s   ·   %s" % [mode_name, room.get("name", "-")], Color(0.6, 0.65, 0.7)],
+		["Tool: %s   ·   %s" % [MODE_NAMES.get(mode, mode), room.get("name", "-")], Color(0.6, 0.65, 0.7)],
 		["Clipboard %d/%d: %s" % [clip_index + 1, clipboard.size(), clip.name] if clip else "Clipboard: empty", C_YELLOW],
 	]
 
 
 func rebuild_menu() -> void:
-	menu.build("FRAMESPACE  " + BUILD if menu_page == "main" else "ROOMS", menu_header(), menu_items(), 4, 0.085)
+	var title: String = {"rooms": "ROOMS", "accuracy": "ACCURACY TEST", "roominfo": "ROOM INFO"}.get(menu_page, "FRAMESPACE  " + BUILD)
+	menu.build(title, menu_header(), menu_items(), 4, 0.075)
 	menu_dirty = false
+	layout_menu()
 
 
-func open_menu(c: Ctrl, fixed: bool) -> void:
+## Stick click: the main menu stuck to that hand (fixed = in front of you). Point with the other hand.
+func open_menu(c: Ctrl, fixed := false) -> void:
+	if ctx_attach == c:
+		close_tools()
+	if tray_attach == c:
+		close_tray()
 	menu_page = "main"
 	menu_attach = null if fixed else c
 	rebuild_menu()
 	var head := camera.global_position
-	var pos: Vector3
 	if fixed:
 		var fwd := -camera.global_basis.z
 		fwd.y = 0
 		fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
-		pos = head + fwd * 0.55 + Vector3(0, -0.15, 0)
+		menu_anchor = head + fwd * 0.55 + Vector3(0, -0.15, 0)
 	else:
-		pos = _menu_hand_pos(c)
-	menu.open_at(pos, head)
+		menu_anchor = _hand_top(c, menu.size.y)
+	menu.open_at(menu_anchor, head)
+	layout_menu()
 	haptic(c, 0.4, 0.03)
 
 
-func _menu_hand_pos(c: Ctrl) -> Vector3:
-	# Just above the controller, nudged toward the other hand so it doesn't hide the holding hand.
-	var p := c.node.global_position
-	var head := camera.global_position
-	var to_head := head - p
-	to_head.y = 0
-	var side := Vector3.UP.cross(to_head.normalized()) * (0.08 if c.hand == "left" else -0.08)
-	return p + Vector3(0, 0.17, 0) + side
+## Where a panel of height h sits: just above the controller, its bottom edge 6 cm over the hand.
+func _hand_top(c: Ctrl, h: float) -> Vector3:
+	return c.node.global_position + Vector3(0, 0.06 + h / 2.0, 0)
+
+
+func layout_menu() -> void:
+	if not menu.is_open:
+		return
+	if menu_attach != null:
+		menu_anchor = _hand_top(menu_attach, menu.size.y)
+	menu.global_position = menu_anchor
+	menu.face(camera.global_position)
+
+
+## X / A: the objects menu (objects.csv) stuck to that hand. Trigger or grip an object with the other hand to grab it.
+func open_tray(c: Ctrl) -> void:
+	if ctx_attach == c:
+		close_tools()
+	if menu_attach == c:
+		close_menu()
+	tray.build("OBJECTS  ·  trigger or grip one to grab it", [], tray_items(), 6, 0.07)
+	tray_attach = c
+	tray.open_at(_hand_top(c, tray.size.y), camera.global_position)
+	haptic(c, 0.4, 0.03)
+
+
+func close_tray() -> void:
+	tray.close()
+	tray_attach = null
 
 
 func close_menu() -> void:
@@ -1178,6 +1517,12 @@ func close_menu() -> void:
 
 
 func on_button(id: String, c: Ctrl = null) -> void:
+	if id.begins_with("obj:"):
+		spawn_object(int(id.substr(4)))
+		return
+	if id in MEASURE_TOOLS or id in EDIT_TOOLS or id == "select":
+		set_tool(id)
+		return
 	if not button_enabled(id):
 		set_status("Clipboard is empty." if id in ["paste", "nextclip"] else "Select a shape first (Move/Size mode, point and trigger).")
 		return
@@ -1186,7 +1531,39 @@ func on_button(id: String, c: Ctrl = null) -> void:
 		menu_page = "main"
 		menu_dirty = true
 		return
+	if id.begins_with("acc:"):
+		start_accuracy(id.substr(4))
+		close_menu()
+		return
+	if id.begins_with("accu:"):
+		acc_custom_mm = maxf(1.0, acc_custom_mm + float(id.substr(5)))
+		if acc_ref.get("id", "") == "custom":
+			acc_ref.mm = acc_custom_mm
+		save_accuracy()
+		set_status("Custom true length: %.0f mm. Tape-measure the real thing first, then set it here." % acc_custom_mm)
+		menu_dirty = true
+		return
 	match id:
+		"accuracy":
+			menu_page = "accuracy"
+			set_status("Accuracy test: measure things whose true size you know.")
+		"roominfo":
+			menu_page = "roominfo"
+			set_status("From your Space Setup scan." if surfaces.size() else "No Space Setup yet: press Scan room.")
+		"fitcheck":
+			set_fit_check(not fit_check)
+			set_status("Fit check on: objects that hit walls, furniture or each other turn red." if fit_check else "Fit check off.")
+		"accexport":
+			export_accuracy()
+		"accclear":
+			var old := acc_trials.duplicate()
+			acc_trials.clear()
+			_clear_acc_line()
+			save_accuracy()
+			push_history(func():
+				acc_trials = old
+				save_accuracy())
+			set_status("Accuracy results cleared. Undo brings them back.")
 		"box", "sphere", "cylinder", "cone":
 			var p := spawn_point()
 			var s := make_shape(id, DEFAULT_DIMS[id], p)
@@ -1198,20 +1575,6 @@ func on_button(id: String, c: Ctrl = null) -> void:
 			push_history(func(): remove_shape(s))
 			set_status("Added %s. Grab to move, drag yellow cubes to resize." % s.name)
 			persist()
-		"tape":
-			mode = "tape"
-			clear_pending()
-			select(null)
-			set_status("Tape: point at the first end and press trigger.")
-		"circle":
-			mode = "circle"
-			clear_pending()
-			select(null)
-			set_status("Circle: tap 3 points around a round edge.")
-		"select":
-			mode = "select"
-			clear_pending()
-			set_status("Move/Size: point at a shape and trigger to select it.")
 		"units":
 			units = "imperial" if units == "metric" else "metric"
 			for s in shapes:
@@ -1219,31 +1582,6 @@ func on_button(id: String, c: Ctrl = null) -> void:
 			for m in measures:
 				refresh_measure_label(m)
 			set_status("Units: %s." % units)
-			persist()
-		"copy": copy_selected(false)
-		"cut": copy_selected(true)
-		"paste":
-			var other = _other_target(c)
-			paste_at(other if other != null else spawn_point())
-		"nextclip":
-			clip_index = (clip_index + 1) % clipboard.size()
-			set_status("Next clipboard item. Press Paste to place it.")
-		"duplicate":
-			var s := selected
-			var dx: Vector3 = (s.node.quaternion * Vector3.RIGHT) * (scale_of(s.type, s.dims).x + 0.05)
-			paste_at(s.node.position, clip_item(s), dx)
-		"drop":
-			var s := selected
-			var sn := snapshot(s)
-			push_history(func(): apply_snapshot(s, sn))
-			settle(s)
-			set_status("Dropped %s onto the surface below." % s.name)
-			persist()
-		"delete":
-			var s := selected
-			remove_shape(s)
-			push_history(func(): restore_shape(s))
-			set_status("Deleted %s. Undo brings it back." % s.name)
 			persist()
 		"undo": undo()
 		"roomvis":
@@ -1281,6 +1619,8 @@ func on_button(id: String, c: Ctrl = null) -> void:
 			set_status("Saved %s." % room.get("name", "room"))
 		"rooms":
 			menu_page = "rooms"
+		"settings":
+			menu_page = "settings"
 		"back":
 			menu_page = "main"
 		"newroom":
@@ -1331,7 +1671,7 @@ func spawn_point() -> Vector3:
 	return p
 
 
-# ================================================================ palette (hold X) and context menu (hold A)
+# ================================================================ objects menu (X / A) and clipboard menu (Y / B)
 func short_dims(type: String, d: Dictionary) -> String:
 	var metric := units == "metric"
 	var k := 100.0 if metric else 1.0 / 0.0254
@@ -1344,108 +1684,191 @@ func short_dims(type: String, d: Dictionary) -> String:
 	return "Ø %s × %s %s" % [n.call(2 * d.r), n.call(d.h), unit]
 
 
-func open_palette(c: Ctrl) -> void:
-	var items := []
-	for i in PALETTE.size():
-		var p: Dictionary = PALETTE[i]
-		items.append({"id": "p%d" % i, "label": p.label, "sub": short_dims(p.type, p.dims), "color": COLORS[p.type], "index": i})
-	palette.build("Objects", [], items, 6, 0.07)
-	var head := camera.global_position
-	var pos := c.node.global_position
-	var away := pos - head
-	away.y = 0
-	away = away.normalized() if away.length() > 0.001 else -camera.global_basis.z
-	palette.open_at(pos + away * 0.12 + Vector3(0, 0.12, 0), head)
-	haptic(c, 0.3, 0.02)
-
-
-func spawn_from_palette(c: Ctrl, id: String, point_w: Vector3) -> void:
-	var it = palette.item(id)
-	if it == null:
-		return
-	var p: Dictionary = PALETTE[it.index]
+## Spawn object i from objects.csv. With a controller + point it starts in that hand (carry until
+## trigger/grip release); without, it lands where you point and settles.
+func spawn_object(i: int, c: Ctrl = null, point_w = null) -> Shape:
+	if i < 0 or i >= PALETTE.size():
+		return null
+	var p: Dictionary = PALETTE[i]
 	label_counts[p.label] = int(label_counts.get(p.label, 0)) + 1
-	var s := make_shape(p.type, p.dims, content.to_local(point_w), Quaternion.IDENTITY, "%s %d" % [p.label, label_counts[p.label]], p.get("outline"))
+	var pos: Vector3 = content.to_local(point_w) if point_w != null else spawn_point()
+	var s := make_shape(p.type, p.dims, pos, Quaternion.IDENTITY, "%s %d" % [p.label, label_counts[p.label]], p.get("outline"))
 	push_history(func(): remove_shape(s))
+	if mode in MEASURE_TOOLS:
+		set_tool("select", false)
 	select(s)
-	start_free(c, s, false)
-	haptic(c, 0.5, 0.04)
-	set_status("Placing %s" % s.name)
+	if c != null:
+		start_free(c, s, false)
+		haptic(c, 0.5, 0.04)
+		set_status("Placing %s" % s.name)
+	else:
+		s.node.position.y += half_height(s)
+		settle(s)
+		set_status("Added %s." % s.name)
 	persist()
+	return s
 
 
-func open_context(c: Ctrl) -> void:
+func set_tool(t: String, announce := true) -> void:
+	mode = t
+	clear_pending()
+	select(selected if t in ["select", "scale"] else null)
+	menu_dirty = true
+	if not announce:
+		return
+	if t in MEASURE_TOOLS:
+		set_status(tool_hint(t, 0))
+		return
+	var clip = clipboard[clip_index] if clipboard.size() else null
+	set_status({
+		"select": "Rotate/Move: trigger picks up (twist your wrist to turn it), grip slides. While holding: stick left/right turns, forward/back pushes/pulls.",
+		"scale": "Scale: trigger an object to select it, then drag its yellow cubes.",
+		"cut": "Cut: trigger on an object.",
+		"copy": "Copy: trigger on an object.",
+		"paste": ("Paste: trigger where you want %s." % clip.name) if clip else "Paste: clipboard is empty. Cut or Copy something first.",
+		"duplicate": "Duplicate: trigger on an object.",
+		"delete": "Delete: trigger on an object.",
+		"reset": "Reset size: trigger on an object to put it back to its original size.",
+		"drop": "Drop: trigger on an object to drop it onto what's below.",
+		"pin": "Pin: trigger on an object to pin or unpin it.",
+	}.get(t, ""))
+
+
+func clip_menu_items(s) -> Array:
+	var can_undo := history.size() > 0 or pending.size() > 0
+	if s == null:
+		var clip = clipboard[clip_index] if clipboard.size() else null
+		return [{"id": "paste", "label": "Paste", "enabled": clip != null}, {"id": "nextclip", "label": "Next clip", "enabled": clipboard.size() > 1},
+			{"id": "undo", "label": "Undo", "enabled": can_undo}]
+	return [{"id": "cut", "label": "Cut"}, {"id": "copy", "label": "Copy"},
+		{"id": "delete", "label": "Delete", "color": Color("ff6b6b")}, {"id": "duplicate", "label": "Duplicate"},
+		{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW}, {"id": "drop", "label": "Drop", "enabled": not s.pinned},
+		{"id": "bigger", "label": "Bigger 5%", "enabled": not s.pinned}, {"id": "smaller", "label": "Smaller 5%", "enabled": not s.pinned},
+		{"id": "reset", "label": "Reset size", "enabled": not s.pinned}, {"id": "undo", "label": "Undo", "enabled": can_undo}]
+
+
+## Y / B: the clipboard menu, stuck to that hand. Acts on the object you pointed at when you pressed it
+## (or, on empty space, pastes where you pointed). Point and trigger with the other hand.
+func open_tools(c: Ctrl) -> void:
 	var s = c.shape_hit.shape if c.shape_hit != null else null
-	var head := camera.global_position
-	var anchor_l: Vector3
 	if s:
 		select(s)
-		anchor_l = c.shape_hit.point
-		ctx.build(s.name, [], [{"id": "cut", "label": "Cut"}, {"id": "copy", "label": "Copy"},
-			{"id": "delete", "label": "Delete", "color": Color("ff6b6b")}, {"id": "duplicate", "label": "Duplicate"},
-			{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW}], 2, 0.09)
-	else:
-		anchor_l = c.target.point if c.target != null else c.o + c.d * 0.8
-		var clip = clipboard[clip_index] if clipboard.size() else null
-		ctx.build(("Clipboard %d/%d: %s" % [clip_index + 1, clipboard.size(), clip.name]) if clip else "Clipboard empty", [],
-			[{"id": "paste", "label": "Paste", "enabled": clip != null}, {"id": "nextclip", "label": "Next clip", "enabled": clipboard.size() > 1}], 2, 0.09)
+	var clip = clipboard[clip_index] if clipboard.size() else null
+	var title: String = s.name if s else (("Clipboard %d/%d: %s" % [clip_index + 1, clipboard.size(), clip.name]) if clip else "Clipboard empty")
+	ctx.build(title, [], clip_menu_items(s), 2, 0.09)
 	ctx.target = s
-	ctx.point = anchor_l
-	var aw := content.to_global(anchor_l)
-	# Open near the hand (never out at a far object), slightly up and toward the object.
-	var pos := content.to_global(c.o + c.d * minf(0.35, anchor_l.distance_to(c.o))) + Vector3(0, 0.1, 0)
-	ctx.open_at(pos, head)
-	_draw_ctx_link(pos, aw, s.color if s else C_CYAN)
+	ctx.point = c.target.point if c.target != null else c.o + c.d * 0.8
+	if menu_attach == c:
+		close_menu()
+	if tray_attach == c:
+		close_tray()
+	ctx_attach = c
+	ctx.open_at(_hand_top(c, ctx.size.y), camera.global_position)
 	haptic(c, 0.4, 0.03)
 
 
-## Dotted line, in the object's wireframe colour, from the context menu to the point it is about.
-func _draw_ctx_link(from: Vector3, to: Vector3, color: Color) -> void:
-	var pts := PackedVector3Array()
-	var n := int(clampf(from.distance_to(to) / 0.03, 1, 400))
-	for i in n:
-		if i % 2 == 0:
-			pts.append(from.lerp(to, float(i) / n))
-			pts.append(from.lerp(to, float(i + 1) / n))
-	ctx_link.mesh = _lines_mesh(pts)
-	ctx_link.material_override = _unlit(color, true)
-	ctx_link.visible = from.distance_to(to) > 0.05
+func close_tools() -> void:
+	ctx.close()
+	ctx_attach = null
 
 
-func run_context(id: String) -> void:
+func run_tool(id: String) -> void:
 	var s = ctx.target
 	var p: Vector3 = ctx.point
-	ctx.close()
+	close_tools()
+	if s != null and not (s in shapes):
+		s = null
 	match id:
-		"cut":
+		"cut", "copy":
 			if s:
 				select(s)
-				copy_selected(true)
-		"copy":
-			if s:
-				select(s)
-				copy_selected(false)
+				copy_selected(id == "cut")
 		"delete":
 			if s:
 				remove_shape(s)
 				push_history(func(): restore_shape(s))
-				set_status("Deleted %s" % s.name)
+				set_status("Deleted %s. Y / B > Undo brings it back." % s.name)
 				persist()
 		"duplicate":
 			if s:
-				select(s)
-				on_button("duplicate")
+				var dx: Vector3 = (s.node.quaternion * Vector3.RIGHT) * (scale_of(s.type, s.dims).x + 0.05)
+				paste_at(s.node.position, clip_item(s), dx)
 		"pin":
 			if s:
 				set_pinned(s, not s.pinned)
 				push_history(func(): set_pinned(s, not s.pinned))
 				set_status(("%s pinned. It can't be grabbed until you unpin it." % s.name) if s.pinned else ("%s unpinned." % s.name))
 				persist()
+		"drop":
+			if s and not s.pinned:
+				push_history(_snap_undo(s))
+				settle(s)
+				set_status("Dropped %s onto the surface below." % s.name)
+				persist()
+		"bigger", "smaller":
+			if s and not s.pinned:
+				push_history(_snap_undo(s))
+				scale_shape(s, SCALE_STEP if id == "bigger" else 1.0 / SCALE_STEP)
+				persist()
+		"reset":
+			if s and not s.pinned:
+				reset_size(s)
+		"undo": undo()
 		"paste": paste_at(p)
 		"nextclip":
-			clip_index = (clip_index + 1) % clipboard.size()
-			set_status("Next clipboard item")
+			if clipboard.size():
+				clip_index = (clip_index + 1) % clipboard.size()
+				set_status("Next paste: %s. Y / B on empty space > Paste." % clipboard[clip_index].name)
 	menu_dirty = true
+
+
+## What trigger does on a shape in an edit tool.
+func apply_tool(c: Ctrl, s: Shape) -> void:
+	haptic(c, 0.4, 0.03)
+	match mode:
+		"cut", "copy":
+			select(s)
+			copy_selected(mode == "cut")
+			set_tool("paste", false)
+		"duplicate":
+			var dx: Vector3 = (s.node.quaternion * Vector3.RIGHT) * (scale_of(s.type, s.dims).x + 0.05)
+			paste_at(s.node.position, clip_item(s), dx)
+		"delete":
+			remove_shape(s)
+			push_history(func(): restore_shape(s))
+			set_status("Deleted %s. Y / B > Undo brings it back." % s.name)
+			persist()
+		"reset":
+			reset_size(s)
+		"scale":
+			select(s)
+		"drop":
+			if refuse_pinned(c, s):
+				return
+			push_history(_snap_undo(s))
+			settle(s)
+			set_status("Dropped %s onto the surface below." % s.name)
+			persist()
+		"pin":
+			set_pinned(s, not s.pinned)
+			push_history(func(): set_pinned(s, not s.pinned))
+			set_status(("%s pinned. It can't be grabbed until you unpin it." % s.name) if s.pinned else ("%s unpinned." % s.name))
+			persist()
+	menu_dirty = true
+
+
+## Back to the size it was created with, still standing on the same spot.
+func reset_size(s: Shape) -> void:
+	if s.orig_dims.is_empty() or s.orig_dims == s.dims:
+		set_status("%s is already its original size." % s.name)
+		return
+	push_history(_snap_undo(s))
+	var bottom := s.node.position.y - half_height(s)
+	s.dims = s.orig_dims.duplicate()
+	s.node.position.y = bottom + half_height(s)
+	refresh_shape(s)
+	set_status("%s reset: %s" % [s.name, dims_text(s)])
+	persist()
 
 
 # ================================================================ pointers
@@ -1510,7 +1933,7 @@ func update_pointer(c: Ctrl, space: PhysicsDirectSpaceState3D) -> void:
 			break
 		var col: Object = h.collider
 		var pnl = col.get_meta("panel") if col.has_meta("panel") else null
-		if pnl == null or not pnl.is_open or (pnl == menu and menu_attach == c):
+		if pnl == null or not pnl.is_open or (pnl == menu and menu_attach == c) or (pnl == tray and tray_attach == c) or (pnl == ctx and ctx_attach == c):
 			ex_ui.append(h.rid)
 			continue
 		c.ui = {"panel": pnl, "id": String(col.get_meta("item")), "dist": ow.distance_to(h.position), "point": h.position}
@@ -1546,7 +1969,7 @@ func update_pointer(c: Ctrl, space: PhysicsDirectSpaceState3D) -> void:
 	var best = real
 	if c.shape_hit != null and (best == null or c.shape_hit.dist < best.dist):
 		best = {"point": c.shape_hit.point, "normal": c.shape_hit.normal, "dist": c.shape_hit.dist, "kind": "shape"}
-	if best != null and mode != "select":
+	if best != null and mode in MEASURE_TOOLS:
 		var sp = snap_point(best.point)
 		if sp != null:
 			best.point = sp
@@ -1567,7 +1990,7 @@ func update_pointer(c: Ctrl, space: PhysicsDirectSpaceState3D) -> void:
 
 
 func update_hovers() -> void:
-	var hov := {menu: "", palette: "", ctx: ""}
+	var hov := {menu: "", tray: "", ctx: ""}
 	for c in ctrls:
 		if c.ui != null and hov.has(c.ui.panel):
 			hov[c.ui.panel] = c.ui.id
@@ -1577,10 +2000,12 @@ func update_hovers() -> void:
 
 
 # ================================================================ controller input
-# Trigger: select / press. Grip: scale (alone) or move (with trigger). B (right) while moving: free pick-up.
-# Stick while holding: up/down = scale ±5%, left = 45° clockwise, right = 45° counter-clockwise.
+# Trigger on a shape (Rotate/Move): pick it up on the pointer; twist your wrist to turn it; touch a surface
+#   and it snaps to the grid on top. A quick tap only selects. Grip alone: slide on the floor.
+# Grip + trigger: lift it. Scale tool: trigger on a yellow cube resizes.
+# Stick while holding: left/right = turn smoothly, forward/back = push away / pull in.
 # Stick click: main menu on that hand (both sticks: menu fixed in front of you).
-# Hold A (right): context menu. Hold X (left): shape palette.
+# Y / B: clipboard menu (cut, copy, paste, undo...), press to open/close. X / A: objects menu, press to open/close.
 func read_buttons(c: Ctrl) -> Dictionary:
 	var n := c.node
 	if not n.get_is_active():
@@ -1599,13 +2024,6 @@ func read_buttons(c: Ctrl) -> Dictionary:
 	}
 
 
-func b_held() -> bool:
-	for c in ctrls:
-		if c.hand == "right":
-			return c.btn.get("high", false)
-	return false
-
-
 func process_input(c: Ctrl, b: Dictionary) -> void:
 	var prev := c.btn
 	c.btn = b
@@ -1617,61 +2035,53 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 	var down := func(k): return b.get(k, false) and not prev.get(k, false)
 	var up := func(k): return not b.get(k, false) and prev.get(k, false)
 
-	# Stick click: main menu.
+	var dt := clampf(now - c.last_t, 0.0, 0.1) if c.last_t >= 0.0 else 0.0
+	c.last_t = now
+
+	# Stick click: main menu on that hand (both sticks together: fixed in front of you).
 	if down.call("stick") and c.drag == null:
 		var other: Ctrl = ctrls[0] if c == ctrls[1] else ctrls[1]
 		if menu.is_open and menu_attach == other and now - other.stick_down_at < 0.4:
-			open_menu(c, true)             # both sticks: pin it in front of you
+			open_menu(c, true)
 		elif menu.is_open:
 			close_menu()
 		else:
-			open_menu(c, false)
+			open_menu(c)
 		c.stick_down_at = now
 
-	if c.hand == "right":
-		if down.call("low"):
-			c.a_down_at = now
-			if ctx.is_open:
-				ctx.close()
-				c.a_down_at = -1.0
-		if b.low and c.a_down_at >= 0.0 and now - c.a_down_at > 0.25:
-			c.a_down_at = -1.0
-			open_context(c)
-		if up.call("low"):
-			c.a_down_at = -1.0
-	else:
-		if down.call("low"):
-			open_palette(c)
-		if up.call("low"):
-			palette.close()
+	# X / A: objects menu on that hand. Y / B: clipboard menu on that hand. Both toggle on press.
+	if down.call("low"):
+		if tray.is_open and tray_attach == c:
+			close_tray()
+		elif c.drag == null:
+			open_tray(c)
+	if down.call("high"):
+		if ctx.is_open and ctx_attach == c:
+			close_tools()
+		elif c.drag == null:
+			open_tools(c)
 
-	if c.drag != null and c.drag.type == "move" and b_held():
-		convert_to_free(c)
 	if down.call("trigger"):
 		on_trigger_down(c, b)
 	if down.call("grip"):
 		on_grip_down(c, b)
 	if up.call("trigger"):
 		c.press_shape = null
-	var t = c.drag.type if c.drag != null else ""
-	if (t == "handle" and up.call("trigger")) or ((t == "move" or t == "free") and (up.call("trigger") or up.call("grip"))):
-		on_drag_release(c)
+	if c.drag != null:
+		var rel: String = c.drag.get("release", "trigger")
+		if up.call(rel):
+			on_drag_release(c)
 	if c.drag != null and (c.drag.type == "move" or c.drag.type == "free"):
-		if absf(b.sx) < 0.3:
+		# Stick while holding: left/right turns smoothly, forward/back pushes away / pulls in.
+		# The stick must come back to centre after a grab starts (no surprise spin).
+		var sx: float = b.get("sx", 0.0)
+		var sy: float = b.get("sy", 0.0)
+		if Vector2(sx, sy).length() < 0.2:
 			c.latch_x = false
-		if absf(b.sy) < 0.3:
-			c.latch_y = false
-		if not c.latch_x and absf(b.sx) > 0.7:
-			c.latch_x = true
-			rotate_held(c, -PI / 4 if b.sx < 0 else PI / 4)
-			haptic(c, 0.3, 0.02)
-		if not c.latch_y and absf(b.sy) > 0.7:
-			c.latch_y = true
-			scale_held(c, SCALE_STEP if b.sy > 0 else 1.0 / SCALE_STEP)
-			haptic(c, 0.3, 0.02)
+		if not c.latch_x:
+			stick_held(c, sx, sy, dt)
 	else:
-		c.latch_x = true     # stick must return to centre after a grab starts
-		c.latch_y = true
+		c.latch_x = true
 
 
 func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
@@ -1684,61 +2094,98 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 			if it != null and it.get("enabled", true):
 				haptic(c, 0.4, 0.03)
 				on_button(id, c)
-		elif pnl == palette:
-			spawn_from_palette(c, id, c.ui.point)
+				# Picking a tool other than Move/Scale gets the menu out of your way.
+				if (id in MEASURE_TOOLS or id in EDIT_TOOLS) and menu.is_open:
+					close_menu()
+		elif pnl == tray:
+			grab_from_tray(c, id, "trigger")
 		elif pnl == ctx:
 			var it2 = ctx.item(id)
 			if it2 != null and it2.get("enabled", true):
 				haptic(c, 0.4, 0.03)
-				run_context(id)
+				run_tool(id)
+		return
+	if c.drag != null and c.drag.type == "move":
+		convert_to_free(c)          # grip + trigger: lift it
 		return
 	if ctx.is_open:
-		ctx.close()
+		close_tools()
 		return
-	if c.handle_hit != null and not b.get("grip", false) and not _anyone_carrying():
-		start_handle(c, c.handle_hit)
-		haptic(c)
-		return
-	if mode != "select":
+	if mode in MEASURE_TOOLS:
 		var p: Vector3 = c.target.point if c.target != null else c.o + c.d * 0.8
 		if c.target == null:
 			set_status("No surface there: used a point 80 cm along the ray.")
 		haptic(c)
 		add_pending_point(p)
 		return
+	if mode == "paste":
+		var pp: Vector3 = c.target.point if c.target != null else c.o + c.d * 0.8
+		haptic(c, 0.4, 0.03)
+		paste_at(pp)
+		return
+	if mode == "scale":
+		if c.handle_hit != null and not b.get("grip", false) and not _anyone_carrying():
+			start_handle(c, c.handle_hit)
+			haptic(c)
+		elif c.shape_hit != null:
+			select(c.shape_hit.shape)
+			haptic(c, 0.2, 0.015)
+			set_status(("%s is pinned: unpin it to resize." if selected.pinned else "Scale %s: drag a yellow cube.") % selected.name)
+		elif selected:
+			select(null)
+		return
+	if mode in EDIT_TOOLS:
+		if c.shape_hit != null:
+			apply_tool(c, c.shape_hit.shape)
+		else:
+			set_status("%s: point at an object." % MODE_NAMES[mode])
+		return
+	# Rotate/Move.
+	if c.drag != null:
+		return
 	if c.shape_hit != null:
 		var s: Shape = c.shape_hit.shape
 		select(s)
 		c.press_shape = s
 		haptic(c, 0.2, 0.015)
-		if b.get("grip", false) and not refuse_pinned(c, s):
-			start_move(c, s)
+		if not refuse_pinned(c, s, false):
+			start_free(c, s, true, c.shape_hit.point)
 		return
 	if selected:
 		select(null)
 
 
+func grab_from_tray(c: Ctrl, id: String, release: String) -> void:
+	if not id.begins_with("obj:"):
+		return
+	var s := spawn_object(int(id.substr(4)), c, c.ui.point)
+	if s and c.drag != null:
+		c.drag["release"] = release
+	close_tray()
+
+
 func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 	last_ctrl = c
-	if c.ui != null and c.ui.panel == palette:
-		spawn_from_palette(c, c.ui.id, c.ui.point)
+	if c.ui != null and c.ui.panel == tray:
+		grab_from_tray(c, c.ui.id, "grip")
 		return
 	if c.drag != null and c.drag.type == "handle":
-		# Grip during a resize: stop resizing (size stays where it is) and grab to move instead.
+		# Grip during a resize: stop resizing (size stays where it is) and slide it instead.
 		var hs: Shape = c.drag.shape
 		c.drag = null
 		if not refuse_pinned(c, hs):
 			start_move(c, hs)
 		return
-	if c.ui != null or mode != "select" or c.drag != null:
+	if c.ui != null or mode in MEASURE_TOOLS or c.drag != null:
 		return
-	var s = c.press_shape if (b.get("trigger", false) and c.press_shape != null) else (c.shape_hit.shape if c.shape_hit != null else null)
+	var s = c.shape_hit.shape if c.shape_hit != null else null
 	if s == null:
 		return
-	select(s)
+	if mode == "select":
+		select(s)
 	if refuse_pinned(c, s):
 		return
-	# Grabbing only ever moves a shape. Size and rotation change only with the stick (snap steps).
+	# Grip slides it on the grid; the stick turns it and pushes/pulls it. Size changes via the Y / B menu or the Scale tool.
 	start_move(c, s)
 	haptic(c)
 
@@ -1750,7 +2197,7 @@ func _anyone_carrying() -> bool:
 	return false
 
 
-## Pinned shapes stay put: no grabbing, carrying, resizing or dropping until unpinned from the hold-A menu.
+## Pinned shapes stay put: no grabbing, carrying, resizing or dropping until unpinned from the Y / B menu.
 func set_pinned(s: Shape, on: bool) -> void:
 	s.pinned = on
 	if selected == s:
@@ -1760,11 +2207,11 @@ func set_pinned(s: Shape, on: bool) -> void:
 	menu_dirty = true
 
 
-func refuse_pinned(c: Ctrl, s: Shape) -> bool:
+func refuse_pinned(c: Ctrl, s: Shape, loud := true) -> bool:
 	if s == null or not s.pinned:
 		return false
-	set_status("%s is pinned. Hold A on it and pick Unpin to move it." % s.name)
-	if c:
+	set_status("%s is pinned. Press Y or B on it and pick Unpin to move it." % s.name)
+	if c and loud:
 		haptic(c, 0.6, 0.06)
 	return true
 
@@ -1774,8 +2221,22 @@ func on_drag_release(c: Ctrl) -> void:
 	if dr == null:
 		return
 	c.drag = null
-	if dr.type == "move" or dr.type == "free":
-		settle(dr.shape)
+	if dr.type == "free":
+		var s: Shape = dr.shape
+		var now := Time.get_ticks_msec() / 1000.0
+		var moved: float = s.node.position.distance_to(dr.p_start)
+		if dr.get("tap_ok", false) and now - dr.t0 < TAP_SEC and moved < 0.03:
+			# Just a tap: select, leave it exactly where it was.
+			apply_snapshot(s, dr.snap)
+			if dr.undo_pushed and history.size():
+				history.pop_back()
+			set_status("Selected %s. Hold trigger to pick it up, grip to slide it." % s.name)
+		else:
+			settle(s)
+			set_status("%s placed" % s.name)
+		grid_patch.visible = false
+	elif dr.type == "move":
+		settle(dr.shape, STEP_UP)
 		grid_patch.visible = false
 		set_status("%s placed" % dr.shape.name)
 	persist()
@@ -1792,74 +2253,117 @@ func yaw_of_dir(d: Vector3) -> float:
 
 
 func start_move(c: Ctrl, s: Shape) -> void:
-	if b_held():
-		start_free(c, s, true)
-		return
 	push_history(_snap_undo(s))
 	falling = falling.filter(func(f): return f.shape != s)
-	c.drag = {"type": "move", "shape": s, "c0": c.o, "yaw0": yaw_of_dir(c.d), "p0": s.node.position, "base_y": s.node.position.y}
-	set_status("Moving %s" % s.name)
+	c.drag = {"type": "move", "release": "grip", "shape": s, "c0": c.o, "yaw0": yaw_of_dir(c.d), "p0": s.node.position, "base_y": s.node.position.y}
+	set_status("Sliding %s" % s.name)
 
 
 func update_move(c: Ctrl, dr: Dictionary) -> void:
 	var qy := Quaternion(Vector3.UP, yaw_of_dir(c.d) - dr.yaw0)
 	var p: Vector3 = c.o + qy * (dr.p0 - dr.c0)
+	var flat := Vector3(c.d.x, 0, c.d.z)
+	if flat.length() > 0.01:
+		p += flat.normalized() * float(dr.get("push", 0.0))
 	var s: Shape = dr.shape
-	s.node.position = Vector3(snap_grid(p.x), dr.base_y, snap_grid(p.z))
+	# Stays on the floor, but steps up onto / down off low surfaces (a container or van floor) as it slides.
+	var hh := half_height(s)
+	var x := snap_grid(p.x)
+	var z := snap_grid(p.z)
+	var y: float = support_below(x, z, dr.base_y - hh + STEP_UP, s) + hh
+	s.node.position = Vector3(x, y, z)
 	refresh_shape(s)
-	show_grid_patch(s.node.position.x, dr.base_y - half_height(s), s.node.position.z)
+	show_grid_patch(s.node.position.x, y - hh, s.node.position.z)
 
 
-func _ctrl_local_xform(c: Ctrl) -> Transform3D:
-	return content.global_transform.affine_inverse() * c.node.global_transform
+func _ctrl_local_quat(c: Ctrl) -> Quaternion:
+	return (content.global_basis.inverse() * c.node.global_basis).get_rotation_quaternion()
 
 
-func start_free(c: Ctrl, s: Shape, push_undo: bool) -> void:
+## Trigger carry. The shape hangs on the ray at the distance you grabbed it (point where you want it,
+## like a brush); twisting the wrist turns it; it stays upright.
+func start_free(c: Ctrl, s: Shape, push_undo: bool, grab_point = null) -> void:
+	var snap := snapshot(s)
 	if push_undo:
 		push_history(_snap_undo(s))
 	falling = falling.filter(func(f): return f.shape != s)
-	# Position follows the controller; the shape keeps its rotation (only the stick turns it).
-	c.drag = {"type": "free", "shape": s, "off": _ctrl_local_xform(c).affine_inverse() * s.node.position, "rot": s.node.quaternion}
-	set_status("Carrying %s" % s.name)
+	var gp: Vector3 = grab_point if grab_point != null else s.node.position
+	var dist := maxf(0.05, (gp - c.o).dot(c.d))
+	c.drag = {"type": "free", "release": "trigger", "shape": s, "dist": dist, "off": s.node.position - (c.o + c.d * dist),
+		"yaw0": yaw_of_quat(s.node.quaternion), "q0": _ctrl_local_quat(c), "t0": Time.get_ticks_msec() / 1000.0,
+		"p_start": s.node.position, "snap": snap, "undo_pushed": push_undo, "tap_ok": push_undo, "snapped": false}
+	set_status("Carrying %s. Touch a surface to snap, twist to turn." % s.name)
 
 
+## Grip + trigger: turn a slide into a trigger carry (lift it).
 func convert_to_free(c: Ctrl) -> void:
 	start_free(c, c.drag.shape, false)
 	haptic(c, 0.5, 0.04)
 
 
+## Wrist twist (roll around the controller's pointing axis) since the grab, in radians.
+func wrist_twist(c: Ctrl, q0: Quaternion) -> float:
+	var rel := q0.inverse() * _ctrl_local_quat(c)
+	var a := 2.0 * atan2(rel.z, rel.w)
+	return wrapf(a, -PI, PI)
+
+
 func update_free(c: Ctrl, dr: Dictionary) -> void:
 	var s: Shape = dr.shape
-	s.node.position = _ctrl_local_xform(c) * dr.off
-	s.node.quaternion = dr.rot
-	refresh_shape(s)
-	show_grid_patch(s.node.position.x, support_below(s.node.position.x, s.node.position.z, s.node.position.y, s), s.node.position.z)
-
-
-func rotate_held(c: Ctrl, ang: float) -> void:
-	var dr: Dictionary = c.drag
-	var s: Shape = dr.shape
-	var qy := Quaternion(Vector3.UP, ang)
-	if dr.type == "move":
-		s.node.quaternion = snap_yaw_quat(qy * s.node.quaternion)
+	var p: Vector3 = c.o + c.d * dr.dist + dr.off
+	var yaw: float = dr.yaw0 + wrist_twist(c, dr.q0)
+	var hh := half_height(s)
+	var sup := support_below(p.x, p.z, p.y, s)
+	dr.snapped = p.y - hh - sup < SNAP_TOUCH
+	if dr.snapped:
+		var step := deg_to_rad(YAW_STEP_DEG)
+		yaw = roundf(yaw / step) * step
+		p = Vector3(snap_grid(p.x), sup + hh, snap_grid(p.z))
+		show_grid_patch(p.x, sup, p.z)
 	else:
-		s.node.quaternion = qy * s.node.quaternion
-		dr.rot = s.node.quaternion
+		grid_patch.visible = false
+	s.node.position = p
+	s.node.quaternion = Quaternion(Vector3.UP, yaw)
 	refresh_shape(s)
-	set_status("%s: rotated 45° %s" % [s.name, "clockwise" if ang < 0 else "counter-clockwise"])
 
 
-func scale_held(c: Ctrl, f: float) -> void:
-	var dr: Dictionary = c.drag
-	var s: Shape = dr.shape
+func scale_shape(s: Shape, f: float) -> void:
 	var bottom := s.node.position.y - half_height(s)
 	for k in s.dims.keys():
 		s.dims[k] = maxf(MIN_SIZE, roundf(s.dims[k] * f * 1000.0) / 1000.0)
-	if dr.type == "move":
-		dr.base_y = bottom + half_height(s)
-		s.node.position.y = dr.base_y
+	s.node.position.y = bottom + half_height(s)
+	for k2 in ctrls:
+		if k2.drag != null and k2.drag.shape == s and k2.drag.type == "move":
+			k2.drag.base_y = s.node.position.y
 	refresh_shape(s)
 	set_status("%s: %s" % [s.name, dims_text(s)])
+
+
+func _stick_curve(v: float) -> float:
+	var a := absf(v)
+	if a < 0.2:
+		return 0.0
+	var t := (a - 0.2) / 0.8
+	return signf(v) * t * t       # gentle near the centre for fine control
+
+
+## Smooth stick while holding: x = turn (right = clockwise), y = push away (+) / pull in (-).
+func stick_held(c: Ctrl, sx: float, sy: float, dt: float) -> void:
+	var dr: Dictionary = c.drag
+	var s: Shape = dr.shape
+	var turn := -deg_to_rad(ROT_SPEED) * _stick_curve(sx) * dt
+	var push := PUSH_SPEED * _stick_curve(sy) * dt
+	if turn != 0.0:
+		if dr.type == "free":
+			dr.yaw0 += turn
+		else:
+			s.node.quaternion = Quaternion(Vector3.UP, turn) * s.node.quaternion
+			refresh_shape(s)
+	if push != 0.0:
+		if dr.type == "free":
+			dr.dist = clampf(dr.dist + push, 0.1, 15.0)
+		else:
+			dr["push"] = float(dr.get("push", 0.0)) + push
 
 
 ## Closest point on line p0 + dir*t to the ray o + r*u. Returns t, or null when parallel.
@@ -1901,27 +2405,66 @@ func update_handle(c: Ctrl, dr: Dictionary) -> void:
 
 func update_preview() -> void:
 	var c := last_ctrl
-	if pending.is_empty() or c == null or c.target == null:
+	if c == null or c.target == null or not (mode in MEASURE_TOOLS) or (pending.is_empty() and mode != "height"):
 		preview.visible = false
 		preview_label.visible = false
 		return
 	var p: Vector3 = c.target.point
-	var pts := PackedVector3Array(pending)
+	var pts: Array = pending.duplicate()
 	pts.append(p)
-	preview.mesh = _lines_mesh(pts, true)
+	var lines: Array = []
+	var at: Vector3 = p
+	var draw := PackedVector3Array(pts)
+	match mode:
+		"acctest":
+			var mm: float = (pending[0] as Vector3).distance_to(p) * 1000.0
+			lines = ["%.1f mm" % mm, "error %+.1f mm" % (mm - float(acc_ref.get("mm", 0.0)))]
+			at = (pending[0] + p) / 2.0
+		"tape":
+			var dv: Vector3 = p - pending[0]
+			lines = [L(dv.length()), "vert %s · horiz %s" % [L(absf(dv.y)), L(Vector2(dv.x, dv.z).length())]]
+			at = (pending[0] + p) / 2.0
+		"circle":
+			if pending.size() == 2:
+				var circ = circle_from_3(pending[0], pending[1], p)
+				if circ != null:
+					lines = ["Ø " + L(2 * circ.r), "r " + L(circ.r)]
+					at = circ.center
+		"rect":
+			if pending.size() == 1:
+				lines = [L(pending[0].distance_to(p))]
+				at = (pending[0] + p) / 2.0
+			else:
+				var r = rect_from_3(pending[0], pending[1], p)
+				if r != null:
+					draw = PackedVector3Array(r.corners + [r.corners[0]])
+					lines = ["%s × %s" % [L(r.w), L(r.d)], "area " + AREA(r.w * r.d)]
+					at = (r.corners[0] + r.corners[2]) / 2.0
+		"height":
+			draw = PackedVector3Array([p, floor_foot(p)])
+			lines = ["H " + L(p.y)]
+			at = (p + floor_foot(p)) / 2.0
+		"angle":
+			if pending.size() == 2:
+				lines = ["%.1f°" % angle_deg(pending[0], pending[1], p)]
+				at = pending[1]
+			else:
+				lines = [L(pending[0].distance_to(p))]
+				at = (pending[0] + p) / 2.0
+		"path":
+			lines = ["total " + L(path_len(pts)), "this leg " + L(pending[-1].distance_to(p))]
+		"area":
+			if pts.size() >= 3:
+				draw.append(pts[0])
+				lines = ["area " + AREA(poly_area(pts)), "perim " + L(path_len(pts, true))]
+			else:
+				lines = [L(pending[0].distance_to(p))]
+	preview.mesh = _lines_mesh(draw, true)
 	preview.visible = true
-	if mode == "tape":
-		var a: Vector3 = pending[0]
-		var dv := p - a
-		set_label(preview_label, [L(dv.length()), "vert %s · horiz %s" % [L(absf(dv.y)), L(Vector2(dv.x, dv.z).length())]])
-		preview_label.position = (a + p) / 2.0 + Vector3(0, 0.05, 0)
+	if lines.size():
+		set_label(preview_label, lines)
+		preview_label.position = at + Vector3(0, 0.05, 0)
 		preview_label.visible = true
-	elif pending.size() == 2:
-		var circ = circle_from_3(pending[0], pending[1], p)
-		if circ != null:
-			set_label(preview_label, ["Ø " + L(2 * circ.r), "r " + L(circ.r)])
-			preview_label.position = circ.center + Vector3(0, 0.05, 0)
-			preview_label.visible = true
 	else:
 		preview_label.visible = false
 
@@ -1939,20 +2482,328 @@ func _process(delta: float) -> void:
 				"free": update_free(c, dr)
 				"handle": update_handle(c, dr)
 	update_hovers()
-	if ctx_link.visible and not ctx.is_open:
-		ctx_link.visible = false
 	update_falling()
 	update_preview()
+	update_fit(delta)
 	if menu.is_open:
 		if menu_dirty:
 			rebuild_menu()
-		if menu_attach != null:
-			menu.global_position = _menu_hand_pos(menu_attach)
-			menu.face(camera.global_position)
+		else:
+			layout_menu()
+	if ctx.is_open and ctx_attach != null:
+		ctx.global_position = _hand_top(ctx_attach, ctx.size.y)
+		ctx.face(camera.global_position)
+	if tray.is_open and tray_attach != null:
+		tray.global_position = _hand_top(tray_attach, tray.size.y)
+		tray.face(camera.global_position)
 	if save_dirty:
 		save_timer -= delta
 		if save_timer <= 0.0:
 			save_room_now()
+
+
+# ================================================================ fit check
+## Wire / fill colours: red when it doesn't fit, white wire while selected.
+func apply_shape_colors(s: Shape) -> void:
+	var base: Color = C_RED if s.fit_hits.size() else s.color
+	s.wire_mat.albedo_color = Color.WHITE if s == selected else base
+	s.fill_mat.albedo_color = Color(base, (0.14 if s == selected else 0.06) + (0.08 if s.fit_hits.size() else 0.0))
+
+
+func set_fit_check(on: bool) -> void:
+	fit_check = on
+	if not on:
+		for s in shapes:
+			if s.fit_hits.size():
+				s.fit_hits = []
+				refresh_shape(s)
+				apply_shape_colors(s)
+	fit_timer = 0.0
+	save_settings()
+	menu_dirty = true
+
+
+## The shape's collider shrunk by FIT_MARGIN on every side, so flush contact and scan noise don't count.
+func fit_query_shape(s: Shape) -> Shape3D:
+	var m := FIT_MARGIN
+	match s.type:
+		"box":
+			var b := BoxShape3D.new()
+			b.size = (scale_of(s.type, s.dims) - Vector3.ONE * 2.0 * m).max(Vector3.ONE * 0.005)
+			return b
+		"sphere":
+			var sp := SphereShape3D.new()
+			sp.radius = maxf(0.005, s.dims.r - m)
+			return sp
+		"cylinder":
+			var cy := CylinderShape3D.new()
+			cy.radius = maxf(0.005, s.dims.r - m)
+			cy.height = maxf(0.005, s.dims.h - 2.0 * m)
+			return cy
+	var r := maxf(0.005, s.dims.r - m)
+	var h := maxf(0.005, s.dims.h - 2.0 * m)
+	var pts := PackedVector3Array([Vector3(0, h / 2.0, 0)])
+	for k in 16:
+		var t := float(k) / 16 * TAU
+		pts.append(Vector3(cos(t) * r, -h / 2.0, sin(t) * r))
+	var cv := ConvexPolygonShape3D.new()
+	cv.points = pts
+	return cv
+
+
+## Names of the walls, furniture and other shapes this shape overlaps by more than FIT_MARGIN.
+func fit_hits_for(s: Shape, space: PhysicsDirectSpaceState3D) -> Array:
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = fit_query_shape(s)
+	q.transform = s.col.global_transform
+	q.collision_mask = LAYER_ROOM | LAYER_SHAPE
+	var ex: Array[RID] = fit_ignore.duplicate()
+	ex.append(s.body.get_rid())
+	q.exclude = ex
+	var out := []
+	for r in space.intersect_shape(q, 16):
+		var col: Object = r.collider
+		var nm := ""
+		if col == null:
+			continue
+		if col.has_meta("shape"):
+			var o = col.get_meta("shape")
+			if not shapes.has(o):
+				continue
+			nm = o.name
+		else:
+			var a = col.get_parent()
+			nm = String(a.label_name) if a != null and "label_name" in a else "room"
+		if nm != "" and not out.has(nm):
+			out.append(nm)
+	out.sort()
+	return out
+
+
+func update_fit(delta: float, force := false) -> void:
+	if not fit_check:
+		return
+	fit_timer -= delta
+	if fit_timer > 0.0 and not force:
+		return
+	fit_timer = FIT_EVERY
+	var space := get_world_3d().direct_space_state
+	for s in shapes:
+		if not s.node.is_inside_tree():
+			continue
+		var hits := fit_hits_for(s, space)
+		if hits != s.fit_hits:
+			s.fit_hits = hits
+			refresh_shape(s)
+			apply_shape_colors(s)
+
+
+# ================================================================ room info (Space Setup)
+func _poly2_area(pts: PackedVector2Array) -> float:
+	var a := 0.0
+	for i in pts.size():
+		var p := pts[i]
+		var q := pts[(i + 1) % pts.size()]
+		a += p.x * q.y - q.x * p.y
+	return absf(a) / 2.0
+
+
+## Size of the room from the Space Setup scan: floor, ceiling height, walls, doors, windows, furniture.
+func room_summary() -> Dictionary:
+	var fl = null
+	var ce = null
+	var walls := []
+	var doors := 0
+	var windows := 0
+	var things := 0
+	for n in surfaces:
+		if not is_instance_valid(n):
+			continue
+		var lab := String(n.label_name)
+		if lab == "floor":
+			fl = n
+		elif lab == "ceiling":
+			ce = n
+		elif lab.contains("wall"):
+			walls.append(n.size_2d.x)
+		elif lab.contains("door"):
+			doors += 1
+		elif lab.contains("window"):
+			windows += 1
+		elif not lab.contains("global mesh"):
+			things += 1
+	var out := {"scanned": surfaces.size() > 0, "walls": walls.size(), "doors": doors, "windows": windows, "furniture": things}
+	var per := 0.0
+	for w in walls:
+		per += w
+	out["perimeter_m"] = per
+	if fl != null:
+		out["floor_w_m"] = fl.size_2d.x
+		out["floor_d_m"] = fl.size_2d.y
+		out["floor_area_m2"] = _poly2_area(fl.boundary) if fl.boundary.size() >= 3 else fl.size_2d.x * fl.size_2d.y
+		if ce != null:
+			out["ceiling_m"] = ce.global_position.y - fl.global_position.y
+			out["volume_m3"] = out.floor_area_m2 * out.ceiling_m
+	return out
+
+
+func room_info_lines() -> Array:
+	var r := room_summary()
+	if not r.scanned:
+		return ["No Space Setup data yet.", "Press Scan room to map the walls, floor and furniture."]
+	var out := []
+	if r.has("floor_area_m2"):
+		out.append("Floor %s × %s  ·  area %s" % [L(r.floor_w_m), L(r.floor_d_m), AREA(r.floor_area_m2)])
+	else:
+		out.append("No floor in the scan.")
+	if r.has("ceiling_m"):
+		out.append("Ceiling height %s  ·  room volume %s" % [L(r.ceiling_m), VOL(r.volume_m3)])
+	out.append("%d walls, perimeter %s" % [r.walls, L(r.perimeter_m)])
+	var pl := func(n: int, w: String) -> String: return "%d %s%s" % [n, w, "" if n == 1 else "s"]
+	out.append("%s · %s · %s" % [pl.call(r.doors, "door"), pl.call(r.windows, "window"), pl.call(r.furniture, "furniture item")])
+	return out
+
+
+# ================================================================ accuracy test
+func accuracy_items() -> Array:
+	var cur: String = acc_ref.get("id", "") if mode == "acctest" else ""
+	var out := [{"id": "back", "label": "< Back"}]
+	for r in ACC_REFS:
+		out.append({"id": "acc:" + r.id, "label": r.label, "sub": "%.1f mm" % r.mm, "active": cur == r.id, "color": C_YELLOW})
+	out.append({"id": "acc:custom", "label": "Custom length", "sub": "%.0f mm (set below)" % acc_custom_mm, "active": cur == "custom", "color": C_YELLOW})
+	out.append({"id": "accexport", "label": button_text("accexport"), "sub": "CSV to Download/Framespace", "enabled": acc_trials.size() > 0})
+	for d in ["-100", "-10", "-1", "+1", "+10", "+100"]:
+		out.append({"id": "accu:" + d, "label": "%s mm" % d, "sub": "custom length", "color": Color(0.6, 0.8, 1.0)})
+	out.append({"id": "accclear", "label": button_text("accclear"), "color": Color("ff6b6b"), "enabled": acc_trials.size() > 0})
+	return out
+
+
+func start_accuracy(ref_id: String) -> void:
+	if ref_id == "custom":
+		acc_ref = {"id": "custom", "label": "Custom length", "mm": acc_custom_mm}
+	else:
+		for r in ACC_REFS:
+			if r.id == ref_id:
+				acc_ref = r.duplicate()
+	if acc_ref.is_empty():
+		return
+	set_tool("acctest")
+
+
+func _clear_acc_line() -> void:
+	if acc_line != null and is_instance_valid(acc_line):
+		acc_line.queue_free()
+	acc_line = null
+
+
+func record_trial(a: Vector3, b: Vector3) -> Dictionary:
+	var true_mm: float = acc_ref.get("mm", 0.0)
+	var meas := a.distance_to(b) * 1000.0
+	var err := meas - true_mm
+	var head := content.to_local(camera.global_position)
+	var t := {
+		"time": _now_iso(), "ref": String(acc_ref.get("label", "?")),
+		"true_mm": snappedf(true_mm, 0.1), "measured_mm": snappedf(meas, 0.1), "error_mm": snappedf(err, 0.1),
+		"error_pct": snappedf(100.0 * err / true_mm, 0.01) if true_mm > 0 else 0.0,
+		"distance_m": snappedf(head.distance_to((a + b) / 2.0), 0.01),
+	}
+	acc_trials.append(t)
+	save_accuracy()
+	_clear_acc_line()
+	acc_line = Node3D.new()
+	acc_line.add_child(_dot(a))
+	acc_line.add_child(_dot(b))
+	var li := MeshInstance3D.new()
+	li.material_override = mat_measure
+	li.mesh = _lines_mesh(PackedVector3Array([a, b]))
+	acc_line.add_child(li)
+	var lbl := make_label(C_YELLOW if absf(err) <= 10.0 else C_RED)
+	lbl.position = (a + b) / 2.0 + Vector3(0, 0.05, 0)
+	set_label(lbl, ["%.1f mm  (%+.1f)" % [meas, err], "true %.1f mm · trial %d" % [true_mm, acc_trials.size()]])
+	acc_line.add_child(lbl)
+	content.add_child(acc_line)
+	push_history(func():
+		acc_trials.erase(t)
+		save_accuracy()
+		_clear_acc_line())
+	set_status("%s: %.1f mm, true %.1f, error %+.1f mm. %s. Tap again for another trial." % [t.ref, meas, true_mm, err, accuracy_summary()])
+	if last_ctrl:
+		haptic(last_ctrl, 0.5, 0.04)
+	menu_dirty = true
+	return t
+
+
+func accuracy_stats() -> Dictionary:
+	var n := acc_trials.size()
+	if n == 0:
+		return {"n": 0}
+	var sum := 0.0
+	var sabs := 0.0
+	var sq := 0.0
+	var worst := 0.0
+	var spct := 0.0
+	var sdist := 0.0
+	for t in acc_trials:
+		var e: float = t.error_mm
+		sum += e
+		sabs += absf(e)
+		sq += e * e
+		worst = maxf(worst, absf(e))
+		spct += absf(float(t.error_pct))
+		sdist += float(t.distance_m)
+	return {"n": n, "bias_mm": sum / n, "mean_abs_mm": sabs / n, "rms_mm": sqrt(sq / n), "worst_mm": worst,
+		"mean_abs_pct": spct / n, "mean_distance_m": sdist / n}
+
+
+func accuracy_summary() -> String:
+	var st := accuracy_stats()
+	if st.n == 0:
+		return "No trials yet"
+	return "%d trials · avg error ±%.1f mm (%.1f%%) · worst %.1f mm · bias %+.1f mm" % [st.n, st.mean_abs_mm, st.mean_abs_pct, st.worst_mm, st.bias_mm]
+
+
+func accuracy_csv() -> String:
+	var lines := ["time,reference,true_mm,measured_mm,error_mm,error_pct,distance_m"]
+	for t in acc_trials:
+		lines.append("%s,\"%s\",%.1f,%.1f,%.1f,%.2f,%.2f" % [t.time, String(t.ref).replace("\"", "\"\""), t.true_mm, t.measured_mm, t.error_mm, t.error_pct, t.distance_m])
+	var st := accuracy_stats()
+	if st.n > 0:
+		lines.append("")
+		lines.append("trials,mean_abs_error_mm,mean_abs_error_pct,rms_mm,worst_mm,bias_mm,mean_distance_m")
+		lines.append("%d,%.1f,%.2f,%.1f,%.1f,%.1f,%.2f" % [st.n, st.mean_abs_mm, st.mean_abs_pct, st.rms_mm, st.worst_mm, st.bias_mm, st.mean_distance_m])
+	return "\n".join(lines)
+
+
+func export_accuracy() -> String:
+	var dir := export_dir()
+	var stamp := _now_iso().substr(0, 16).replace(":", "-").replace("T", "-")
+	var path := dir.path_join("framespace-accuracy-%s.csv" % stamp)
+	var csv := accuracy_csv()
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		set_status("Export failed: can't write to %s" % dir)
+		return ""
+	f.store_string(csv)
+	f.close()
+	DisplayServer.clipboard_set(csv)
+	set_status("Exported %d trials to %s (also copied)." % [acc_trials.size(), path])
+	return path
+
+
+func save_accuracy() -> void:
+	var f := FileAccess.open("user://accuracy.json", FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify({"custom_mm": acc_custom_mm, "trials": acc_trials}, "  "))
+
+
+func load_accuracy() -> void:
+	var f := FileAccess.open("user://accuracy.json", FileAccess.READ)
+	if f == null:
+		return
+	var d = JSON.parse_string(f.get_as_text())
+	if d is Dictionary:
+		acc_custom_mm = float(d.get("custom_mm", 1000.0))
+		acc_trials = d.get("trials", []) if d.get("trials") is Array else []
 
 
 # ================================================================ rooms
@@ -1971,12 +2822,13 @@ func load_settings() -> void:
 		var d = JSON.parse_string(f.get_as_text())
 		if d is Dictionary:
 			room["id"] = d.get("current_room", "")
+			fit_check = bool(d.get("fit_check", true))
 
 
 func save_settings() -> void:
 	var f := FileAccess.open("user://settings.json", FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"current_room": room.get("id", "")}))
+		f.store_string(JSON.stringify({"current_room": room.get("id", ""), "fit_check": fit_check}))
 
 
 func list_rooms() -> Array:
@@ -2089,18 +2941,29 @@ func room_data() -> Dictionary:
 		var p := s.node.position
 		var q := s.node.quaternion
 		ss.append({"name": s.name, "type": s.type, "dims": s.dims, "volume_m3": volume_of(s.type, s.dims),
-			"position": [p.x, p.y, p.z], "quaternion": [q.x, q.y, q.z, q.w], "outline": s.outline, "pinned": s.pinned})
+			"position": [p.x, p.y, p.z], "quaternion": [q.x, q.y, q.z, q.w], "outline": s.outline, "pinned": s.pinned, "orig_dims": s.orig_dims})
 	var ms := []
 	for m in measures:
 		var pts := []
 		for p in m.points:
 			pts.append([p.x, p.y, p.z])
 		var base := {"name": m.name, "type": m.type, "points": pts}
-		if m.type == "line":
-			var dv: Vector3 = m.points[1] - m.points[0]
-			base.merge({"distance_m": dv.length(), "vertical_m": absf(dv.y), "horizontal_m": Vector2(dv.x, dv.z).length()})
-		else:
-			base.merge({"radius_m": m.r, "diameter_m": 2 * m.r, "circumference_m": TAU * m.r, "center": [m.center.x, m.center.y, m.center.z]})
+		match m.type:
+			"line":
+				var dv: Vector3 = m.points[1] - m.points[0]
+				base.merge({"distance_m": dv.length(), "vertical_m": absf(dv.y), "horizontal_m": Vector2(dv.x, dv.z).length()})
+			"circle":
+				base.merge({"radius_m": m.r, "diameter_m": 2 * m.r, "circumference_m": TAU * m.r, "center": [m.center.x, m.center.y, m.center.z]})
+			"rect":
+				base.merge({"width_m": m.w, "depth_m": m.dp, "area_m2": m.w * m.dp, "perimeter_m": 2 * (m.w + m.dp)})
+			"height":
+				base.merge({"height_m": m.points[0].y})
+			"angle":
+				base.merge({"angle_deg": angle_deg(m.points[0], m.points[1], m.points[2])})
+			"path":
+				base.merge({"distance_m": path_len(m.points)})
+			"area":
+				base.merge({"area_m2": poly_area(m.points), "perimeter_m": path_len(m.points, true)})
 		ms.append(base)
 	var surf := []
 	for n in surfaces:
@@ -2116,7 +2979,7 @@ func _clip_data() -> Array:
 	var out := []
 	for it in clipboard:
 		var q: Quaternion = it.rot
-		out.append({"type": it.type, "dims": it.dims, "name": it.name, "quaternion": [q.x, q.y, q.z, q.w], "outline": it.get("outline", {})})
+		out.append({"type": it.type, "dims": it.dims, "name": it.name, "quaternion": [q.x, q.y, q.z, q.w], "outline": it.get("outline", {}), "orig": it.get("orig", {})})
 	return out
 
 
@@ -2156,7 +3019,7 @@ func load_room(id: String) -> void:
 	units = d.get("units", units)
 	grid = d.get("grid", grid)
 	for s in d.get("shapes", []):
-		var ns := make_shape(s.type, s.dims, _v3(s.position), _q(s.quaternion), s.name, s.get("outline"))
+		var ns := make_shape(s.type, s.dims, _v3(s.position), _q(s.quaternion), s.name, s.get("outline"), s.get("orig_dims"))
 		if s.get("pinned", false):
 			set_pinned(ns, true)
 	for m in d.get("measurements", []):
@@ -2169,7 +3032,7 @@ func load_room(id: String) -> void:
 		counters[k] = int(cn.get(k, counters[k]))
 	clipboard = []
 	for it in d.get("clipboard", []):
-		clipboard.append({"type": it.type, "dims": it.dims, "name": it.name, "rot": _q(it.quaternion), "outline": it.get("outline", {})})
+		clipboard.append({"type": it.type, "dims": it.dims, "name": it.name, "rot": _q(it.quaternion), "outline": it.get("outline", {}), "orig": it.get("orig", {})})
 	clip_index = 0
 	content.transform = stand_frame()
 	room_turn = 0.0
@@ -2195,23 +3058,24 @@ func delete_current_room() -> void:
 
 # ================================================================ export
 func to_csv(data: Dictionary) -> String:
-	var rows := [["kind", "name", "type", "length_m", "width_m", "height_m", "depth_m", "radius_m", "diameter_m", "volume_m3", "area_m2", "distance_m", "vertical_m", "horizontal_m", "circumference_m"]]
+	var rows := [["kind", "name", "type", "length_m", "width_m", "height_m", "depth_m", "radius_m", "diameter_m", "volume_m3", "area_m2", "distance_m", "vertical_m", "horizontal_m", "circumference_m", "perimeter_m", "angle_deg"]]
 	var f := func(v): return "" if v == null else "%.4f" % float(v)
+	var mcols := ["width_m", "height_m", "depth_m", "radius_m", "diameter_m", "volume_m3", "area_m2", "distance_m", "vertical_m", "horizontal_m", "circumference_m", "perimeter_m", "angle_deg"]
 	for m in data.measurements:
-		if m.type == "line":
-			rows.append(["measurement", m.name, "tape", "", "", "", "", "", "", "", "", f.call(m.distance_m), f.call(m.vertical_m), f.call(m.horizontal_m), ""])
-		else:
-			rows.append(["measurement", m.name, "circle", "", "", "", "", f.call(m.radius_m), f.call(m.diameter_m), "", "", "", "", "", f.call(m.circumference_m)])
+		var row := ["measurement", m.name, "tape" if m.type == "line" else m.type, ""]
+		for k in mcols:
+			row.append(f.call(m.get(k)))
+		rows.append(row)
 	for s in data.shapes:
 		var d: Dictionary = s.dims
 		if s.type == "box":
-			rows.append(["shape", s.name, s.type, "", f.call(d.x), f.call(d.y), f.call(d.z), "", "", f.call(s.volume_m3), "", "", "", "", ""])
+			rows.append(["shape", s.name, s.type, "", f.call(d.x), f.call(d.y), f.call(d.z), "", "", f.call(s.volume_m3), "", "", "", "", "", "", ""])
 		elif s.type == "sphere":
-			rows.append(["shape", s.name, s.type, "", "", "", "", f.call(d.r), f.call(2 * d.r), f.call(s.volume_m3), "", "", "", "", ""])
+			rows.append(["shape", s.name, s.type, "", "", "", "", f.call(d.r), f.call(2 * d.r), f.call(s.volume_m3), "", "", "", "", "", "", ""])
 		else:
-			rows.append(["shape", s.name, s.type, "", "", f.call(d.h), "", f.call(d.r), f.call(2 * d.r), f.call(s.volume_m3), "", "", "", "", ""])
+			rows.append(["shape", s.name, s.type, "", "", f.call(d.h), "", f.call(d.r), f.call(2 * d.r), f.call(s.volume_m3), "", "", "", "", "", "", ""])
 	for p in data.room:
-		rows.append(["room", p.label, "plane", f.call(p.width_m), f.call(p.depth_m), "", "", "", "", "", f.call(p.area_m2), "", "", "", ""])
+		rows.append(["room", p.label, "plane", f.call(p.width_m), f.call(p.depth_m), "", "", "", "", "", f.call(p.area_m2), "", "", "", "", "", ""])
 	var lines := []
 	for r in rows:
 		var cells := []
@@ -2250,6 +3114,7 @@ func _writable(dir: String) -> bool:
 func export_all() -> Dictionary:
 	save_room_now()
 	var data := room_data()
+	data["room_scan"] = room_summary()
 	var dir := export_dir()
 	var stamp := _now_iso().substr(0, 16).replace(":", "-").replace("T", "-")
 	var base := dir.path_join("framespace-%s-%s" % [String(data.name).replace(" ", "-").to_lower(), stamp])
@@ -2289,10 +3154,12 @@ func export_glb(data: Dictionary, path: String) -> bool:
 		mi.set_meta("extras", {"type": s.type, "dims_m": s.dims, "volume_m3": s.volume_m3})
 		root.add_child(mi)
 	for m in data.measurements:
-		var pts := PackedVector3Array()
+		var raw := []
 		for p in m.points:
-			pts.append(_v3(p))
-		if m.type != "line":
+			raw.append(_v3(p))
+		var mp := measure_poly(m.type, raw)
+		var pts := PackedVector3Array(mp.pts)
+		if mp.closed or m.type == "circle":
 			pts.append(pts[0])
 		var li := MeshInstance3D.new()
 		li.name = String(m.name)
