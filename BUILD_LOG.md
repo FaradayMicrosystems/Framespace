@@ -72,3 +72,11 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - **Hold-A menu opens next to your hand** with a dotted line in the object's colour to the object.
 - Web app: the stick-click menu replaces the floating panel and Y (matches the APK). Aurora now works on the APK only.
 - Tests: native self-test 62 checks, web 41 checks.
+
+## 2026-11-22 (Brisbane): stick forward/back pushes and pulls
+
+- Aurora reported that in the APK, stick up/down while holding still scaled the object instead of moving it closer or farther away, as she'd asked on 2026-11-21.
+- Native app: stick **forward / back** while holding (sliding or carrying) now pushes the shape away from you or pulls it in, smoothly. Tilting further moves it faster, up to 1.5 m/s, and it stops 10 cm from the controller. Sliding stays on the floor and grid; a free carry moves along the line from your hand to the shape. Why: placing things across the room without walking over, as with the "brush and canvas" feel she wants.
+- Scaling moved to **Bigger 5% / Smaller 5%** in the hold-A menu (undoable). The resize cubes still work. Why: she rarely scales, so it shouldn't sit on the stick.
+- Stick left/right still rotates 45° steps; a mostly-sideways flick never pushes.
+- AI involvement: Claude found the cause (the stick-Y handler still called the scale step) and wrote the fix, docs and 5 new self-test checks in about 15 minutes.

@@ -65,13 +65,28 @@ func run(m) -> void:
 	main.select(box)
 	c.drag = {"type": "move", "shape": box, "c0": Vector3.ZERO, "yaw0": 0.0, "p0": box.node.position, "base_y": box.node.position.y}
 	main.scale_held(c, main.SCALE_STEP)
-	check("Stick up scales +5%", absf(box.dims.x - 0.315) < 0.0005, str(box.dims))
+	check("Bigger 5% scales +5%", absf(box.dims.x - 0.315) < 0.0005, str(box.dims))
 	check("Scaled box stays on the floor", absf(box.node.position.y - box.dims.y / 2.0) < 0.002, str(box.node.position))
 	main.rotate_held(c, -PI / 4)
 	check("Stick left rotates 45° clockwise", absf(main.yaw_of_quat(box.node.quaternion) + PI / 4) < 0.01, str(main.yaw_of_quat(box.node.quaternion)))
 	main.scale_held(c, 1.0 / main.SCALE_STEP)
-	check("Stick down undoes it exactly (-5%)", absf(box.dims.x - 0.3) < 0.0005, str(box.dims))
+	check("Smaller 5% undoes it exactly (-5%)", absf(box.dims.x - 0.3) < 0.0005, str(box.dims))
 	main.scale_held(c, main.SCALE_STEP)
+	# Stick forward / back on a held shape: continuous push away / pull in along the floor.
+	box.node.position = Vector3(0, box.node.position.y, -1.0)
+	c.drag = {"type": "move", "shape": box, "c0": Vector3.ZERO, "yaw0": 0.0, "p0": box.node.position, "base_y": box.node.position.y}
+	main.push_held(c, 0.5)
+	check("Stick forward pushes a held shape away", absf(c.drag.p0.z + 1.5) < 0.001 and absf(c.drag.p0.y - box.node.position.y) < 0.001, str(c.drag.p0))
+	main.push_held(c, -0.7)
+	check("Stick back pulls it in", absf(c.drag.p0.z + 0.8) < 0.001, str(c.drag.p0))
+	main.push_held(c, -5.0)
+	check("Pulling stops just short of the controller", absf(c.drag.p0.z + main.PUSH_MIN) < 0.001, str(c.drag.p0))
+	var dims_push: Dictionary = box.dims.duplicate()
+	main.push_held(c, 1.0)
+	check("Push/pull never changes size", box.dims == dims_push, str(box.dims))
+	c.drag = {"type": "free", "shape": box, "off": Vector3(0, 0, -0.5), "rot": box.node.quaternion}
+	main.push_held(c, 0.25)
+	check("Stick forward pushes a carried shape away", absf(c.drag.off.z + 0.75) < 0.001, str(c.drag.off))
 	c.drag = null
 
 	# Grabbing never changes size or (in a free carry) rotation; only the stick does.

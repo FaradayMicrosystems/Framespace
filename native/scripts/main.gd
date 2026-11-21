@@ -13,7 +13,9 @@ const BUILD := "0.3.0-native"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
-const SCALE_STEP := 1.05      # stick up / down: +5% / -5% (reversible)
+const SCALE_STEP := 1.05      # hold-A menu Bigger / Smaller: +5% / -5% (reversible)
+const PUSH_SPEED := 1.5       # stick forward / back while holding: m/s at full tilt (push away / pull in)
+const PUSH_MIN := 0.1         # closest a pushed/pulled shape gets to the controller (m)
 
 const LAYER_ROOM := 2
 const LAYER_SHAPE := 4
@@ -220,6 +222,7 @@ class Ctrl:
 # ---------------------------------------------------------------- state
 var units := "metric"
 var mode := "select"           # select | tape | circle
+var frame_dt := 1.0 / 72.0     # last frame time, for continuous stick push/pull
 var grid := 0.05               # metres; 0 = off
 var room_visible := true
 var status := "Pick a shape or a measuring tool."
@@ -1383,7 +1386,8 @@ func open_context(c: Ctrl) -> void:
 		anchor_l = c.shape_hit.point
 		ctx.build(s.name, [], [{"id": "cut", "label": "Cut"}, {"id": "copy", "label": "Copy"},
 			{"id": "delete", "label": "Delete", "color": Color("ff6b6b")}, {"id": "duplicate", "label": "Duplicate"},
-			{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW}], 2, 0.09)
+			{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW},
+			{"id": "bigger", "label": "Bigger 5%", "enabled": not s.pinned}, {"id": "smaller", "label": "Smaller 5%", "enabled": not s.pinned}], 2, 0.09)
 	else:
 		anchor_l = c.target.point if c.target != null else c.o + c.d * 0.8
 		var clip = clipboard[clip_index] if clipboard.size() else null
@@ -1440,6 +1444,11 @@ func run_context(id: String) -> void:
 				set_pinned(s, not s.pinned)
 				push_history(func(): set_pinned(s, not s.pinned))
 				set_status(("%s pinned. It can't be grabbed until you unpin it." % s.name) if s.pinned else ("%s unpinned." % s.name))
+				persist()
+		"bigger", "smaller":
+			if s and not s.pinned:
+				push_history(_snap_undo(s))
+				scale_shape(s, SCALE_STEP if id == "bigger" else 1.0 / SCALE_STEP)
 				persist()
 		"paste": paste_at(p)
 		"nextclip":
@@ -1578,7 +1587,7 @@ func update_hovers() -> void:
 
 # ================================================================ controller input
 # Trigger: select / press. Grip: scale (alone) or move (with trigger). B (right) while moving: free pick-up.
-# Stick while holding: up/down = scale ±5%, left = 45° clockwise, right = 45° counter-clockwise.
+# Stick while holding: forward/back = push away / pull in (continuous), left = 45° clockwise, right = 45° counter-clockwise.
 # Stick click: main menu on that hand (both sticks: menu fixed in front of you).
 # Hold A (right): context menu. Hold X (left): shape palette.
 func read_buttons(c: Ctrl) -> Dictionary:
@@ -1659,19 +1668,17 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 	if c.drag != null and (c.drag.type == "move" or c.drag.type == "free"):
 		if absf(b.sx) < 0.3:
 			c.latch_x = false
-		if absf(b.sy) < 0.3:
-			c.latch_y = false
 		if not c.latch_x and absf(b.sx) > 0.7:
 			c.latch_x = true
 			rotate_held(c, -PI / 4 if b.sx < 0 else PI / 4)
 			haptic(c, 0.3, 0.02)
-		if not c.latch_y and absf(b.sy) > 0.7:
-			c.latch_y = true
-			scale_held(c, SCALE_STEP if b.sy > 0 else 1.0 / SCALE_STEP)
-			haptic(c, 0.3, 0.02)
+		# Forward/back: continuous push/pull. Ignored while the stick is mostly sideways (a rotate flick).
+		var sy: float = b.sy
+		if absf(sy) > 0.15 and absf(sy) > absf(b.sx):
+			var k := (absf(sy) - 0.15) / 0.85
+			push_held(c, signf(sy) * k * k * PUSH_SPEED * frame_dt)
 	else:
 		c.latch_x = true     # stick must return to centre after a grab starts
-		c.latch_y = true
 
 
 func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
@@ -1738,7 +1745,7 @@ func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 	select(s)
 	if refuse_pinned(c, s):
 		return
-	# Grabbing only ever moves a shape. Size and rotation change only with the stick (snap steps).
+	# Grabbing only ever moves a shape. Stick turns it (45° steps) and pushes/pulls it; size changes via the hold-A menu or resize cubes.
 	start_move(c, s)
 	haptic(c)
 
@@ -1849,17 +1856,39 @@ func rotate_held(c: Ctrl, ang: float) -> void:
 	set_status("%s: rotated 45° %s" % [s.name, "clockwise" if ang < 0 else "counter-clockwise"])
 
 
-func scale_held(c: Ctrl, f: float) -> void:
+## Stick forward/back while holding: slide the shape away from (dist > 0) or toward (dist < 0) the controller.
+func push_held(c: Ctrl, dist: float) -> void:
 	var dr: Dictionary = c.drag
-	var s: Shape = dr.shape
+	if dr.type == "move":
+		# Along the floor, on the line from the controller (at grab time) to the shape.
+		var v: Vector3 = dr.p0 - dr.c0
+		v.y = 0.0
+		var h := v.length()
+		var dir := v / h if h > 0.01 else Quaternion(Vector3.UP, dr.yaw0) * Vector3.FORWARD
+		var nh := maxf(PUSH_MIN, h + dist)
+		dr.p0 = dr.p0 + dir * (nh - h)
+	else:
+		# Free carry: along the line from the controller to the shape, in the controller's frame.
+		var off: Vector3 = dr.off
+		var l := off.length()
+		var d2 := off / l if l > 0.01 else Vector3.FORWARD
+		dr.off = d2 * maxf(PUSH_MIN, l + dist)
+
+
+func scale_shape(s: Shape, f: float) -> void:
 	var bottom := s.node.position.y - half_height(s)
 	for k in s.dims.keys():
 		s.dims[k] = maxf(MIN_SIZE, roundf(s.dims[k] * f * 1000.0) / 1000.0)
-	if dr.type == "move":
-		dr.base_y = bottom + half_height(s)
-		s.node.position.y = dr.base_y
+	s.node.position.y = bottom + half_height(s)
+	for k2 in ctrls:
+		if k2.drag != null and k2.drag.shape == s and k2.drag.type == "move":
+			k2.drag.base_y = s.node.position.y
 	refresh_shape(s)
 	set_status("%s: %s" % [s.name, dims_text(s)])
+
+
+func scale_held(c: Ctrl, f: float) -> void:
+	scale_shape(c.drag.shape, f)
 
 
 ## Closest point on line p0 + dir*t to the ray o + r*u. Returns t, or null when parallel.
@@ -1928,6 +1957,7 @@ func update_preview() -> void:
 
 # ================================================================ main loop
 func _process(delta: float) -> void:
+	frame_dt = minf(delta, 0.1)
 	var space := get_world_3d().direct_space_state
 	for c in ctrls:
 		update_pointer(c, space)
