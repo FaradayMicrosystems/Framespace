@@ -1,6 +1,6 @@
 extends Node3D
 ## A flat panel of tiles in 3D: a title, a few header lines and a grid of buttons.
-## Used for the stick-click main menu, the hold-X shape palette and the hold-A context menu.
+## Used for the stick-click sidebar, its object tray and the X / A tool menu.
 ## Each tile has a thin StaticBody3D on the UI collision layer, tagged with meta "item" = tile id,
 ## so a controller ray can find which tile it points at.
 
@@ -19,6 +19,7 @@ var tile_w := 0.085
 var tile_h := 0.06
 var hover := ""
 var is_open := false
+var size := Vector2.ZERO       # panel width/height in metres (after build)
 var target = null              # free slot for the owner (e.g. the shape a context menu is about)
 var point := Vector3.ZERO      # free slot for the owner (e.g. where to paste)
 
@@ -72,6 +73,7 @@ func build(title: String, header_lines: Array, new_items: Array, new_cols: int, 
 	var head_h := 0.035 + header_lines.size() * line_h
 	var w := cols * tile_w + 0.01
 	var h := head_h + rows * tile_h + 0.01
+	size = Vector2(w, h)
 
 	var bg := MeshInstance3D.new()
 	var q := QuadMesh.new()
@@ -137,10 +139,10 @@ func build(title: String, header_lines: Array, new_items: Array, new_cols: int, 
 
 ## Shrink a label's font until its text fits the given width (rough estimate: 0.55 em per char).
 func _fit(l: Label3D, max_w: float) -> void:
-	var size := l.font_size
-	while size > 12 and l.text.length() * size * 0.55 * l.pixel_size > max_w:
-		size -= 2
-	l.font_size = size
+	var fs := l.font_size
+	while fs > 12 and l.text.length() * fs * 0.55 * l.pixel_size > max_w:
+		fs -= 2
+	l.font_size = fs
 
 
 func set_header(i: int, text: String) -> void:

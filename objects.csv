@@ -1,4 +1,4 @@
-# Framespace object palette (hold X). Edit this file to add, remove or resize objects; no code changes needed.
+# Framespace object tray (Y/B menu). Edit this file to add, remove or resize objects; no code changes needed.
 # One object per line, shown in this order. Sizes in millimetres. Lines starting with # are ignored. Do not use commas inside a value.
 # shape = box (fill length, width, height) | cylinder or cone (fill diameter, height) | sphere (fill diameter)
 # Optional for a box: outline = side-view points "x/y x/y ..." in mm (x back from the front, y up from the ground; at least 3 points)
@@ -14,6 +14,22 @@ Cone,cone,,,300,240,
 Panel,box,1000,20,600,,
 Rod,cylinder,,,1000,30,
 Plank,box,1200,300,30,,
+# Building blocks: snap together like Lego on the 5 cm grid.
+Brick 1x1,box,100,100,100,,10 cm block
+Brick 2x1,box,200,100,100,,
+Brick 4x1,box,400,100,100,,
+Brick 2x2,box,200,200,100,,
+Big block,box,500,500,500,,
+Slab 50,box,500,500,50,,
+Slab 100,box,1000,1000,50,,
+Beam 1 m,box,1000,100,100,,
+Beam 2 m,box,2000,100,100,,
+Post 1 m,box,100,100,1000,,
+Wall 1 m,box,1000,100,1000,,
+Peg,cylinder,,,100,100,
+Pillar,cylinder,,,1000,200,
+Cap,cone,,,100,100,
+Ball,sphere,,,,100,
 20ft container,box,5898,2352,2393,,ISO dry-van interior (typical)
 40ft container,box,12032,2352,2393,,ISO dry-van interior (typical)
 40ft high cube,box,12032,2352,2698,,ISO dry-van interior (typical)
