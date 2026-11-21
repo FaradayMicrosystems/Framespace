@@ -13,7 +13,7 @@ const BUILD := "0.3.0-native"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
-const SCALE_STEP := 1.05      # hold-A menu Bigger / Smaller: +5% / -5% (reversible)
+const SCALE_STEP := 1.05      # Y / B menu Bigger / Smaller: +5% / -5% (reversible)
 const PUSH_SPEED := 1.5       # stick forward / back while holding: m/s at full tilt (push away / pull in)
 const PUSH_MIN := 0.1         # closest a pushed/pulled shape gets to the controller (m)
 
@@ -222,6 +222,7 @@ class Ctrl:
 # ---------------------------------------------------------------- state
 var units := "metric"
 var mode := "select"           # select | tape | circle
+var palette_owner = null       # Ctrl holding X / A open
 var frame_dt := 1.0 / 72.0     # last frame time, for continuous stick push/pull
 var grid := 0.05               # metres; 0 = off
 var room_visible := true
@@ -1334,7 +1335,7 @@ func spawn_point() -> Vector3:
 	return p
 
 
-# ================================================================ palette (hold X) and context menu (hold A)
+# ================================================================ palette (hold X / A) and clipboard menu (Y / B)
 func short_dims(type: String, d: Dictionary) -> String:
 	var metric := units == "metric"
 	var k := 100.0 if metric else 1.0 / 0.0254
@@ -1586,10 +1587,11 @@ func update_hovers() -> void:
 
 
 # ================================================================ controller input
-# Trigger: select / press. Grip: scale (alone) or move (with trigger). B (right) while moving: free pick-up.
+# Trigger alone on a shape: pick it up in your hand (wrist twist turns it). Grip alone: slide on the floor.
+# Grip + trigger: lift it (follows your hand, keeps its rotation). Trigger alone on a resize cube: resize.
 # Stick while holding: forward/back = push away / pull in (continuous), left = 45° clockwise, right = 45° counter-clockwise.
 # Stick click: main menu on that hand (both sticks: menu fixed in front of you).
-# Hold A (right): context menu. Hold X (left): shape palette.
+# Y / B: clipboard menu (cut, copy, paste...), press to open/close. Hold X / A: objects palette.
 func read_buttons(c: Ctrl) -> Dictionary:
 	var n := c.node
 	if not n.get_is_active():
@@ -1606,13 +1608,6 @@ func read_buttons(c: Ctrl) -> Dictionary:
 		"stick": n.is_button_pressed(&"primary_click"),
 		"sx": stick.x, "sy": stick.y,
 	}
-
-
-func b_held() -> bool:
-	for c in ctrls:
-		if c.hand == "right":
-			return c.btn.get("high", false)
-	return false
 
 
 func process_input(c: Ctrl, b: Dictionary) -> void:
@@ -1637,25 +1632,18 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 			open_menu(c, false)
 		c.stick_down_at = now
 
-	if c.hand == "right":
-		if down.call("low"):
-			c.a_down_at = now
-			if ctx.is_open:
-				ctx.close()
-				c.a_down_at = -1.0
-		if b.low and c.a_down_at >= 0.0 and now - c.a_down_at > 0.25:
-			c.a_down_at = -1.0
+	# Y / B: clipboard menu (toggle). X / A: objects palette while held (point and trigger with the other hand).
+	if down.call("high"):
+		if ctx.is_open:
+			ctx.close()
+		elif c.drag == null:
 			open_context(c)
-		if up.call("low"):
-			c.a_down_at = -1.0
-	else:
-		if down.call("low"):
-			open_palette(c)
-		if up.call("low"):
-			palette.close()
-
-	if c.drag != null and c.drag.type == "move" and b_held():
-		convert_to_free(c)
+	if down.call("low"):
+		palette_owner = c
+		open_palette(c)
+	if up.call("low") and palette_owner == c:
+		palette_owner = null
+		palette.close()
 	if down.call("trigger"):
 		on_trigger_down(c, b)
 	if down.call("grip"):
@@ -1663,9 +1651,9 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 	if up.call("trigger"):
 		c.press_shape = null
 	var t = c.drag.type if c.drag != null else ""
-	if (t == "handle" and up.call("trigger")) or ((t == "move" or t == "free") and (up.call("trigger") or up.call("grip"))):
+	if ((t == "handle" or t == "wrist") and up.call("trigger")) or (t == "move" and up.call("grip")) or (t == "free" and (up.call("trigger") or up.call("grip"))):
 		on_drag_release(c)
-	if c.drag != null and (c.drag.type == "move" or c.drag.type == "free"):
+	if c.drag != null and (c.drag.type == "move" or c.drag.type == "free" or c.drag.type == "wrist"):
 		if absf(b.sx) < 0.3:
 			c.latch_x = false
 		if not c.latch_x and absf(b.sx) > 0.7:
@@ -1699,6 +1687,9 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 				haptic(c, 0.4, 0.03)
 				run_context(id)
 		return
+	if c.drag != null and (c.drag.type == "move" or c.drag.type == "wrist"):
+		convert_to_free(c)          # grip + trigger: lift it
+		return
 	if ctx.is_open:
 		ctx.close()
 		return
@@ -1718,8 +1709,11 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 		select(s)
 		c.press_shape = s
 		haptic(c, 0.2, 0.015)
-		if b.get("grip", false) and not refuse_pinned(c, s):
-			start_move(c, s)
+		if b.get("grip", false):
+			if not refuse_pinned(c, s):
+				start_free(c, s, true)      # grip + trigger: lift
+		elif not s.pinned and not _anyone_carrying():
+			start_wrist(c, s)               # trigger alone: in your hand, wrist turns it
 		return
 	if selected:
 		select(null)
@@ -1737,6 +1731,9 @@ func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 		if not refuse_pinned(c, hs):
 			start_move(c, hs)
 		return
+	if c.drag != null and c.drag.type == "wrist":
+		convert_to_free(c)              # trigger + grip: lift
+		return
 	if c.ui != null or mode != "select" or c.drag != null:
 		return
 	var s = c.press_shape if (b.get("trigger", false) and c.press_shape != null) else (c.shape_hit.shape if c.shape_hit != null else null)
@@ -1745,19 +1742,19 @@ func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 	select(s)
 	if refuse_pinned(c, s):
 		return
-	# Grabbing only ever moves a shape. Stick turns it (45° steps) and pushes/pulls it; size changes via the hold-A menu or resize cubes.
+	# Grabbing only ever moves a shape. Stick turns it (45° steps) and pushes/pulls it; size changes via the Y / B menu or resize cubes.
 	start_move(c, s)
 	haptic(c)
 
 
 func _anyone_carrying() -> bool:
 	for k in ctrls:
-		if k.drag != null and (k.drag.type == "move" or k.drag.type == "free"):
+		if k.drag != null and (k.drag.type == "move" or k.drag.type == "free" or k.drag.type == "wrist"):
 			return true
 	return false
 
 
-## Pinned shapes stay put: no grabbing, carrying, resizing or dropping until unpinned from the hold-A menu.
+## Pinned shapes stay put: no grabbing, carrying, resizing or dropping until unpinned from the Y / B menu.
 func set_pinned(s: Shape, on: bool) -> void:
 	s.pinned = on
 	if selected == s:
@@ -1770,7 +1767,7 @@ func set_pinned(s: Shape, on: bool) -> void:
 func refuse_pinned(c: Ctrl, s: Shape) -> bool:
 	if s == null or not s.pinned:
 		return false
-	set_status("%s is pinned. Hold A on it and pick Unpin to move it." % s.name)
+	set_status("%s is pinned. Press Y or B on it and pick Unpin to move it." % s.name)
 	if c:
 		haptic(c, 0.6, 0.06)
 	return true
@@ -1781,7 +1778,7 @@ func on_drag_release(c: Ctrl) -> void:
 	if dr == null:
 		return
 	c.drag = null
-	if dr.type == "move" or dr.type == "free":
+	if dr.type == "move" or dr.type == "free" or dr.type == "wrist":
 		settle(dr.shape)
 		grid_patch.visible = false
 		set_status("%s placed" % dr.shape.name)
@@ -1799,9 +1796,6 @@ func yaw_of_dir(d: Vector3) -> float:
 
 
 func start_move(c: Ctrl, s: Shape) -> void:
-	if b_held():
-		start_free(c, s, true)
-		return
 	push_history(_snap_undo(s))
 	falling = falling.filter(func(f): return f.shape != s)
 	c.drag = {"type": "move", "shape": s, "c0": c.o, "yaw0": yaw_of_dir(c.d), "p0": s.node.position, "base_y": s.node.position.y}
@@ -1830,6 +1824,24 @@ func start_free(c: Ctrl, s: Shape, push_undo: bool) -> void:
 	set_status("Carrying %s" % s.name)
 
 
+## Trigger alone: the shape sits in your hand like a brush. It follows the controller's position and rotation
+## (wrist twist turns it); on release it drops and squares to the grid (45° steps).
+func start_wrist(c: Ctrl, s: Shape) -> void:
+	push_history(_snap_undo(s))
+	falling = falling.filter(func(f): return f.shape != s)
+	c.drag = {"type": "wrist", "shape": s, "offx": _ctrl_local_xform(c).affine_inverse() * s.node.transform}
+	set_status("Holding %s: twist your wrist to turn it" % s.name)
+
+
+func update_wrist(c: Ctrl, dr: Dictionary) -> void:
+	var s: Shape = dr.shape
+	var t: Transform3D = _ctrl_local_xform(c) * dr.offx
+	s.node.position = t.origin
+	s.node.quaternion = t.basis.orthonormalized().get_rotation_quaternion()
+	refresh_shape(s)
+	show_grid_patch(s.node.position.x, support_below(s.node.position.x, s.node.position.z, s.node.position.y, s), s.node.position.z)
+
+
 func convert_to_free(c: Ctrl) -> void:
 	start_free(c, c.drag.shape, false)
 	haptic(c, 0.5, 0.04)
@@ -1849,6 +1861,9 @@ func rotate_held(c: Ctrl, ang: float) -> void:
 	var qy := Quaternion(Vector3.UP, ang)
 	if dr.type == "move":
 		s.node.quaternion = snap_yaw_quat(qy * s.node.quaternion)
+	elif dr.type == "wrist":
+		s.node.quaternion = qy * s.node.quaternion
+		dr.offx = _ctrl_local_xform(c).affine_inverse() * s.node.transform
 	else:
 		s.node.quaternion = qy * s.node.quaternion
 		dr.rot = s.node.quaternion
@@ -1867,6 +1882,12 @@ func push_held(c: Ctrl, dist: float) -> void:
 		var dir := v / h if h > 0.01 else Quaternion(Vector3.UP, dr.yaw0) * Vector3.FORWARD
 		var nh := maxf(PUSH_MIN, h + dist)
 		dr.p0 = dr.p0 + dir * (nh - h)
+	elif dr.type == "wrist":
+		var ox: Transform3D = dr.offx
+		var lw := ox.origin.length()
+		var dw := ox.origin / lw if lw > 0.01 else Vector3.FORWARD
+		ox.origin = dw * maxf(PUSH_MIN, lw + dist)
+		dr.offx = ox
 	else:
 		# Free carry: along the line from the controller to the shape, in the controller's frame.
 		var off: Vector3 = dr.off
@@ -1967,6 +1988,7 @@ func _process(delta: float) -> void:
 			match dr.type:
 				"move": update_move(c, dr)
 				"free": update_free(c, dr)
+				"wrist": update_wrist(c, dr)
 				"handle": update_handle(c, dr)
 	update_hovers()
 	if ctx_link.visible and not ctx.is_open:

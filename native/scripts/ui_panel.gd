@@ -1,6 +1,6 @@
 extends Node3D
 ## A flat panel of tiles in 3D: a title, a few header lines and a grid of buttons.
-## Used for the stick-click main menu, the hold-X shape palette and the hold-A context menu.
+## Used for the stick-click main menu, the hold-X / A objects palette and the Y / B clipboard menu.
 ## Each tile has a thin StaticBody3D on the UI collision layer, tagged with meta "item" = tile id,
 ## so a controller ray can find which tile it points at.
 

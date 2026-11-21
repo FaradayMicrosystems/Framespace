@@ -80,3 +80,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Scaling moved to **Bigger 5% / Smaller 5%** in the hold-A menu (undoable). The resize cubes still work. Why: she rarely scales, so it shouldn't sit on the stick.
 - Stick left/right still rotates 45° steps; a mostly-sideways flick never pushes.
 - AI involvement: Claude found the cause (the stick-Y handler still called the scale step) and wrote the fix, docs and 5 new self-test checks in about 15 minutes.
+
+## 2026-11-22 (Brisbane): grip slides, trigger holds, grip + trigger lifts; Y/B clipboard, X/A objects
+
+- Aurora asked for grip alone to slide on the floor, grip + trigger to lift, and trigger alone on an object to hold it so a wrist twist rotates it. She also said the hold-A menu never appeared, and asked for the clipboard menu on Y and B and the objects menu on A as well as X.
+- Native app: **trigger alone** on a shape now holds it like a brush. It follows the controller's position and rotation, and on release it drops and squares to the grid (45° steps). **Grip + trigger** (either order) lifts it and keeps its rotation. **Grip alone** slides it on the floor as before. "Grip + B to pick up" is gone because grip + trigger replaces it. Tapping trigger still selects, and trigger on a resize cube still resizes.
+- **Y / B** press toggles the clipboard menu (cut, copy, delete, duplicate, pin, bigger/smaller, paste). Why: a press is more reliable than the old 0.25 s hold on A, which she couldn't get to open. **Hold X or A** shows the objects palette.
+- Self-test now runs locally as well as in CI: 86/86.

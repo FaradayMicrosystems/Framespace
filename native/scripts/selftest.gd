@@ -106,6 +106,26 @@ func run(m) -> void:
 	check("Twisting the wrist while carrying doesn't rotate it", box.node.quaternion.is_equal_approx(q_before) and box.dims == dims_before, str(box.node.quaternion))
 	c.node.transform = Transform3D.IDENTITY
 	main.on_drag_release(c)
+	box.node.position = Vector3(0, half_y(box), -1.0)
+	box.node.quaternion = Quaternion.IDENTITY
+
+	# Trigger alone on a shape: hold it like a brush, wrist twist turns it. Adding grip lifts it.
+	main.on_trigger_down(c, {"trigger": true})
+	check("Trigger alone on a shape picks it up in your hand", c.drag != null and c.drag.type == "wrist", str(c.drag.type if c.drag else null))
+	c.node.rotate_y(0.5)
+	main.update_wrist(c, c.drag)
+	check("Wrist twist turns the held shape", absf(main.yaw_of_quat(box.node.quaternion)) > 0.3 and box.dims == dims_before, str(main.yaw_of_quat(box.node.quaternion)))
+	main.on_drag_release(c)
+	check("Release squares it to 45° steps", absf(fmod(absf(main.yaw_of_quat(box.node.quaternion)) + 0.0001, PI / 4)) < 0.01, str(main.yaw_of_quat(box.node.quaternion)))
+	c.node.transform = Transform3D.IDENTITY
+	main.on_trigger_down(c, {"trigger": true})
+	main.on_grip_down(c, {"grip": true, "trigger": true})
+	check("Trigger then grip lifts it", c.drag != null and c.drag.type == "free", str(c.drag.type if c.drag else null))
+	main.on_drag_release(c)
+	main.on_grip_down(c, {"grip": true})
+	main.on_trigger_down(c, {"grip": true, "trigger": true})
+	check("Grip then trigger lifts it", c.drag != null and c.drag.type == "free", str(c.drag.type if c.drag else null))
+	main.on_drag_release(c)
 	c.shape_hit = null
 	box.node.position = Vector3(0, half_y(box), -1.0)
 	box.node.quaternion = Quaternion(Vector3.UP, -PI / 4)
@@ -146,6 +166,25 @@ func run(m) -> void:
 	main.on_grip_down(cp, {"grip": true})
 	check("Unpin makes it grabbable again", not box.pinned and cp.drag != null and cp.drag.type == "move")
 	main.on_drag_release(cp)
+	# Buttons: Y / B toggle the clipboard menu, X / A hold the objects palette.
+	if main.ctx.is_open:
+		main.ctx.close()
+	cp.btn = {"high": false, "low": false}
+	main.process_input(cp, {"high": true, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
+	check("B opens the clipboard menu", main.ctx.is_open)
+	main.process_input(cp, {"high": false, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
+	main.process_input(cp, {"high": true, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
+	check("B again closes it", not main.ctx.is_open)
+	main.process_input(cp, {"high": false, "low": true, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
+	check("A (right hand) opens the objects palette", main.palette.is_open)
+	main.process_input(cp, {"high": false, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
+	check("Letting go of A closes it", not main.palette.is_open)
+	var cl = main.ctrls[0]
+	cl.btn = {}
+	main.process_input(cl, {"high": true, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
+	check("Y (left hand) opens the clipboard menu too", main.ctx.is_open)
+	main.ctx.close()
+	cl.btn = {}
 	check("Context link hides when the menu closes", (func(): main._process(0.0); return not main.ctx_link.visible).call())
 
 	# Resize cubes can never fire while grabbing (the accidental-scaling bug).
