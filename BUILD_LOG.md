@@ -63,3 +63,12 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Native app: grip alone now grabs and moves (no more push/pull scaling), and a free carry keeps the shape's rotation. Stick up / down is now ±10% (reversible), and rotation stays at 45° steps.
 - New main-menu buttons, **Turn room 5° / 1° left / right**, turn the whole room and grid around where you stand. 50 self-test checks.
 - Kept it simple: the spatial-anchor placement option was removed, so a room only ever loads where you stand (the "plan anywhere" workshop). Space Setup walls and tables are still used for snapping.
+
+## 2026-11-21 (Brisbane): pin, no accidental scaling, menu by your hand
+
+- Aurora asked to pin objects from the hold-A menu so they can't be grabbed by accident, reported that moving a controller while grabbing sometimes changed an object's size, asked for 5% stick steps, and said the hold-A menu for far objects opened out at the object (tiny, sometimes outside the play space).
+- **Pin / Unpin** in the hold-A menu (both apps). A pinned shape can't be grabbed, carried, resized or dropped; it shows "(pinned)" on its label and stays pinned in saved rooms. Why: protects finished layout pieces while you work around them.
+- **Accidental scaling fixed.** Cause: the trigger could catch a yellow resize cube while you held grip, so every hand movement resized the shape (the web app also still had push-to-scale). Now resize cubes only work with the trigger alone and never while anything is being held, and pressing grip mid-resize switches to moving. Stick steps are now ±5%.
+- **Hold-A menu opens next to your hand** with a dotted line in the object's colour to the object.
+- Web app: the stick-click menu replaces the floating panel and Y (matches the APK). Aurora now works on the APK only.
+- Tests: native self-test 62 checks, web 41 checks.

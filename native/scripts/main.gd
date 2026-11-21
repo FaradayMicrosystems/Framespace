@@ -13,7 +13,7 @@ const BUILD := "0.3.0-native"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
-const SCALE_STEP := 1.1       # stick up / down: +10% / -10% (reversible)
+const SCALE_STEP := 1.05      # stick up / down: +5% / -5% (reversible)
 
 const LAYER_ROOM := 2
 const LAYER_SHAPE := 4
@@ -184,6 +184,7 @@ class Shape:
 	var wire_mat: StandardMaterial3D
 	var fill_mat: StandardMaterial3D
 	var outline: Dictionary = {}
+	var pinned := false
 
 
 class Measure:
@@ -256,6 +257,7 @@ var scene_mgr: Node = null
 var menu: Node3D
 var palette: Node3D
 var ctx: Node3D
+var ctx_link: MeshInstance3D   # dotted line from the context menu to its object
 var grid_patch: MeshInstance3D
 var grid_patch_size := -1.0
 var preview: MeshInstance3D
@@ -477,6 +479,9 @@ func _build_world() -> void:
 	ctx = UIPanel.new()
 	ctx.name = "Context"
 	add_child(ctx)
+	ctx_link = MeshInstance3D.new()
+	ctx_link.visible = false
+	add_child(ctx_link)
 
 	grid_patch = MeshInstance3D.new()
 	grid_patch.material_override = _unlit(Color(0, 0.9, 1, 0.35))
@@ -693,7 +698,7 @@ func refresh_shape(s: Shape) -> void:
 			cv.points = pts
 			s.col.shape = cv
 	s.label.position = Vector3(0, sc.y / 2.0 + 0.09, 0)
-	set_label(s.label, shape_lines(s.type, s.name, s.dims))
+	set_label(s.label, shape_lines(s.type, ("%s (pinned)" % s.name) if s.pinned else s.name, s.dims))
 	for h in s.handles:
 		var hd: Dictionary = h.get_meta("hd")
 		var e: float = s.dims.r if hd.mode == "radius" else extent(s, hd.key) / 2.0
@@ -741,7 +746,7 @@ func select(s: Shape) -> void:
 	if s:
 		s.wire_mat.albedo_color = Color.WHITE
 		s.fill_mat.albedo_color = Color(s.color, 0.14)
-		for hd in handle_defs(s.type):
+		for hd in ([] if s.pinned else handle_defs(s.type)):
 			var h := MeshInstance3D.new()
 			h.mesh = mesh_handle
 			h.material_override = mat_handle[hd.mode]
@@ -1099,7 +1104,9 @@ func button_text(id: String) -> String:
 
 
 func button_enabled(id: String) -> bool:
-	if id in ["copy", "cut", "duplicate", "drop", "delete"]:
+	if id == "drop":
+		return selected != null and not selected.pinned
+	if id in ["copy", "cut", "duplicate", "delete"]:
 		return selected != null
 	if id in ["paste", "nextclip"]:
 		return clipboard.size() > 0
@@ -1375,7 +1382,8 @@ func open_context(c: Ctrl) -> void:
 		select(s)
 		anchor_l = c.shape_hit.point
 		ctx.build(s.name, [], [{"id": "cut", "label": "Cut"}, {"id": "copy", "label": "Copy"},
-			{"id": "delete", "label": "Delete", "color": Color("ff6b6b")}, {"id": "duplicate", "label": "Duplicate"}], 2, 0.09)
+			{"id": "delete", "label": "Delete", "color": Color("ff6b6b")}, {"id": "duplicate", "label": "Duplicate"},
+			{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW}], 2, 0.09)
 	else:
 		anchor_l = c.target.point if c.target != null else c.o + c.d * 0.8
 		var clip = clipboard[clip_index] if clipboard.size() else null
@@ -1384,9 +1392,24 @@ func open_context(c: Ctrl) -> void:
 	ctx.target = s
 	ctx.point = anchor_l
 	var aw := content.to_global(anchor_l)
-	var pos := aw + (head - aw).normalized() * minf(0.3, aw.distance_to(head) * 0.4) + Vector3(0, 0.08, 0)
+	# Open near the hand (never out at a far object), slightly up and toward the object.
+	var pos := content.to_global(c.o + c.d * minf(0.35, anchor_l.distance_to(c.o))) + Vector3(0, 0.1, 0)
 	ctx.open_at(pos, head)
+	_draw_ctx_link(pos, aw, s.color if s else C_CYAN)
 	haptic(c, 0.4, 0.03)
+
+
+## Dotted line, in the object's wireframe colour, from the context menu to the point it is about.
+func _draw_ctx_link(from: Vector3, to: Vector3, color: Color) -> void:
+	var pts := PackedVector3Array()
+	var n := int(clampf(from.distance_to(to) / 0.03, 1, 400))
+	for i in n:
+		if i % 2 == 0:
+			pts.append(from.lerp(to, float(i) / n))
+			pts.append(from.lerp(to, float(i + 1) / n))
+	ctx_link.mesh = _lines_mesh(pts)
+	ctx_link.material_override = _unlit(color, true)
+	ctx_link.visible = from.distance_to(to) > 0.05
 
 
 func run_context(id: String) -> void:
@@ -1412,6 +1435,12 @@ func run_context(id: String) -> void:
 			if s:
 				select(s)
 				on_button("duplicate")
+		"pin":
+			if s:
+				set_pinned(s, not s.pinned)
+				push_history(func(): set_pinned(s, not s.pinned))
+				set_status(("%s pinned. It can't be grabbed until you unpin it." % s.name) if s.pinned else ("%s unpinned." % s.name))
+				persist()
 		"paste": paste_at(p)
 		"nextclip":
 			clip_index = (clip_index + 1) % clipboard.size()
@@ -1666,7 +1695,7 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 	if ctx.is_open:
 		ctx.close()
 		return
-	if c.handle_hit != null:
+	if c.handle_hit != null and not b.get("grip", false) and not _anyone_carrying():
 		start_handle(c, c.handle_hit)
 		haptic(c)
 		return
@@ -1682,7 +1711,7 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 		select(s)
 		c.press_shape = s
 		haptic(c, 0.2, 0.015)
-		if b.get("grip", false):
+		if b.get("grip", false) and not refuse_pinned(c, s):
 			start_move(c, s)
 		return
 	if selected:
@@ -1694,15 +1723,50 @@ func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 	if c.ui != null and c.ui.panel == palette:
 		spawn_from_palette(c, c.ui.id, c.ui.point)
 		return
+	if c.drag != null and c.drag.type == "handle":
+		# Grip during a resize: stop resizing (size stays where it is) and grab to move instead.
+		var hs: Shape = c.drag.shape
+		c.drag = null
+		if not refuse_pinned(c, hs):
+			start_move(c, hs)
+		return
 	if c.ui != null or mode != "select" or c.drag != null:
 		return
 	var s = c.press_shape if (b.get("trigger", false) and c.press_shape != null) else (c.shape_hit.shape if c.shape_hit != null else null)
 	if s == null:
 		return
 	select(s)
+	if refuse_pinned(c, s):
+		return
 	# Grabbing only ever moves a shape. Size and rotation change only with the stick (snap steps).
 	start_move(c, s)
 	haptic(c)
+
+
+func _anyone_carrying() -> bool:
+	for k in ctrls:
+		if k.drag != null and (k.drag.type == "move" or k.drag.type == "free"):
+			return true
+	return false
+
+
+## Pinned shapes stay put: no grabbing, carrying, resizing or dropping until unpinned from the hold-A menu.
+func set_pinned(s: Shape, on: bool) -> void:
+	s.pinned = on
+	if selected == s:
+		select(s)
+	else:
+		refresh_shape(s)
+	menu_dirty = true
+
+
+func refuse_pinned(c: Ctrl, s: Shape) -> bool:
+	if s == null or not s.pinned:
+		return false
+	set_status("%s is pinned. Hold A on it and pick Unpin to move it." % s.name)
+	if c:
+		haptic(c, 0.6, 0.06)
+	return true
 
 
 func on_drag_release(c: Ctrl) -> void:
@@ -1875,6 +1939,8 @@ func _process(delta: float) -> void:
 				"free": update_free(c, dr)
 				"handle": update_handle(c, dr)
 	update_hovers()
+	if ctx_link.visible and not ctx.is_open:
+		ctx_link.visible = false
 	update_falling()
 	update_preview()
 	if menu.is_open:
@@ -2023,7 +2089,7 @@ func room_data() -> Dictionary:
 		var p := s.node.position
 		var q := s.node.quaternion
 		ss.append({"name": s.name, "type": s.type, "dims": s.dims, "volume_m3": volume_of(s.type, s.dims),
-			"position": [p.x, p.y, p.z], "quaternion": [q.x, q.y, q.z, q.w], "outline": s.outline})
+			"position": [p.x, p.y, p.z], "quaternion": [q.x, q.y, q.z, q.w], "outline": s.outline, "pinned": s.pinned})
 	var ms := []
 	for m in measures:
 		var pts := []
@@ -2090,7 +2156,9 @@ func load_room(id: String) -> void:
 	units = d.get("units", units)
 	grid = d.get("grid", grid)
 	for s in d.get("shapes", []):
-		make_shape(s.type, s.dims, _v3(s.position), _q(s.quaternion), s.name, s.get("outline"))
+		var ns := make_shape(s.type, s.dims, _v3(s.position), _q(s.quaternion), s.name, s.get("outline"))
+		if s.get("pinned", false):
+			set_pinned(ns, true)
 	for m in d.get("measurements", []):
 		var pts := []
 		for p in m.points:
