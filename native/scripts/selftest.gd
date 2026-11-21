@@ -51,7 +51,7 @@ func run(m) -> void:
 	check("Motorcycle is in the palette", labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (26 objects)", main.PALETTE.size() == 26, str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (27 objects)", main.PALETTE.size() == 27, str(main.PALETTE.size()))
 	var fl = main.PALETTE[labels.find("Forklift 2.5 t")]
 	check("Forklift has a detailed wireframe", fl.has("outline") and fl.outline.parts.size() > 15, str(fl.get("outline", {}).get("parts", []).size()))
 	# Walk-in container: things land on its floor, not its roof; sliding in steps up onto the floor; stacking on the roof works.
@@ -75,6 +75,15 @@ func run(m) -> void:
 	inside.node.position = Vector3(10, 4.0, 10)
 	main.settle(inside)
 	check("A box dropped from above lands on the roof", absf(inside.node.position.y - (2.591 + 0.15)) < 0.003, str(inside.node.position))
+	main.remove_shape(ct)
+	ct.node.queue_free()
+	var tr = main.PALETTE[labels.find("Farizon F3E tray")] if labels.has("Farizon F3E tray") else null
+	check("F3E trayback is in the palette", tr != null and tr.outline.solids.size() == 6)
+	if tr != null:
+		ct = main.make_shape("box", tr.dims, Vector3(10, tr.dims.y / 2.0, 10), Quaternion.IDENTITY, "Tray test", tr.outline)
+		inside.node.position = Vector3(10 - 1.0, 3.0, 10)
+		main.settle(inside)
+		check("A box dropped on the tray lands on the deck", absf(inside.node.position.y - (0.95 + 0.15)) < 0.003, str(inside.node.position))
 	main.remove_shape(inside)
 	inside.node.queue_free()
 	main.remove_shape(ct)
