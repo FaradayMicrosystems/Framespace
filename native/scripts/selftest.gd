@@ -46,10 +46,39 @@ func run(m) -> void:
 	var labels := []
 	for p in main.PALETTE:
 		labels.append(p.label)
-	check("Palette has 20ft / 40ft / 40ft HC containers", labels.has("20ft container") and labels.has("40ft container") and labels.has("40ft high cube"))
+	check("Palette has walk-in 20ft / 40ft containers (no high cube)", labels.has("20ft container") and labels.has("40ft container") and not labels.has("40ft high cube"))
+	check("Basic shapes and unused objects are gone", not (labels.has("Cube") or labels.has("Sphere") or labels.has("Rack bay") or labels.has("Brick") or labels.has("Door")))
+	check("Motorcycle is in the palette", labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
-	check("20ft container interior volume ~33.2 m3", absf(main.volume_of("box", c20.dims) - 33.2) < 0.1, str(main.volume_of("box", c20.dims)))
-	check("Palette loaded from objects.csv (39 objects)", main.PALETTE.size() == 39, str(main.PALETTE.size()))
+	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
+	check("Palette loaded from objects.csv (26 objects)", main.PALETTE.size() == 26, str(main.PALETTE.size()))
+	var fl = main.PALETTE[labels.find("Forklift 2.5 t")]
+	check("Forklift has a detailed wireframe", fl.has("outline") and fl.outline.parts.size() > 15, str(fl.get("outline", {}).get("parts", []).size()))
+	# Walk-in container: things land on its floor, not its roof; sliding in steps up onto the floor; stacking on the roof works.
+	var ct = main.make_shape("box", c20.dims, Vector3(10, c20.dims.y / 2.0, 10), Quaternion.IDENTITY, "Container test", c20.outline)
+	check("Container is hollow (solid floor, walls, roof)", ct.cols.size() == 6 and not ct.fill.visible, str(ct.cols.size()))
+	var inside = main.make_shape("box", {"x": 0.3, "y": 0.3, "z": 0.3}, Vector3(10, 1.2, 10))
+	main.settle(inside)
+	check("A box dropped inside lands on the container floor", absf(inside.node.position.y - 0.30) < 0.003, str(inside.node.position))
+	var cm = main.ctrls[1]
+	var o_save: Vector3 = cm.o
+	var d_save: Vector3 = cm.d
+	inside.node.position = Vector3(10, 0.15, 12.5)
+	cm.d = Vector3.FORWARD
+	cm.drag = {"type": "move", "shape": inside, "c0": Vector3(10, 1.2, 13), "yaw0": 0.0, "p0": inside.node.position, "base_y": 0.15}
+	cm.o = Vector3(10, 1.2, 10.5)
+	main.update_move(cm, cm.drag)
+	check("Sliding a box into the container steps it up onto the floor", absf(inside.node.position.y - 0.30) < 0.003 and absf(inside.node.position.z - 10.0) < 0.03, str(inside.node.position))
+	cm.drag = null
+	cm.o = o_save
+	cm.d = d_save
+	inside.node.position = Vector3(10, 4.0, 10)
+	main.settle(inside)
+	check("A box dropped from above lands on the roof", absf(inside.node.position.y - (2.591 + 0.15)) < 0.003, str(inside.node.position))
+	main.remove_shape(inside)
+	inside.node.queue_free()
+	main.remove_shape(ct)
+	ct.node.queue_free()
 	var pallet = main.PALETTE[labels.find("AU pallet")] if labels.has("AU pallet") else null
 	var van = main.PALETTE[labels.find("Farizon V7E open cargo")] if labels.has("Farizon V7E open cargo") else null
 	check("V7E open cargo: whole van with load box and wheels", van != null and van.has("outline") and van.outline.inner.size() == 1 and van.outline.wheels.size() == 2, str(van))
@@ -147,7 +176,7 @@ func run(m) -> void:
 	cp.d = (box.node.position - cp.o).normalized()
 	cp.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.open_context(cp)
-	check("Hold-A menu on a shape offers Pin", main.ctx.is_open and main.ctx.item("pin") != null and main.ctx.item("pin").label == "Pin")
+	check("Y / B menu on a shape offers Pin, sizing and Undo", main.ctx.is_open and main.ctx.item("pin") != null and main.ctx.item("pin").label == "Pin" and main.ctx.item("undo") != null and main.ctx.item("bigger") != null)
 	var ctx_pos: Vector3 = main.ctx.global_position
 	check("Context menu opens near the hand, not at the object", ctx_pos.distance_to(main.content.to_global(cp.o)) < 0.5, str(ctx_pos))
 	check("...linked to the object by a dotted line", main.ctx_link.visible)
@@ -178,7 +207,10 @@ func run(m) -> void:
 	main.process_input(cp, {"high": false, "low": true, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
 	check("A (right hand) opens the objects palette", main.palette.is_open)
 	main.process_input(cp, {"high": false, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
-	check("Letting go of A closes it", not main.palette.is_open)
+	check("Letting go of A keeps it open (toggle)", main.palette.is_open)
+	main.process_input(cp, {"high": false, "low": true, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
+	check("Pressing A again closes it", not main.palette.is_open)
+	main.process_input(cp, {"high": false, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
 	var cl = main.ctrls[0]
 	cl.btn = {}
 	main.process_input(cl, {"high": true, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0})
@@ -225,7 +257,7 @@ func run(m) -> void:
 
 	# Menu builds (main page + rooms page).
 	main.open_menu(main.ctrls[0], true)
-	check("Main menu opens with 28 buttons", main.menu.is_open and main.menu.items.size() == 28, str(main.menu.items.size()))
+	check("Main menu opens with 16 buttons (no shapes / clipboard / undo)", main.menu.is_open and main.menu.items.size() == 16 and main.menu.item("box") == null and main.menu.item("copy") == null and main.menu.item("undo") == null, str(main.menu.items.size()))
 	main.on_button("rooms")
 	main.rebuild_menu()
 	check("Rooms page lists the current room", main.menu.item("room:" + main.room.id) != null)

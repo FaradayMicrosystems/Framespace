@@ -33,16 +33,18 @@ Uninstalling the app deletes its saved rooms.
 | **Grip + trigger** (either order) | Lift it. It follows your hand but keeps its rotation. Let go and it drops onto the floor, a table or another shape |
 | Stick **forward / back** while holding | Push it away / pull it in, smoothly (tilt further = faster) |
 | Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
-| **Y** or **B** pointing at a shape | Cut / Copy / Delete / Duplicate / **Pin** (a pinned shape can't be grabbed, moved or resized until you Unpin it) / **Bigger 5%** / **Smaller 5%** |
-| **Y** or **B** pointing at empty space | Paste / Next clip |
+| **Y** or **B** pointing at a shape | Clipboard menu (press to open / close): Cut / Copy / Delete / Duplicate / **Pin** (a pinned shape can't be grabbed, moved or resized until you Unpin it) / **Bigger 5%** / **Smaller 5%** / **Undo** |
+| **Y** or **B** pointing at empty space | Paste / Next clip / **Undo** |
 
 The Y / B menu opens next to your hand, with a dotted line (in the object's colour) to the object, so far-away objects are easy to work on.
-| Hold **X** or **A** | Object palette from [`objects.csv`](../objects.csv) (shared with the web app): pallets, containers, IBC, forklift, door, car, person and more |
+| **X** or **A** | Objects menu (press to open / close) from [`objects.csv`](../objects.csv): pallets, walk-in 20ft / 40ft containers, IBC, forklift, pallet jack, motorcycle, vans, furniture and more |
 | Yellow / orange cubes on a selected shape | Drag with trigger alone to resize one side / the radius. Ignored while you're gripping or holding anything |
+
+**Walk-in loading:** the 20ft / 40ft containers and the V7E open cargo are hollow. Pin one, walk in, and drop or slide pallets onto its floor (sliding steps up onto floors up to 30 cm high). Things dropped from above land on the roof.
 
 Size never changes by moving your hand or the stick: use **Bigger 5% / Smaller 5%** in the Y / B menu, or the yellow / orange resize cubes.
 
-The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here), export, quit and **Turn room** (5° or 1°, left or right).
+The main menu has the tools (tape, circle, move/size), units, grid, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here), export, quit and **Turn room** (5° or 1°, left or right).
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
 
 ## Rooms

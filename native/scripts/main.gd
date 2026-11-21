@@ -15,6 +15,7 @@ const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
 const SCALE_STEP := 1.05      # Y / B menu Bigger / Smaller: +5% / -5% (reversible)
 const PUSH_SPEED := 1.5       # stick forward / back while holding: m/s at full tilt (push away / pull in)
+const STEP_UP := 0.3          # sliding shapes step up onto surfaces up to 30 cm higher (container / van floors)
 const PUSH_MIN := 0.1         # closest a pushed/pulled shape gets to the controller (m)
 
 const LAYER_ROOM := 2
@@ -28,7 +29,7 @@ const DEFAULT_DIMS := {"box": {"x": 0.3, "y": 0.3, "z": 0.3}, "sphere": {"r": 0.
 const C_YELLOW := Color("ffe14d")
 const C_CYAN := Color("00e5ff")
 
-# Hold X palette. Loaded at startup from res://objects.txt, which CI copies from the repo's objects.csv
+# X / A objects menu. Loaded at startup from res://objects.txt, which CI copies from the repo's objects.csv
 # (one object per line, sizes in mm). Edit objects.csv, not this file. Fallback below if the file is missing.
 const PALETTE_FALLBACK := [
 	{"label": "Cube", "type": "box", "dims": {"x": 0.1, "y": 0.1, "z": 0.1}},
@@ -59,22 +60,65 @@ static func _groups(t: String, n: int) -> Array:
 	return out
 
 
-static func parse_outline(outline: String, wheels: String, inner: String, L: float, H: float, W: float) -> Dictionary:
+## Detail parts (mm; x back from the front, y up from the ground, z across from the left side), space-separated:
+##   b:x/y/z/length/width/height   box, drawn only
+##   s:x/y/z/length/width/height   solid box: drawn, and you can stand things on it / it blocks the pointer
+##   c:x/y/z/length/width/height   solid box, not drawn
+##   l:x1/y1/z1/x2/y2/z2           line
+##   w:x/y/z/diameter/thickness    wheel (axle across the width), y = axle height
+## An object with any s: or c: parts is hollow: only those parts are solid (walk-in containers, van load beds).
+static func parse_parts(text: String, L: float, H: float, W: float) -> Dictionary:
+	var draw := []
+	var solids := []
+	var u := func(x: float) -> float: return 0.5 - x / L
+	var v := func(y: float) -> float: return y / H - 0.5
+	var w := func(z: float) -> float: return z / W - 0.5
+	for tok in text.strip_edges().split(" ", false):
+		var kv := tok.split(":")
+		if kv.size() != 2:
+			continue
+		var g := _groups(kv[1], 6 if kv[0] in ["b", "s", "c", "l"] else 5)
+		if g.is_empty():
+			continue
+		var n: Array = g[0]
+		match kv[0]:
+			"b", "s", "c":
+				var bx := [u.call(n[0] + n[3] / 2.0), v.call(n[1] + n[5] / 2.0), w.call(n[2] + n[4] / 2.0), n[3] / 2.0 / L, n[5] / 2.0 / H, n[4] / 2.0 / W]
+				if kv[0] != "c":
+					draw.append(["b"] + bx)
+				if kv[0] != "b":
+					solids.append(bx)
+			"l":
+				draw.append(["l", u.call(n[0]), v.call(n[1]), w.call(n[2]), u.call(n[3]), v.call(n[4]), w.call(n[5])])
+			"w":
+				draw.append(["w", u.call(n[0]), v.call(n[1]), w.call(n[2]), n[3] / 2.0 / L, n[3] / 2.0 / H, n[4] / 2.0 / W])
+	return {"parts": draw, "solids": solids}
+
+
+static func parse_outline(outline: String, wheels: String, inner: String, L: float, H: float, W: float, parts := "") -> Dictionary:
 	var pts := []
 	for p in _groups(outline, 2):
 		pts.append([0.5 - p[0] / L, p[1] / H - 0.5])
+	var extra := parse_parts(parts, L, H, W)
 	if pts.size() < 3:
-		return {}
+		pts = []
+		if extra.parts.is_empty() and extra.solids.is_empty():
+			return {}
 	var wh := []
 	for p in _groups(wheels, 2):
 		wh.append([0.5 - p[0] / L, p[1] / 2.0 / L, p[1] / 2.0 / H])
 	var inn := []
 	for p in _groups(inner, 5):
 		inn.append([0.5 - (p[0] + p[2]) / L, 0.5 - p[0] / L, p[1] / H - 0.5, (p[1] + p[4]) / H - 0.5, p[3] / 2.0 / W])
-	return {"pts": pts, "wheels": wh, "inner": inn}
+	return {"pts": pts, "wheels": wh, "inner": inn, "parts": extra.parts, "solids": extra.solids}
 
 
 var _outline_cache := {}
+const _BOX_EDGES := [
+	[Vector3(-1, -1, -1), Vector3(1, -1, -1)], [Vector3(-1, 1, -1), Vector3(1, 1, -1)], [Vector3(-1, -1, 1), Vector3(1, -1, 1)], [Vector3(-1, 1, 1), Vector3(1, 1, 1)],
+	[Vector3(-1, -1, -1), Vector3(-1, 1, -1)], [Vector3(1, -1, -1), Vector3(1, 1, -1)], [Vector3(-1, -1, 1), Vector3(-1, 1, 1)], [Vector3(1, -1, 1), Vector3(1, 1, 1)],
+	[Vector3(-1, -1, -1), Vector3(-1, -1, 1)], [Vector3(1, -1, -1), Vector3(1, -1, 1)], [Vector3(-1, 1, -1), Vector3(-1, 1, 1)], [Vector3(1, 1, -1), Vector3(1, 1, 1)],
+]
 
 
 func outline_mesh(o: Dictionary) -> ArrayMesh:
@@ -99,6 +143,25 @@ func outline_mesh(o: Dictionary) -> ArrayMesh:
 				v.append_array([Vector3(c[i].x, c[i].y, z), Vector3(c[(i + 1) % 4].x, c[(i + 1) % 4].y, z)])
 		for p in c:
 			v.append_array([Vector3(p.x, p.y, -zw), Vector3(p.x, p.y, zw)])
+	for p in o.get("parts", []):
+		match p[0]:
+			"b":
+				var c := Vector3(p[1], p[2], p[3])
+				var h := Vector3(p[4], p[5], p[6])
+				for e in _BOX_EDGES:
+					v.append_array([c + h * e[0], c + h * e[1]])
+			"l":
+				v.append_array([Vector3(p[1], p[2], p[3]), Vector3(p[4], p[5], p[6])])
+			"w":
+				var cu: float = p[1]
+				var cv: float = p[2]
+				var ru2: float = p[4]
+				var rv2: float = p[5]
+				for z in [p[3] - p[6], p[3] + p[6]]:
+					_circle_pts(v, func(t): return Vector3(cu + cos(t) * ru2, cv + sin(t) * rv2, z), 16)
+				for k in 4:
+					var t := k * PI / 4.0
+					v.append_array([Vector3(cu + cos(t) * ru2, cv + sin(t) * rv2, p[3]), Vector3(cu - cos(t) * ru2, cv - sin(t) * rv2, p[3])])
 	for w in o.get("wheels", []):
 		var u: float = w[0]
 		var ru: float = w[1]
@@ -144,8 +207,8 @@ static func parse_objects(text: String) -> Array:
 			push_warning("objects.csv: skipped line " + line)
 			continue
 		var item := {"label": row.name, "type": type, "dims": dims, "note": row.get("note", "")}
-		if type == "box" and String(row.get("outline", "")) != "":
-			var o := parse_outline(row.outline, row.get("wheels", ""), row.get("inner", ""), dims.x * 1000.0, dims.y * 1000.0, dims.z * 1000.0)
+		if type == "box" and (String(row.get("outline", "")) != "" or String(row.get("parts", "")) != ""):
+			var o := parse_outline(row.get("outline", ""), row.get("wheels", ""), row.get("inner", ""), dims.x * 1000.0, dims.y * 1000.0, dims.z * 1000.0, row.get("parts", ""))
 			if not o.is_empty():
 				item["outline"] = o
 		out.append(item)
@@ -159,12 +222,9 @@ func load_palette() -> void:
 		push_warning("objects.txt missing or empty, using built-in shapes")
 		PALETTE = PALETTE_FALLBACK.duplicate(true)
 
-# Stick-click main menu, page "main". Rows of 4.
+# Stick-click main menu, page "main". Rows of 4. Shapes live in the X / A objects menu; clipboard, delete and undo in the Y / B menu.
 const MENU_MAIN := [
-	"box", "sphere", "cylinder", "cone",
 	"tape", "circle", "select", "units",
-	"copy", "cut", "paste", "nextclip",
-	"duplicate", "drop", "delete", "undo",
 	"grid", "roomvis", "scan", "clear",
 	"save", "rooms", "export", "quit",
 	"turnl5", "turnl1", "turnr1", "turnr5",
@@ -186,6 +246,7 @@ class Shape:
 	var wire_mat: StandardMaterial3D
 	var fill_mat: StandardMaterial3D
 	var outline: Dictionary = {}
+	var cols: Array = []          # extra CollisionShape3Ds for hollow objects (solid parts)
 	var pinned := false
 
 
@@ -222,7 +283,6 @@ class Ctrl:
 # ---------------------------------------------------------------- state
 var units := "metric"
 var mode := "select"           # select | tape | circle
-var palette_owner = null       # Ctrl holding X / A open
 var frame_dt := 1.0 / 72.0     # last frame time, for continuous stick push/pull
 var grid := 0.05               # metres; 0 = off
 var room_visible := true
@@ -639,7 +699,7 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	s.node.position = pos
 	s.node.quaternion = rot
 	s.wire = MeshInstance3D.new()
-	if type == "box" and outline is Dictionary and outline.has("pts"):
+	if type == "box" and outline is Dictionary and (not outline.get("pts", []).is_empty() or not outline.get("parts", []).is_empty()):
 		s.outline = outline
 		s.wire.mesh = outline_mesh(outline)
 	else:
@@ -675,11 +735,26 @@ func refresh_shape(s: Shape) -> void:
 	s.fill.scale = sc
 	match s.type:
 		"box":
-			var bs := s.col.shape as BoxShape3D
-			if bs == null:
-				bs = BoxShape3D.new()
-				s.col.shape = bs
-			bs.size = sc
+			var solids: Array = s.outline.get("solids", [])
+			if solids.is_empty():
+				var bs := s.col.shape as BoxShape3D
+				if bs == null:
+					bs = BoxShape3D.new()
+					s.col.shape = bs
+				bs.size = sc
+			else:
+				# Hollow: only the solid parts block the pointer and hold things up.
+				s.fill.visible = false
+				while s.cols.size() < solids.size():
+					var cs2 := CollisionShape3D.new() if s.cols.size() > 0 else s.col
+					if cs2 != s.col:
+						s.body.add_child(cs2)
+					cs2.shape = BoxShape3D.new()
+					s.cols.append(cs2)
+				for i in solids.size():
+					var sd: Array = solids[i]
+					s.cols[i].position = Vector3(sd[0], sd[1], sd[2]) * sc
+					(s.cols[i].shape as BoxShape3D).size = Vector3(sd[3], sd[4], sd[5]) * 2.0 * sc
 		"sphere":
 			var ss := s.col.shape as SphereShape3D
 			if ss == null:
@@ -998,7 +1073,7 @@ func support_below(x: float, z: float, max_y: float, exclude: Shape) -> float:
 	for s in shapes:
 		if s == exclude or _is_falling(s):
 			continue
-		var top = _shape_top_at(s, x, z)
+		var top = _shape_top_at(s, x, z, max_y)
 		if top != null and top <= max_y + 0.01 and top > best:
 			best = top
 	return best
@@ -1012,9 +1087,23 @@ func _is_falling(s: Shape) -> bool:
 
 
 ## Top of a shape's axis-aligned bounds at (x, z), or null when (x, z) is outside it.
-func _shape_top_at(s: Shape, x: float, z: float):
+func _shape_top_at(s: Shape, x: float, z: float, max_y := INF):
 	var sc := scale_of(s.type, s.dims) / 2.0
 	var b := Basis(s.node.quaternion)
+	var solids: Array = s.outline.get("solids", []) if s.type == "box" else []
+	if not solids.is_empty():
+		# Hollow: the highest solid part under (x, z) that is not above max_y (container floor, not its roof).
+		var best = null
+		for sd in solids:
+			var cen: Vector3 = s.node.position + b * (Vector3(sd[0], sd[1], sd[2]) * sc * 2.0)
+			var e2 := Vector3.ZERO
+			for i in 3:
+				e2 += (b[i] * sd[3 + i] * sc[i] * 2.0).abs()
+			if x >= cen.x - e2.x and x <= cen.x + e2.x and z >= cen.z - e2.z and z <= cen.z + e2.z:
+				var t := cen.y + e2.y
+				if t <= max_y + 0.01 and (best == null or t > best):
+					best = t
+		return best
 	var ext := Vector3.ZERO
 	for i in 3:
 		var axis: Vector3 = b[i] * sc[i]
@@ -1026,14 +1115,15 @@ func _shape_top_at(s: Shape, x: float, z: float):
 
 
 ## Square the shape to the grid (yaw in 45° steps, X/Z on grid points) and let it fall onto what is below.
-func settle(s: Shape) -> void:
+## step: how far above the shape's bottom a surface can be and still be stepped onto (sliding into a container).
+func settle(s: Shape, step := 0.02) -> void:
 	s.node.quaternion = snap_yaw_quat(s.node.quaternion)
 	s.node.position.x = snap_grid(s.node.position.x)
 	s.node.position.z = snap_grid(s.node.position.z)
 	refresh_shape(s)
 	var hh := half_height(s)
 	var bottom := s.node.position.y - hh
-	var sup := support_below(s.node.position.x, s.node.position.z, bottom + 0.02, s)
+	var sup := support_below(s.node.position.x, s.node.position.z, bottom + step, s)
 	falling = falling.filter(func(f): return f.shape != s)
 	if bottom - sup > 0.005 and not selftest:
 		falling.append({"shape": s, "from": s.node.position.y, "to": sup + hh, "t0": Time.get_ticks_msec()})
@@ -1335,7 +1425,7 @@ func spawn_point() -> Vector3:
 	return p
 
 
-# ================================================================ palette (hold X / A) and clipboard menu (Y / B)
+# ================================================================ objects menu (X / A) and clipboard menu (Y / B)
 func short_dims(type: String, d: Dictionary) -> String:
 	var metric := units == "metric"
 	var k := 100.0 if metric else 1.0 / 0.0254
@@ -1372,6 +1462,7 @@ func spawn_from_palette(c: Ctrl, id: String, point_w: Vector3) -> void:
 	var s := make_shape(p.type, p.dims, content.to_local(point_w), Quaternion.IDENTITY, "%s %d" % [p.label, label_counts[p.label]], p.get("outline"))
 	push_history(func(): remove_shape(s))
 	select(s)
+	palette.close()                  # same as the Y / B menu: picking an item closes it
 	start_free(c, s, false)
 	haptic(c, 0.5, 0.04)
 	set_status("Placing %s" % s.name)
@@ -1388,12 +1479,14 @@ func open_context(c: Ctrl) -> void:
 		ctx.build(s.name, [], [{"id": "cut", "label": "Cut"}, {"id": "copy", "label": "Copy"},
 			{"id": "delete", "label": "Delete", "color": Color("ff6b6b")}, {"id": "duplicate", "label": "Duplicate"},
 			{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW},
-			{"id": "bigger", "label": "Bigger 5%", "enabled": not s.pinned}, {"id": "smaller", "label": "Smaller 5%", "enabled": not s.pinned}], 2, 0.09)
+			{"id": "bigger", "label": "Bigger 5%", "enabled": not s.pinned}, {"id": "smaller", "label": "Smaller 5%", "enabled": not s.pinned},
+			{"id": "undo", "label": "Undo", "enabled": history.size() > 0 or pending.size() > 0}], 2, 0.09)
 	else:
 		anchor_l = c.target.point if c.target != null else c.o + c.d * 0.8
 		var clip = clipboard[clip_index] if clipboard.size() else null
 		ctx.build(("Clipboard %d/%d: %s" % [clip_index + 1, clipboard.size(), clip.name]) if clip else "Clipboard empty", [],
-			[{"id": "paste", "label": "Paste", "enabled": clip != null}, {"id": "nextclip", "label": "Next clip", "enabled": clipboard.size() > 1}], 2, 0.09)
+			[{"id": "paste", "label": "Paste", "enabled": clip != null}, {"id": "nextclip", "label": "Next clip", "enabled": clipboard.size() > 1},
+			{"id": "undo", "label": "Undo", "enabled": history.size() > 0 or pending.size() > 0}], 2, 0.09)
 	ctx.target = s
 	ctx.point = anchor_l
 	var aw := content.to_global(anchor_l)
@@ -1451,6 +1544,7 @@ func run_context(id: String) -> void:
 				push_history(_snap_undo(s))
 				scale_shape(s, SCALE_STEP if id == "bigger" else 1.0 / SCALE_STEP)
 				persist()
+		"undo": undo()
 		"paste": paste_at(p)
 		"nextclip":
 			clip_index = (clip_index + 1) % clipboard.size()
@@ -1591,7 +1685,7 @@ func update_hovers() -> void:
 # Grip + trigger: lift it (follows your hand, keeps its rotation). Trigger alone on a resize cube: resize.
 # Stick while holding: forward/back = push away / pull in (continuous), left = 45° clockwise, right = 45° counter-clockwise.
 # Stick click: main menu on that hand (both sticks: menu fixed in front of you).
-# Y / B: clipboard menu (cut, copy, paste...), press to open/close. Hold X / A: objects palette.
+# Y / B: clipboard menu (cut, copy, paste, undo...), press to open/close. X / A: objects menu, press to open/close.
 func read_buttons(c: Ctrl) -> Dictionary:
 	var n := c.node
 	if not n.get_is_active():
@@ -1632,18 +1726,17 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 			open_menu(c, false)
 		c.stick_down_at = now
 
-	# Y / B: clipboard menu (toggle). X / A: objects palette while held (point and trigger with the other hand).
+	# Y / B: clipboard menu. X / A: objects menu. Both toggle on press; picking an item closes it.
 	if down.call("high"):
 		if ctx.is_open:
 			ctx.close()
 		elif c.drag == null:
 			open_context(c)
 	if down.call("low"):
-		palette_owner = c
-		open_palette(c)
-	if up.call("low") and palette_owner == c:
-		palette_owner = null
-		palette.close()
+		if palette.is_open:
+			palette.close()
+		elif c.drag == null:
+			open_palette(c)
 	if down.call("trigger"):
 		on_trigger_down(c, b)
 	if down.call("grip"):
@@ -1779,7 +1872,7 @@ func on_drag_release(c: Ctrl) -> void:
 		return
 	c.drag = null
 	if dr.type == "move" or dr.type == "free" or dr.type == "wrist":
-		settle(dr.shape)
+		settle(dr.shape, STEP_UP if dr.type == "move" else 0.02)
 		grid_patch.visible = false
 		set_status("%s placed" % dr.shape.name)
 	persist()
@@ -1806,9 +1899,14 @@ func update_move(c: Ctrl, dr: Dictionary) -> void:
 	var qy := Quaternion(Vector3.UP, yaw_of_dir(c.d) - dr.yaw0)
 	var p: Vector3 = c.o + qy * (dr.p0 - dr.c0)
 	var s: Shape = dr.shape
-	s.node.position = Vector3(snap_grid(p.x), dr.base_y, snap_grid(p.z))
+	# Stays on the floor, but steps up onto / down off low surfaces (a container or van floor) as it slides.
+	var hh := half_height(s)
+	var x := snap_grid(p.x)
+	var z := snap_grid(p.z)
+	var y: float = support_below(x, z, dr.base_y - hh + STEP_UP, s) + hh
+	s.node.position = Vector3(x, y, z)
 	refresh_shape(s)
-	show_grid_patch(s.node.position.x, dr.base_y - half_height(s), s.node.position.z)
+	show_grid_patch(s.node.position.x, y - hh, s.node.position.z)
 
 
 func _ctrl_local_xform(c: Ctrl) -> Transform3D:
