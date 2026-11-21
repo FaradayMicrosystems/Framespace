@@ -27,16 +27,16 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 
 | Do this | Get this |
 |---|---|
-| **Click a thumbstick** | The menu, fixed in front of you: a **4×8 tools sidebar** on the left and, in Move/Scale, the **object tray** on the right. Click again to close it |
+| **Y or B** (tap) | Main menu, stuck to that hand: a **4×8 tools sidebar** and, in Rotate/Move, the **object tray** beside it (on the inside, toward your other hand). Point and trigger with the other hand. Tap again to close |
 | Trigger on a **tray object** (or grip) | It's in your hand; the menu closes. Let go to place it |
-| **X or A** | Quick tool menu by your hand: Move/Scale, Cut, Copy, Paste, Duplicate, Delete, Reset size, Drop, Pin, Next clip |
-| Hold **B or Y** (½ s) | Undo |
-| **Move/Scale:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** (floor, table, another object's top) and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
-| **Move/Scale:** quick trigger **tap** on an object | Select it (nothing moves) |
+| **X or A** | Tool menu, stuck to that hand: Rotate/Move, Cut, Copy, Paste, Duplicate, Delete, Reset size, Drop, Pin, Next clip |
+| Hold **Y or B** (½ s) | Undo |
+| **Rotate/Move:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** (floor, table, another object's top) and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
+| **Rotate/Move:** quick trigger **tap** on an object | Select it (nothing moves) |
 | **Grip** on an object | Slide it on the grid, staying on its floor/surface |
-| Stick **up / down** while holding | Scale +5% / -5% |
-| Stick **left / right** while holding | Turn 45° |
-| Yellow / orange cubes on a selected shape | Trigger-drag to resize one side / the radius (Move/Scale only) |
+| Stick **left / right** while holding | Turn it smoothly (gentle near the centre, fast at full tilt) |
+| Stick **forward / back** while holding | Push it away / pull it in, continuously. Your hand does the fine positioning |
+| Yellow / orange cubes on a selected shape | Trigger-drag to resize one side / the radius (Rotate/Move only). Reset size undoes any resizing |
 | **Cut / Copy / Duplicate / Delete / Reset size / Drop / Pin** tool | Trigger on an object does that. Cut and Copy switch you to Paste |
 | **Paste** tool | Trigger where you want the clipboard item. Next clip cycles the clipboard |
 | **Reset size** | Back to the size it was created with (from the tray or objects.csv) |

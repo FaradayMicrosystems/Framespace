@@ -173,12 +173,14 @@ const MENU_MAIN := [
 const TOOLS_MENU := ["select", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin", "nextclip"]
 const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area"]
 const EDIT_TOOLS := ["cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin"]
-const MODE_NAMES := {"select": "Move/Scale", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
+const MODE_NAMES := {"select": "Rotate/Move", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
 	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
 	"reset": "Reset size", "drop": "Drop", "pin": "Pin/Unpin"}
 const HOLD_UNDO := 0.5          # seconds holding B or Y
 const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
+const ROT_SPEED := 120.0        # degrees/s at full stick left/right while holding
+const PUSH_SPEED := 1.5         # m/s at full stick forward/back while holding
 const SNAP_TOUCH := 0.03        # carried shape snaps onto a surface when its bottom is within 3 cm
 const TAP_SEC := 0.25           # a trigger tap shorter than this (and not moved) only selects
 
@@ -227,7 +229,9 @@ class Ctrl:
 	var shape_hit = null            # {shape, point, normal, dist}
 	var drag = null                 # Dictionary
 	var btn := {}
-	var high_at := INF              # when B / Y went down (hold = undo); INF = not held
+	var high_at := INF              # when B / Y went down (tap = menu, hold = undo); INF = not held
+	var high_used := false          # this press already did something (undo, or cancelled by a grab)
+	var last_t := -1.0              # last input time (stick speeds)
 	var stick_down_at := -10.0
 	var latch_x := true
 	var latch_y := true
@@ -262,6 +266,7 @@ var save_timer := 0.0
 var menu_page := "main"
 var menu_attach: Ctrl = null   # null = fixed in place
 var menu_anchor := Vector3.ZERO
+var ctx_attach: Ctrl = null    # hand the tool menu is stuck to
 var menu_dirty := true
 var selftest := false
 
@@ -1216,7 +1221,7 @@ func button_text(id: String) -> String:
 		"settings": return "Settings..."
 		"reset": return "Reset size"
 		"pin": return "Pin / Unpin"
-		"select": return "Move/Scale"
+		"select": return "Rotate/Move"
 		"units": return "Units: cm" if units == "metric" else "Units: in"
 		"copy": return "Copy"
 		"cut": return "Cut"
@@ -1295,11 +1300,11 @@ func tray_wanted() -> bool:
 
 func rebuild_menu() -> void:
 	var title: String = "ROOMS" if menu_page == "rooms" else "FRAMESPACE  " + BUILD
-	menu.build(title, menu_header(), menu_items(), 4, 0.085)
+	menu.build(title, menu_header(), menu_items(), 4, 0.075)
 	menu_dirty = false
 	var want := tray_wanted()
 	if want and not tray.is_open:
-		tray.build("OBJECTS  ·  trigger or grip one to grab it", [], tray_items(), 6, 0.08)
+		tray.build("OBJECTS  ·  trigger or grip one to grab it", [], tray_items(), 6, 0.07)
 		tray.is_open = true
 		tray.visible = true
 	elif not want and tray.is_open:
@@ -1307,37 +1312,40 @@ func rebuild_menu() -> void:
 	layout_menu()
 
 
-## Stick click: the menu opens fixed in front of you (sidebar left, tray right) and stays there.
+## Y / B tap: the menu (sidebar + tray) stuck to that hand. Point with the other hand.
 func open_menu(c: Ctrl, _fixed := true) -> void:
+	if ctx_attach == c:
+		close_tools()
 	menu_page = "main"
-	menu_attach = null
-	var head := camera.global_position
-	var fwd := -camera.global_basis.z
-	fwd.y = 0
-	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
-	menu_anchor = head + fwd * 0.7 + Vector3(0, -0.1, 0)
+	menu_attach = c
 	menu.is_open = true       # so rebuild_menu knows the tray is wanted
 	rebuild_menu()
-	menu.open_at(menu_anchor, head)
+	menu.open_at(_hand_top(c, menu.size.y), camera.global_position)
 	layout_menu()
 	haptic(c, 0.4, 0.03)
 
 
-## Centre the sidebar + tray pair on the anchor, tops aligned, both facing you.
+## Where a panel of height h sits: just above the controller, its bottom edge 6 cm over the hand.
+func _hand_top(c: Ctrl, h: float) -> Vector3:
+	return c.node.global_position + Vector3(0, 0.06 + h / 2.0, 0)
+
+
+## Sidebar over the hand, tray beside it on the inside (toward the other hand), tops aligned.
 func layout_menu() -> void:
 	if not menu.is_open:
 		return
 	var head := camera.global_position
+	if menu_attach != null:
+		menu_anchor = _hand_top(menu_attach, menu.size.y)
 	menu.global_position = menu_anchor
 	menu.face(head)
 	if not tray.is_open:
 		return
 	var right: Vector3 = menu.global_basis.x
 	var up: Vector3 = menu.global_basis.y
-	var gap := 0.02
-	menu.global_position = menu_anchor - right * (tray.size.x + gap) / 2.0
+	var side := -1.0 if menu_attach != null and menu_attach.hand == "right" else 1.0
 	tray.global_transform = menu.global_transform
-	tray.global_position = menu.global_position + right * (menu.size.x / 2.0 + gap + tray.size.x / 2.0) + up * (menu.size.y - tray.size.y) / 2.0
+	tray.global_position = menu.global_position + right * side * (menu.size.x / 2.0 + 0.015 + tray.size.x / 2.0) + up * (menu.size.y - tray.size.y) / 2.0
 
 
 func close_menu() -> void:
@@ -1523,7 +1531,7 @@ func set_tool(t: String, announce := true) -> void:
 		return
 	var clip = clipboard[clip_index] if clipboard.size() else null
 	set_status({
-		"select": "Move/Scale: trigger selects, grip moves, stick up/down scales, yellow cubes resize.",
+		"select": "Rotate/Move: trigger picks up, grip slides. While holding: stick left/right turns, forward/back pushes/pulls. Yellow cubes resize.",
 		"cut": "Cut: trigger on an object.",
 		"copy": "Copy: trigger on an object.",
 		"paste": ("Paste: trigger where you want %s." % clip.name) if clip else "Paste: clipboard is empty. Cut or Copy something first.",
@@ -1552,17 +1560,20 @@ func open_tools(c: Ctrl) -> void:
 	ctx.build("TOOL: " + String(MODE_NAMES.get(mode, mode)).to_upper(),
 		[[("Clipboard %d/%d: %s" % [clip_index + 1, clipboard.size(), clip.name]) if clip else "Clipboard empty", C_YELLOW]],
 		tool_items(), 4, 0.085)
-	ctx.target = c
-	var head := camera.global_position
-	var fwd := -c.node.global_basis.z
-	fwd.y = 0
-	fwd = fwd.normalized() if fwd.length() > 0.01 else -camera.global_basis.z
-	ctx.open_at(c.node.global_position + fwd * 0.22 + Vector3(0, 0.08, 0), head)
+	if menu_attach == c:
+		close_menu()
+	ctx_attach = c
+	ctx.open_at(_hand_top(c, ctx.size.y), camera.global_position)
 	haptic(c, 0.4, 0.03)
 
 
-func run_tool(id: String) -> void:
+func close_tools() -> void:
 	ctx.close()
+	ctx_attach = null
+
+
+func run_tool(id: String) -> void:
+	close_tools()
 	if id == "nextclip":
 		if clipboard.size():
 			clip_index = (clip_index + 1) % clipboard.size()
@@ -1681,7 +1692,7 @@ func update_pointer(c: Ctrl, space: PhysicsDirectSpaceState3D) -> void:
 			break
 		var col: Object = h.collider
 		var pnl = col.get_meta("panel") if col.has_meta("panel") else null
-		if pnl == null or not pnl.is_open:
+		if pnl == null or not pnl.is_open or ((pnl == menu or pnl == tray) and menu_attach == c) or (pnl == ctx and ctx_attach == c):
 			ex_ui.append(h.rid)
 			continue
 		c.ui = {"panel": pnl, "id": String(col.get_meta("item")), "dist": ow.distance_to(h.position), "point": h.position}
@@ -1753,9 +1764,9 @@ func update_hovers() -> void:
 #     snaps to the grid on top of it. Let go to place it (in mid-air it falls onto what's below).
 #     A quick tap only selects it. Trigger on a yellow cube: resize.
 #   Grip on an object: slide it around on the grid, staying on its surface.
-#   Stick while holding: up/down = scale ±5%, left/right = turn 45°.
-#   Stick click: the menu (tools sidebar + object tray), fixed in front of you. Click again to close.
-#   X or A: quick tool menu. Hold B or Y: undo.
+#   Stick while holding: left/right = turn smoothly, forward/back = push away / pull in.
+#   Y or B tap: main menu (tools sidebar + object tray) stuck to that hand. Hold ½ s: undo.
+#   X or A: tool menu stuck to that hand. Point and trigger with the other hand.
 func read_buttons(c: Ctrl) -> Dictionary:
 	var n := c.node
 	if not n.get_is_active():
@@ -1785,30 +1796,34 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 	var down := func(k): return b.get(k, false) and not prev.get(k, false)
 	var up := func(k): return not b.get(k, false) and prev.get(k, false)
 
-	# Stick click: menu in front of you (toggle).
-	if down.call("stick") and c.drag == null:
-		if menu.is_open:
-			close_menu()
-		else:
-			open_menu(c)
-		c.stick_down_at = now
+	var dt := clampf(now - c.last_t, 0.0, 0.1) if c.last_t >= 0.0 else 0.0
+	c.last_t = now
 
-	# X / A: tool menu (toggle).
+	# X / A: tool menu on that hand (toggle).
 	if down.call("low"):
-		if ctx.is_open:
-			ctx.close()
+		if ctx.is_open and ctx_attach == c:
+			close_tools()
 		else:
 			open_tools(c)
 
-	# Hold B / Y: undo (not while holding something).
+	# Y / B: tap = main menu on that hand (toggle, on release); hold ½ s = undo.
 	if down.call("high"):
 		c.high_at = now
-	if c.drag != null or not b.get("high", false):
+		c.high_used = c.drag != null
+	if b.get("high", false):
+		if c.drag != null:
+			c.high_used = true
+		elif not c.high_used and now - c.high_at >= HOLD_UNDO:
+			c.high_used = true
+			undo()
+			haptic(c, 0.5, 0.05)
+	if up.call("high"):
+		if not c.high_used:
+			if menu.is_open and menu_attach == c:
+				close_menu()
+			else:
+				open_menu(c)
 		c.high_at = INF
-	elif now - c.high_at >= HOLD_UNDO:
-		c.high_at = INF
-		undo()
-		haptic(c, 0.5, 0.05)
 
 	if down.call("trigger"):
 		on_trigger_down(c, b)
@@ -1821,21 +1836,16 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 		if up.call(rel):
 			on_drag_release(c)
 	if c.drag != null and (c.drag.type == "move" or c.drag.type == "free"):
-		if absf(b.get("sx", 0.0)) < 0.3:
+		# Stick while holding: left/right turns smoothly, forward/back pushes away / pulls in.
+		# The stick must come back to centre after a grab starts (no surprise spin).
+		var sx: float = b.get("sx", 0.0)
+		var sy: float = b.get("sy", 0.0)
+		if Vector2(sx, sy).length() < 0.2:
 			c.latch_x = false
-		if absf(b.get("sy", 0.0)) < 0.3:
-			c.latch_y = false
-		if not c.latch_x and absf(b.sx) > 0.7:
-			c.latch_x = true
-			rotate_held(c, -PI / 4 if b.sx < 0 else PI / 4)
-			haptic(c, 0.3, 0.02)
-		if not c.latch_y and absf(b.sy) > 0.7:
-			c.latch_y = true
-			scale_held(c, SCALE_STEP if b.sy > 0 else 1.0 / SCALE_STEP)
-			haptic(c, 0.3, 0.02)
+		if not c.latch_x:
+			stick_held(c, sx, sy, dt)
 	else:
-		c.latch_x = true     # stick must return to centre after a grab starts
-		c.latch_y = true
+		c.latch_x = true
 
 
 func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
@@ -1860,7 +1870,7 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 				run_tool(id)
 		return
 	if ctx.is_open:
-		ctx.close()
+		close_tools()
 		return
 	if mode in MEASURE_TOOLS:
 		var p: Vector3 = c.target.point if c.target != null else c.o + c.d * 0.8
@@ -2006,6 +2016,9 @@ func start_move(c: Ctrl, s: Shape) -> void:
 func update_move(c: Ctrl, dr: Dictionary) -> void:
 	var qy := Quaternion(Vector3.UP, yaw_of_dir(c.d) - dr.yaw0)
 	var p: Vector3 = c.o + qy * (dr.p0 - dr.c0)
+	var flat := Vector3(c.d.x, 0, c.d.z)
+	if flat.length() > 0.01:
+		p += flat.normalized() * float(dr.get("push", 0.0))
 	var s: Shape = dr.shape
 	s.node.position = Vector3(snap_grid(p.x), dr.base_y, snap_grid(p.z))
 	refresh_shape(s)
@@ -2081,6 +2094,33 @@ func scale_held(c: Ctrl, f: float) -> void:
 		s.node.position.y = dr.base_y
 	refresh_shape(s)
 	set_status("%s: %s" % [s.name, dims_text(s)])
+
+
+func _stick_curve(v: float) -> float:
+	var a := absf(v)
+	if a < 0.2:
+		return 0.0
+	var t := (a - 0.2) / 0.8
+	return signf(v) * t * t       # gentle near the centre for fine control
+
+
+## Smooth stick while holding: x = turn (right = clockwise), y = push away (+) / pull in (-).
+func stick_held(c: Ctrl, sx: float, sy: float, dt: float) -> void:
+	var dr: Dictionary = c.drag
+	var s: Shape = dr.shape
+	var turn := -deg_to_rad(ROT_SPEED) * _stick_curve(sx) * dt
+	var push := PUSH_SPEED * _stick_curve(sy) * dt
+	if turn != 0.0:
+		if dr.type == "free":
+			dr.yaw0 += turn
+		else:
+			s.node.quaternion = Quaternion(Vector3.UP, turn) * s.node.quaternion
+			refresh_shape(s)
+	if push != 0.0:
+		if dr.type == "free":
+			dr.dist = clampf(dr.dist + push, 0.1, 15.0)
+		else:
+			dr["push"] = float(dr.get("push", 0.0)) + push
 
 
 ## Closest point on line p0 + dir*t to the ray o + r*u. Returns t, or null when parallel.
@@ -2197,8 +2237,14 @@ func _process(delta: float) -> void:
 	update_hovers()
 	update_falling()
 	update_preview()
-	if menu.is_open and menu_dirty:
-		rebuild_menu()
+	if menu.is_open:
+		if menu_dirty:
+			rebuild_menu()
+		else:
+			layout_menu()
+	if ctx.is_open and ctx_attach != null:
+		ctx.global_position = _hand_top(ctx_attach, ctx.size.y)
+		ctx.face(camera.global_position)
 	if save_dirty:
 		save_timer -= delta
 		if save_timer <= 0.0:

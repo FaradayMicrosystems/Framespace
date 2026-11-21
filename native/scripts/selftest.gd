@@ -129,6 +129,24 @@ func run(m) -> void:
 	check("Reset size puts it back to its original size, still on the floor", box.dims == box.orig_dims and absf(box.dims.x - 0.3) < 0.0005 and absf(box.node.position.y - 0.15) < 0.002, str(box.dims))
 	main.set_tool("select")
 
+	# Stick while holding: right = turn clockwise smoothly, forward = push away.
+	c.drag = null
+	c.node.transform = Transform3D.IDENTITY
+	c.o = Vector3(0, 1.2, 0)
+	c.d = (Vector3(0, 0.6, -1.0) - c.o).normalized()
+	var yaw_s: float = main.yaw_of_quat(box.node.quaternion)
+	main.start_free(c, box, true, box.node.position)
+	var d0: float = c.drag.dist
+	main.stick_held(c, 1.0, 0.0, 0.25)
+	check("Stick right while holding turns it clockwise, smoothly (30° in ¼ s)", absf(c.drag.yaw0 - (yaw_s - deg_to_rad(30))) < 0.001, str(rad_to_deg(c.drag.yaw0 - yaw_s)))
+	main.stick_held(c, 0.0, 1.0, 0.2)
+	check("Stick forward pushes it away (30 cm in 0.2 s)", absf(c.drag.dist - (d0 + 0.3)) < 0.001, str(c.drag.dist - d0))
+	main.stick_held(c, 0.0, -0.3, 0.5)
+	check("Light pull back is slow, for fine control", c.drag.dist < d0 + 0.3 and c.drag.dist > d0 + 0.28, str(c.drag.dist - d0))
+	main.on_drag_release(c)
+	main.undo()
+	box.node.quaternion = Quaternion(Vector3.UP, -PI / 4)
+
 	# Clipboard.
 	main.select(box)
 	main.copy_selected(false)
@@ -145,11 +163,27 @@ func run(m) -> void:
 	main.process_input(cu, {})
 	cu.btn = {}
 	check("Hold Y undoes (restores it)", main.shapes.size() == 5)
+	main.process_input(cu, {"high": false})
+	check("...and a hold doesn't open the menu", not main.menu.is_open)
+	main.process_input(cu, {"high": true})
+	main.process_input(cu, {"high": false})
+	check("Tap Y opens the main menu stuck to the left hand", main.menu.is_open and main.menu_attach == cu)
+	check("...just above the hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.4, str(main.menu.global_position))
+	cu.node.position += Vector3(0.3, 0.1, -0.2)
+	main._process(0.0)
+	check("...and follows the hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.4)
+	cu.node.position = Vector3.ZERO
+	main.process_input(cu, {"high": true})
+	main.process_input(cu, {"high": false})
+	check("Tap Y again closes it", not main.menu.is_open)
+	cu.btn = {}
 
 	# X / A tool menu: cut -> paste via trigger.
 	var ct = main.ctrls[1]
 	main.open_tools(ct)
 	check("X / A opens the tool menu with 10 tools", main.ctx.is_open and main.ctx.items.size() == 10, str(main.ctx.items.size()))
+	check("...stuck to that hand", main.ctx_attach == ct and main.ctx.global_position.distance_to(ct.node.global_position) < 0.4)
+	check("...first tool is Rotate/Move", main.ctx.items[0].label == "Rotate/Move")
 	main.run_tool("cut")
 	check("Picking Cut sets the tool and closes the menu", main.mode == "cut" and not main.ctx.is_open)
 	var victim = main.shapes[4]
@@ -254,8 +288,8 @@ func run(m) -> void:
 
 	# Menu builds (main page + rooms page).
 	main.open_menu(main.ctrls[0], true)
-	check("Stick menu: 4×8 sidebar of tools", main.menu.is_open and main.menu.items.size() == 32, str(main.menu.items.size()))
-	check("...with the object tray beside it in Move/Scale", main.tray.is_open and main.tray.items.size() == main.PALETTE.size())
+	check("Y/B menu: 4×8 sidebar of tools", main.menu.is_open and main.menu.items.size() == 32, str(main.menu.items.size()))
+	check("...with the object tray beside it in Rotate/Move", main.tray.is_open and main.tray.items.size() == main.PALETTE.size())
 	check("...tray to the right of the sidebar, not overlapping", main.menu.to_local(main.tray.global_position).x > (main.menu.size.x + main.tray.size.x) / 2.0)
 	main.on_button("tape")
 	main.rebuild_menu()
