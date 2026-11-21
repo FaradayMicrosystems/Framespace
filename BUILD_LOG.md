@@ -62,3 +62,4 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Aurora asked that grabbing never changes a shape's size, that size and rotation only change with the stick's snap steps, in 10% steps, and for a fine way to square the room and grid after recentering.
 - Native app: grip alone now grabs and moves (no more push/pull scaling), and a free carry keeps the shape's rotation. Stick up / down is now ±10% (reversible), and rotation stays at 45° steps.
 - New main-menu buttons, **Turn room 5° / 1° left / right**, turn the whole room and grid around where you stand. 50 self-test checks.
+- Kept it simple: the spatial-anchor placement option was removed, so a room only ever loads where you stand (the "plan anywhere" workshop). Space Setup walls and tables are still used for snapping.

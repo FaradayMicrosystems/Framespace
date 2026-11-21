@@ -149,7 +149,6 @@ func run(m) -> void:
 	check("Rooms list has 2 rooms", main.list_rooms().size() == 2)
 
 	# Placement: rooms drop where you stand, facing the way you look; recentering re-places them.
-	check("Placement defaults to 'where I stand'", main.placement == "stand", main.placement)
 	var cam0: Transform3D = main.camera.transform
 	main.camera.transform = Transform3D(Basis(Vector3.UP, PI / 2), Vector3(2, 1.6, -1))
 	var sf: Transform3D = main.stand_frame()
@@ -185,12 +184,7 @@ func run(m) -> void:
 	main.open_menu(main.ctrls[0], true)
 	main.on_button("rooms")
 	main.rebuild_menu()
-	check("Rooms page has Place here + Placement", main.menu.item("placehere") != null and main.menu.item("placement") != null)
-	main.on_button("placement")
-	var st := FileAccess.get_file_as_string("user://settings.json")
-	check("Placement switches to anchor and is remembered", main.placement == "anchor" and st.contains("\"anchor\""), st)
-	main.on_button("placement")
-	check("...and back to where I stand", main.placement == "stand")
+	check("Rooms page has Place room here", main.menu.item("placehere") != null)
 	main.on_button("back")
 	main.close_menu()
 

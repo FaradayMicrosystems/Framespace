@@ -16,7 +16,7 @@ Built with Godot 4.6.2 and Meta's official OpenXR plugin (GodotOpenXRVendors 5.0
    - **Meta Quest Developer Hub (MQDH)**, for Windows or Mac: https://developers.meta.com/horizon/downloads/package/oculus-developer-hub-win (or the Mac version). Open Device Manager and drag `framespace.apk` onto "Apps". Or
    - **SideQuest (Advanced installer)**: https://sidequestvr.com/setup-howto. Click the "Install APK file from folder" icon and choose `framespace.apk`.
 4. **Launch.** In the headset, open Library > filter **Unknown Sources** > **Framespace**.
-5. **First launch.** Allow the **Spatial data** permission. Framespace needs it to see your walls and tables and to keep rooms anchored in place.
+5. **First launch.** Allow the **Spatial data** permission. Framespace needs it to see your walls and tables.
 
 Updates install over the top and keep your saved rooms, because every build is signed with the same key (`framespace-sideload.keystore`).
 Uninstalling the app deletes its saved rooms.
@@ -39,7 +39,7 @@ Uninstalling the app deletes its saved rooms.
 
 Size and rotation only change in steps, with the stick (or the yellow / orange resize cubes), never by moving your hand.
 
-The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here, placement), export, quit and **Turn room** (5° or 1°, left or right).
+The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here), export, quit and **Turn room** (5° or 1°, left or right).
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
 
 ## Rooms
@@ -60,10 +60,6 @@ Small errors in where you stand or which way you face carry straight into the ro
 **Rooms... > Place room here** does the same as recentering, without leaving the app.
 
 If the room or its grid is still a little off square after recentering, use **Turn room 1° / 5° left / right** in the main menu. It turns the whole room and grid around the spot you're standing on. Your saved layout isn't changed.
-
-### Spatial anchor (optional)
-
-**Rooms... > Placement** switches to pinning the room to a **Meta spatial anchor** instead. The room then reappears on its own in the same physical spot, with no recentering, but only where this headset has mapped the space. If the anchor can't be found (another location, or Space Setup was cleared), the room loads where you stand. The choice is remembered.
 
 ## Boundary
 
