@@ -23,25 +23,27 @@ Uninstalling the app deletes its saved rooms.
 
 ## Controls
 
+Think brush and canvas: point at things, pick them up with the trigger, put them down where you want.
+
 | Do this | Get this |
 |---|---|
-| **Click a thumbstick** | Main menu, attached to that hand. Point and trigger with the other hand. Click again to close it |
-| **Click both thumbsticks** | Main menu, fixed in front of you |
-| Point + **trigger** | Select a shape / press a button |
-| Point + **grip** (or grip + trigger) on a shape | Slide it along the floor, snapped to the grid. Grabbing never changes its size |
-| **Grip + B** while holding | Pick it up freely. It follows your hand but keeps its rotation. Let go and it drops onto the floor, a table or another shape |
+| **Click a thumbstick** | The menu, fixed in front of you: a **4×8 tools sidebar** on the left and, in Move/Scale, the **object tray** on the right. Click again to close it |
+| Trigger on a **tray object** (or grip) | It's in your hand; the menu closes. Let go to place it |
+| **X or A** | Quick tool menu by your hand: Move/Scale, Cut, Copy, Paste, Duplicate, Delete, Reset size, Drop, Pin, Next clip |
+| Hold **B or Y** (½ s) | Undo |
+| **Move/Scale:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** (floor, table, another object's top) and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
+| **Move/Scale:** quick trigger **tap** on an object | Select it (nothing moves) |
+| **Grip** on an object | Slide it on the grid, staying on its floor/surface |
 | Stick **up / down** while holding | Scale +5% / -5% |
-| Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
-| Hold **A** on a shape | Cut / Copy / Delete / Duplicate / **Pin** (a pinned shape can't be grabbed, moved or resized until you Unpin it) |
-| Hold **A** on empty space | Paste / Next clip |
+| Stick **left / right** while holding | Turn 45° |
+| Yellow / orange cubes on a selected shape | Trigger-drag to resize one side / the radius (Move/Scale only) |
+| **Cut / Copy / Duplicate / Delete / Reset size / Drop / Pin** tool | Trigger on an object does that. Cut and Copy switch you to Paste |
+| **Paste** tool | Trigger where you want the clipboard item. Next clip cycles the clipboard |
+| **Reset size** | Back to the size it was created with (from the tray or objects.csv) |
 
-The hold-A menu opens next to your hand, with a dotted line (in the object's colour) to the object, so far-away objects are easy to work on.
-| Hold **X** | Object palette from [`objects.csv`](../objects.csv) (shared with the web app): pallets, containers, IBC, forklift, door, car, person and more |
-| Yellow / orange cubes on a selected shape | Drag with trigger alone to resize one side / the radius. Ignored while you're gripping or holding anything |
+**Measuring tools** (sidebar, yellow): **Tape**, **Circle 3-pt** (radius/diameter), **Rect 3-pt** (two corners + the far edge: W × D, area, perimeter), **Height** (point to floor), **Angle 3-pt** (arm, corner, arm), **Path** (multi-leg total; tap the last point again to finish), **Area** (tap an outline, tap the first point to close: area + perimeter). Points snap to corners and existing points.
 
-Size and rotation only change in steps, with the stick (or the yellow / orange resize cubes), never by moving your hand.
-
-The main menu has the tools (tape, circle, move/size), units, grid, undo, clipboard, room lines, room scan, clear, save room, **Rooms...** (load, new, delete, place here), export, quit and **Turn room** (5° or 1°, left or right).
+The sidebar also has units, grid, undo, room lines, room scan, save, **Rooms...** (load, new, delete), export, clear, place room here, quit and **Turn room** (5° or 1°, left or right).
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
 
 ## Rooms

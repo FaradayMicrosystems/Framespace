@@ -72,3 +72,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - **Hold-A menu opens next to your hand** with a dotted line in the object's colour to the object.
 - Web app: the stick-click menu replaces the floating panel and Y (matches the APK). Aurora now works on the APK only.
 - Tests: native self-test 62 checks, web 41 checks.
+
+## 2026-11-21 (Brisbane): brush-and-canvas controls, tool modes, 5 new measuring tools
+
+- Aurora (in headset) asked for: stick click = the object chooser, with all controls in a 4×8 sidebar and a big object tray beside it (tray only in Move/Scale); X/A = one press to pick a tool mode (cut, copy, paste, move/scale...), plus Reset size; undo on hold B; grip = slide on the grid; trigger = pick up freely, twist the hand to turn it, snap to the grid on touching a surface; more tools like Circle 3-pt. "More like a painter with a brush and canvas."
+- Built (APK, 0.4.0-native): sidebar + tray menu fixed in front of you (too wide to hang off a hand), tool modes on X/A, hold B/Y undo, trigger carry on the pointer with wrist-twist rotation and surface snapping (15° steps), quick tap = select only (no accidental nudges), Reset size (original size saved in rooms and the clipboard), and Rect 3-pt, Height, Angle 3-pt, Path and Area measuring tools (in JSON/CSV/GLB exports too).
+- Tests: native self-test 81 checks (was 62), run locally with the same Godot build as CI before pushing.
+- Web app unchanged (Aurora is on the APK only).

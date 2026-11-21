@@ -74,64 +74,124 @@ func run(m) -> void:
 	main.scale_held(c, main.SCALE_STEP)
 	c.drag = null
 
-	# Grabbing never changes size or (in a free carry) rotation; only the stick does.
+	# Grip slides on the grid (never resizes); trigger picks it up, wrist twist turns it, surfaces snap.
 	var dims_before: Dictionary = box.dims.duplicate()
 	c.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.on_grip_down(c, {"grip": true})
-	check("Grip alone grabs to move (not scale)", c.drag != null and c.drag.type == "move", str(c.drag.type if c.drag else null))
-	c.node.position += Vector3(0, 0, -0.4)   # push the hand forward, like the old push-to-grow
+	check("Grip alone grabs to slide (not scale)", c.drag != null and c.drag.type == "move" and c.drag.release == "grip", str(c.drag))
 	c.o += Vector3(0, 0, -0.4)
 	main.update_move(c, c.drag)
-	check("Pushing the hand while holding doesn't change size", box.dims == dims_before, str(box.dims))
-	main.convert_to_free(c)
-	var q_before: Quaternion = box.node.quaternion
-	c.node.rotate_object_local(Vector3.FORWARD, 0.7)    # twist the wrist
-	c.node.rotate_object_local(Vector3.RIGHT, 0.4)
-	main.update_free(c, c.drag)
-	check("Twisting the wrist while carrying doesn't rotate it", box.node.quaternion.is_equal_approx(q_before) and box.dims == dims_before, str(box.node.quaternion))
-	c.node.transform = Transform3D.IDENTITY
+	check("Sliding doesn't change size or height", box.dims == dims_before and absf(box.node.position.y - box.dims.y / 2.0) < 0.002, str(box.dims))
 	main.on_drag_release(c)
-	c.shape_hit = null
 	box.node.position = Vector3(0, half_y(box), -1.0)
+	box.node.quaternion = Quaternion.IDENTITY
+	main.refresh_shape(box)
+
+	# Trigger carry: aim from above, so the ray points down at the box.
+	c.node.transform = Transform3D(Basis(Vector3.RIGHT, -PI / 2), Vector3(0, 1.5, -1.0))
+	c.o = Vector3(0, 1.5, -1.0)
+	c.d = Vector3.DOWN
+	c.shape_hit = {"shape": box, "point": Vector3(0, box.dims.y, -1.0), "normal": Vector3.UP, "dist": 1.0}
+	var hist0: int = main.history.size()
+	main.on_trigger_down(c, {"trigger": true})
+	check("Trigger on an object picks it up", c.drag != null and c.drag.type == "free" and c.drag.release == "trigger")
+	main.on_drag_release(c)
+	check("A quick trigger tap only selects (no move, no undo step)", box.node.position.is_equal_approx(Vector3(0, half_y(box), -1.0)) and main.history.size() == hist0 and main.selected == box)
+	main.on_trigger_down(c, {"trigger": true})
+	c.drag.t0 -= 1.0
+	c.o = Vector3(-0.52, 1.8, -1.0)         # lift the hand 30 cm and move it 52 cm left (clear floor)
+	main.update_free(c, c.drag)
+	check("Lifted clear of the floor: carried freely, not snapped", not c.drag.snapped and box.node.position.y > 0.3, str(box.node.position))
+	c.node.rotate_object_local(Vector3.BACK, deg_to_rad(40))   # twist the wrist 40°
+	main.update_free(c, c.drag)
+	check("Twisting the wrist turns it (free: follows the hand)", absf(rad_to_deg(main.yaw_of_quat(box.node.quaternion)) - 40.0) < 1.0, str(rad_to_deg(main.yaw_of_quat(box.node.quaternion))))
+	check("Carrying keeps it upright and the same size", absf(box.node.quaternion.get_euler().x) < 0.001 and box.dims == dims_before)
+	c.o = Vector3(-0.52, 1.51, -1.0)        # lower it to the floor
+	main.update_free(c, c.drag)
+	check("Touching the floor snaps it to the grid on top of it", c.drag.snapped and absf(box.node.position.y - half_y(box)) < 0.002 and is_equal_approx(box.node.position.x, -0.5), str(box.node.position))
+	check("...and squares the turn to 15° steps", absf(rad_to_deg(main.yaw_of_quat(box.node.quaternion)) - 45.0) < 0.01, str(rad_to_deg(main.yaw_of_quat(box.node.quaternion))))
+	main.on_drag_release(c)
+	check("Releasing keeps it where it snapped", box.node.position.is_equal_approx(Vector3(-0.5, half_y(box), -1.0)))
+	main.undo()
+	check("Undo puts a carried object back", box.node.position.is_equal_approx(Vector3(0, half_y(box), -1.0)), str(box.node.position))
+	c.node.transform = Transform3D.IDENTITY
+	c.shape_hit = null
 	box.node.quaternion = Quaternion(Vector3.UP, -PI / 4)
+
+	# Reset size.
+	main.select(box)
+	c.drag = {"type": "move", "shape": box, "c0": Vector3.ZERO, "yaw0": 0.0, "p0": box.node.position, "base_y": box.node.position.y}
+	main.scale_held(c, main.SCALE_STEP)
+	main.scale_held(c, main.SCALE_STEP)
+	c.drag = null
+	main.set_tool("reset")
+	main.apply_tool(c, box)
+	check("Reset size puts it back to its original size, still on the floor", box.dims == box.orig_dims and absf(box.dims.x - 0.3) < 0.0005 and absf(box.node.position.y - 0.15) < 0.002, str(box.dims))
+	main.set_tool("select")
 
 	# Clipboard.
 	main.select(box)
 	main.copy_selected(false)
 	main.paste_at(Vector3(1.0, 0, 1.0))
 	check("Copy + paste makes a 5th shape", main.shapes.size() == 5)
-	main.select(main.shapes[4])
-	main.on_button("delete")
-	check("Delete removes it", main.shapes.size() == 4)
-	main.undo()
-	check("Undo restores it", main.shapes.size() == 5)
+	main.set_tool("delete")
+	main.apply_tool(c, main.shapes[4])
+	check("Delete tool removes it", main.shapes.size() == 4)
+	var cu = main.ctrls[0]
+	cu.drag = null
+	main.process_input(cu, {"high": true})
+	cu.high_at -= 1.0
+	main.process_input(cu, {"high": true})
+	main.process_input(cu, {})
+	cu.btn = {}
+	check("Hold Y undoes (restores it)", main.shapes.size() == 5)
 
-	# Pin: context menu Pin/Unpin; a pinned shape can't be grabbed, resized or dropped.
+	# X / A tool menu: cut -> paste via trigger.
+	var ct = main.ctrls[1]
+	main.open_tools(ct)
+	check("X / A opens the tool menu with 10 tools", main.ctx.is_open and main.ctx.items.size() == 10, str(main.ctx.items.size()))
+	main.run_tool("cut")
+	check("Picking Cut sets the tool and closes the menu", main.mode == "cut" and not main.ctx.is_open)
+	var victim = main.shapes[4]
+	ct.ui = null
+	ct.shape_hit = {"shape": victim, "point": victim.node.position, "normal": Vector3.UP, "dist": 1.0}
+	main.on_trigger_down(ct, {"trigger": true})
+	check("Trigger in Cut mode cuts the object, then switches to Paste", main.shapes.size() == 4 and main.mode == "paste" and main.clipboard[0].name == victim.name)
+	ct.shape_hit = null
+	ct.target = {"point": Vector3(2, 0, 2), "normal": Vector3.UP, "dist": 1.0, "kind": "surface"}
+	main.on_trigger_down(ct, {"trigger": true})
+	check("Trigger in Paste mode pastes where you point", main.shapes.size() == 5 and Vector2(main.shapes[4].node.position.x, main.shapes[4].node.position.z).is_equal_approx(Vector2(2, 2)))
+	ct.target = null
+	main.set_tool("duplicate")
+	main.apply_tool(ct, main.shapes[4])
+	check("Duplicate tool makes a copy", main.shapes.size() == 6)
+	main.undo()
+	main.set_tool("select")
+
+	# Pin tool; a pinned shape can't be grabbed, resized or dropped.
 	var cp = main.ctrls[1]
 	cp.o = Vector3(0, 1.2, 0)
 	cp.d = (box.node.position - cp.o).normalized()
-	cp.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
-	main.open_context(cp)
-	check("Hold-A menu on a shape offers Pin", main.ctx.is_open and main.ctx.item("pin") != null and main.ctx.item("pin").label == "Pin")
-	var ctx_pos: Vector3 = main.ctx.global_position
-	check("Context menu opens near the hand, not at the object", ctx_pos.distance_to(main.content.to_global(cp.o)) < 0.5, str(ctx_pos))
-	check("...linked to the object by a dotted line", main.ctx_link.visible)
-	main.run_context("pin")
+	main.open_tools(cp)
+	check("Tool menu offers Pin", main.ctx.item("pin") != null)
+	main.run_tool("pin")
+	main.apply_tool(cp, box)
+	main.set_tool("select")
+	main.select(box)
 	check("Pin pins it (no resize cubes)", box.pinned and box.handles.size() == 0)
 	var pos_pinned: Vector3 = box.node.position
+	cp.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.on_grip_down(cp, {"grip": true})
-	check("A pinned shape can't be grabbed", cp.drag == null and box.node.position == pos_pinned, main.status)
-	main.on_trigger_down(cp, {"trigger": true, "grip": true})
-	check("...not even with grip + trigger", cp.drag == null)
-	check("Drop is disabled while pinned", not main.button_enabled("drop"))
+	check("A pinned shape can't be slid", cp.drag == null and box.node.position == pos_pinned, main.status)
+	main.on_trigger_down(cp, {"trigger": true})
+	check("...or picked up", cp.drag == null)
 	check("Pinned flag is saved", main.room_data().shapes[0].pinned == true)
-	main.open_context(cp)
-	check("Pinned shape offers Unpin", main.ctx.item("pin").label == "Unpin")
-	main.run_context("pin")
+	main.set_tool("pin")
+	main.apply_tool(cp, box)
+	main.set_tool("select")
 	main.on_grip_down(cp, {"grip": true})
 	check("Unpin makes it grabbable again", not box.pinned and cp.drag != null and cp.drag.type == "move")
 	main.on_drag_release(cp)
-	check("Context link hides when the menu closes", (func(): main._process(0.0); return not main.ctx_link.visible).call())
 
 	# Resize cubes can never fire while grabbing (the accidental-scaling bug).
 	main.select(box)
@@ -141,9 +201,9 @@ func run(m) -> void:
 	check("Trigger on a resize cube while gripping doesn't start a resize", cp.drag == null or cp.drag.type != "handle")
 	cp.drag = null
 	main.on_trigger_down(cp, {"trigger": true})
-	check("Trigger alone on a resize cube still resizes", cp.drag != null and cp.drag.type == "handle")
+	check("Trigger alone on a resize cube still resizes (Move/Scale)", cp.drag != null and cp.drag.type == "handle")
 	main.on_grip_down(cp, {"grip": true, "trigger": true})
-	check("Grip during a resize switches to moving, size unchanged", cp.drag != null and cp.drag.type == "move" and box.dims == dims0, str(box.dims))
+	check("Grip during a resize switches to sliding, size unchanged", cp.drag != null and cp.drag.type == "move" and box.dims == dims0, str(box.dims))
 	main.on_drag_release(cp)
 	cp.handle_hit = null
 	cp.shape_hit = null
@@ -165,13 +225,52 @@ func run(m) -> void:
 	main.add_pending_point(Vector3(-1, 1, 0))
 	main.add_pending_point(Vector3(0, 1, 1))
 	check("Circle 3-pt radius 1 m", main.measures.size() == 2 and absf(main.measures[1].r - 1.0) < 0.001)
+	main.on_button("rect")
+	for q in [Vector3(0, 0, 0), Vector3(2, 0, 0), Vector3(1.5, 0, 1)]:
+		main.add_pending_point(q)
+	check("Rect 3-pt: 2 m × 1 m = 2 m²", main.measures.size() == 3 and absf(main.measures[2].w - 2.0) < 0.001 and absf(main.measures[2].dp - 1.0) < 0.001, str(main.measure_lines(main.measures[-1])))
+	main.on_button("height")
+	main.add_pending_point(Vector3(0.3, 1.5, 0.2))
+	check("Height: 1.5 m above the floor", main.measures.size() == 4 and main.measure_lines(main.measures[3])[0].ends_with("1.500 m"), str(main.measure_lines(main.measures[-1])))
+	main.on_button("angle")
+	for q in [Vector3(1, 0, 0), Vector3(0, 0, 0), Vector3(0, 0, 1)]:
+		main.add_pending_point(q)
+	check("Angle 3-pt: 90°", main.measures.size() == 5 and main.measure_lines(main.measures[4])[0].ends_with("90.0°"), str(main.measure_lines(main.measures[-1])))
+	main.on_button("path")
+	for q in [Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 0, 1)]:
+		main.add_pending_point(q)
+	check("Path keeps going until you tap the last point again", main.measures.size() == 5 and main.pending.size() == 3)
+	main.add_pending_point(Vector3(1, 0, 1))
+	check("Path: 2 m over 2 segments", main.measures.size() == 6 and absf(main.path_len(main.measures[5].points) - 2.0) < 0.001)
+	main.on_button("area")
+	for q in [Vector3(0, 0, 0), Vector3(2, 0, 0), Vector3(2, 0, 1.5), Vector3(0, 0, 1.5)]:
+		main.add_pending_point(q)
+	main.add_pending_point(Vector3(0.005, 0, 0))     # tap the first point again
+	check("Area: closing the outline gives 3 m²", main.measures.size() == 7 and absf(main.poly_area(main.measures[6].points) - 3.0) < 0.001, str(main.measures.size()))
+	main.set_tool("select")
 	main.on_button("units")
 	check("Units toggle to inches", main.L(1.0) == "3 ft 3.4 in", main.L(1.0))
 	main.on_button("units")
 
 	# Menu builds (main page + rooms page).
 	main.open_menu(main.ctrls[0], true)
-	check("Main menu opens with 28 buttons", main.menu.is_open and main.menu.items.size() == 28, str(main.menu.items.size()))
+	check("Stick menu: 4×8 sidebar of tools", main.menu.is_open and main.menu.items.size() == 32, str(main.menu.items.size()))
+	check("...with the object tray beside it in Move/Scale", main.tray.is_open and main.tray.items.size() == main.PALETTE.size())
+	check("...tray to the right of the sidebar, not overlapping", main.menu.to_local(main.tray.global_position).x > (main.menu.size.x + main.tray.size.x) / 2.0)
+	main.on_button("tape")
+	main.rebuild_menu()
+	check("Tray hides in other tools", not main.tray.is_open)
+	main.on_button("select")
+	main.rebuild_menu()
+	var n0: int = main.shapes.size()
+	var cg = main.ctrls[1]
+	cg.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.5, "point": main.tray.global_position}
+	main.on_trigger_down(cg, {"trigger": true})
+	check("Trigger on a tray object puts it in your hand and closes the menu", main.shapes.size() == n0 + 1 and cg.drag != null and cg.drag.type == "free" and not main.menu.is_open)
+	cg.ui = null
+	main.on_drag_release(cg)
+	main.undo()
+	main.open_menu(main.ctrls[0], true)
 	main.on_button("rooms")
 	main.rebuild_menu()
 	check("Rooms page lists the current room", main.menu.item("room:" + main.room.id) != null)
@@ -189,7 +288,7 @@ func run(m) -> void:
 	main.save_room_now()
 	main.load_room(first_id)
 	check("Loading the first room brings its shapes back", main.shapes.size() == n_shapes, "%d vs %d" % [main.shapes.size(), n_shapes])
-	check("...and its measurements", main.measures.size() == 2)
+	check("...and its measurements (all 7 kinds)", main.measures.size() == 7, str(main.measures.size()))
 	check("...and pinned shapes stay pinned", main.shapes[0].pinned)
 	check("Rooms list has 2 rooms", main.list_rooms().size() == 2)
 
