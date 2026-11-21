@@ -5,7 +5,7 @@ Built with Godot 4.6.2 and Meta's official OpenXR plugin (GodotOpenXRVendors 5.0
 
 ## Get the APK
 
-- **Latest release (v0.21):** [Releases > latest](https://github.com/FaradayMicrosystems/Framespace/releases/latest), file `framespace.apk`. Direct link: https://github.com/FaradayMicrosystems/Framespace/releases/latest/download/framespace.apk
+- **Latest release (v0.21a):** [Releases > latest](https://github.com/FaradayMicrosystems/Framespace/releases/latest), file `framespace.apk`. Direct link: https://github.com/FaradayMicrosystems/Framespace/releases/latest/download/framespace.apk
 - **Newest build from `main` (may be ahead of the release):** [Releases > native-latest](https://github.com/FaradayMicrosystems/Framespace/releases/tag/native-latest), file `framespace.apk`.
 - **Any branch or PR:** Actions > "Native Quest APK" > pick a run > Artifacts > `framespace-quest-apk` (a zip that holds the APK).
 
