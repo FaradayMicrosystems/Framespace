@@ -41,7 +41,8 @@ const state = {
   mode: 'select',          // select | tape | circle
   roomVisible: true,
   menuPinned: false,
-  menuVisible: true,
+  menuVisible: false,
+  menuAttach: null,   // controller the menu rides on; null = fixed in front of you
   grid: 0.05,             // metres; 0 = off
   falling: [],
   selected: null,
@@ -166,11 +167,12 @@ function volumeOf(s) {
 }
 function shapeLines(s) {
   const d = s.dims, v = `Vol ${VOL(volumeOf(s))}`;
+  const n = s.pinned ? `${s.name} (pinned)` : s.name;
   switch (s.type) {
-    case 'box': return [s.name, `W ${L(d.x)} × H ${L(d.y)} × D ${L(d.z)}`, v];
-    case 'sphere': return [s.name, `r ${L(d.r)}  ·  Ø ${L(2 * d.r)}`, v];
-    case 'cylinder': return [s.name, `r ${L(d.r)}  ·  Ø ${L(2 * d.r)}  ·  H ${L(d.h)}`, v];
-    case 'cone': return [s.name, `r ${L(d.r)}  ·  H ${L(d.h)}  ·  slant ${L(Math.hypot(d.r, d.h))}`, v];
+    case 'box': return [n, `W ${L(d.x)} × H ${L(d.y)} × D ${L(d.z)}`, v];
+    case 'sphere': return [n, `r ${L(d.r)}  ·  Ø ${L(2 * d.r)}`, v];
+    case 'cylinder': return [n, `r ${L(d.r)}  ·  Ø ${L(2 * d.r)}  ·  H ${L(d.h)}`, v];
+    case 'cone': return [n, `r ${L(d.r)}  ·  H ${L(d.h)}  ·  slant ${L(Math.hypot(d.r, d.h))}`, v];
   }
 }
 function dimsText(s) { return shapeLines(s)[1]; }
@@ -223,7 +225,7 @@ function select(s) {
   state.selected = s;
   if (s) {
     s.wire.material.color.setHex(0xffffff); s.fill.material.opacity = 0.14;
-    s.handles = HANDLE_DEFS[s.type].map(hd => {
+    s.handles = s.pinned ? [] : HANDLE_DEFS[s.type].map(hd => {
       const m = new THREE.Mesh(handleGeo, handleMat[hd.mode]);
       m.userData.handle = { ...hd, shape: s };
       s.group.add(m);
@@ -439,7 +441,8 @@ function buttonText(id) {
 }
 function buttonActive(id) { return (id === 'tape' && state.mode === 'tape') || (id === 'circle' && state.mode === 'circle') || (id === 'select' && state.mode === 'select'); }
 function buttonEnabled(id) {
-  if (['copy', 'cut', 'duplicate', 'drop', 'delete'].includes(id)) return !!state.selected;
+  if (id === 'drop') return !!state.selected && !state.selected.pinned;
+  if (['copy', 'cut', 'duplicate', 'delete'].includes(id)) return !!state.selected;
   if (['paste', 'nextclip'].includes(id)) return state.clipboard.length > 0;
   return true;
 }
@@ -556,8 +559,26 @@ function onButton(id, ctrl) {
   panel.dirty = true;
 }
 
+// Stick click opens the main menu riding just above that hand (the other hand selects).
+// Click both sticks together to leave it fixed in front of you. Click again to close.
+function menuHandPos(c) {
+  const p = new V3().setFromMatrixPosition(c.matrixWorld), head = camera.getWorldPosition(new V3());
+  const toHead = head.clone().sub(p); toHead.y = 0;
+  const side = new V3().crossVectors(UP, toHead.normalize()).multiplyScalar(c.userData.inputSource?.handedness === 'left' ? 0.1 : -0.1);
+  return p.add(new V3(0, 0.2, 0)).add(side);
+}
+function openMenu(c, fixed) {
+  state.menuVisible = true; panel.mesh.visible = true;
+  state.menuAttach = fixed ? null : c;
+  if (fixed) updateMenuPlacement(true);
+  else { panel.mesh.position.copy(menuHandPos(c)); panel.mesh.lookAt(camera.getWorldPosition(new V3())); }
+  panel.dirty = true;
+  if (c) haptic(c, 0.4, 30);
+}
+function closeMenu() { state.menuVisible = false; state.menuAttach = null; panel.mesh.visible = false; }
 function updateMenuPlacement(instant) {
-  if (state.menuPinned && !instant) return;
+  if (state.menuAttach) { panel.mesh.position.copy(menuHandPos(state.menuAttach)); panel.mesh.lookAt(camera.getWorldPosition(new V3())); return; }
+  if (!instant) return;   // fixed menus stay where they opened
   const head = camera.getWorldPosition(new V3());
   const fwd = camera.getWorldDirection(new V3()); fwd.y = 0;
   if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
@@ -788,7 +809,7 @@ function openContext(c) {
   let anchor;
   if (s) {
     select(s); anchor = u.shapeHit.point.clone(); ctxMenu.target = s;
-    layoutPopup(ctxMenu, s.name, [{ id: 'cut', label: 'Cut' }, { id: 'copy', label: 'Copy' }, { id: 'delete', label: 'Delete', color: '#ff6b6b' }, { id: 'duplicate', label: 'Duplicate' }], 2);
+    layoutPopup(ctxMenu, s.name, [{ id: 'cut', label: 'Cut' }, { id: 'copy', label: 'Copy' }, { id: 'delete', label: 'Delete', color: '#ff6b6b' }, { id: 'duplicate', label: 'Duplicate' }, { id: 'pin', label: s.pinned ? 'Unpin' : 'Pin', color: '#ffd54f' }], 2);
   } else {
     anchor = u.target ? u.target.point.clone() : pointTarget(c); ctxMenu.target = null;
     const clip = state.clipboard[state.clipIndex];
@@ -796,9 +817,21 @@ function openContext(c) {
       [{ id: 'paste', label: 'Paste', enabled: !!clip }, { id: 'nextclip', label: 'Next clip', enabled: state.clipboard.length > 1 }], 2);
   }
   ctxMenu.point = anchor.clone();
-  const pos = anchor.clone().add(head.clone().sub(anchor).normalize().multiplyScalar(Math.min(0.3, anchor.distanceTo(head) * 0.4))).add(new V3(0, 0.08, 0));
+  // Open near the hand (never out at a far object), linked to the object by a dotted line in its colour.
+  const { o, d } = rayOf(c);
+  const pos = o.clone().addScaledVector(d, Math.min(0.35, anchor.distanceTo(o))).add(new V3(0, 0.1, 0));
   placePopup(ctxMenu, pos);
+  drawCtxLink(pos, anchor, s ? s.color : 0x00e5ff);
   haptic(c, 0.4, 30);
+}
+const ctxLink = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.03, gapSize: 0.03, depthTest: false, transparent: true }));
+ctxLink.renderOrder = 39; ctxLink.visible = false; scene.add(ctxLink);
+function drawCtxLink(from, to, color) {
+  ctxLink.geometry.dispose();
+  ctxLink.geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
+  ctxLink.computeLineDistances();
+  ctxLink.material.color.setHex(color);
+  ctxLink.visible = from.distanceTo(to) > 0.05;
 }
 function runContext(id) {
   const s = ctxMenu.target, p = ctxMenu.point;
@@ -808,6 +841,7 @@ function runContext(id) {
     case 'copy': if (s) { select(s); copySelected(false); } break;
     case 'delete': if (s) { removeShape(s); pushHistory({ undo: () => restoreShape(s) }); setStatus(`Deleted ${s.name}`); persist(); } break;
     case 'duplicate': if (s) { select(s); onButton('duplicate'); } break;
+    case 'pin': if (s) { setPinned(s, !s.pinned); pushHistory({ undo: () => setPinned(s, !s.pinned) }); setStatus(s.pinned ? `${s.name} pinned. It can't be grabbed until you unpin it (hold A > Unpin).` : `${s.name} unpinned.`); persist(); } break;
     case 'paste': pasteAt(p); break;
     case 'nextclip': state.clipIndex = (state.clipIndex + 1) % state.clipboard.length; setStatus('Next clipboard item'); break;
   }
@@ -957,21 +991,29 @@ function updateHovers() {
 }
 
 // ---------------------------------------------------------------- controller input
-// Trigger: select / press. Grip: scale (alone) or move (with trigger). B (right) while moving: free pick-up.
+// Trigger: select / press. Grip: grab to move (never resizes). B (right) while moving: free pick-up.
 // Stick while holding: up/down = scale ±5%, left = 45° clockwise, right = 45° counter-clockwise.
-// Hold A (right): context menu. Hold X (left): shape palette. Y (left): show/hide the tools menu.
-const NO_BTN = { trigger: false, grip: false, low: false, high: false, sx: 0, sy: 0 };
+// Stick click: main menu on that hand (both sticks: fixed in front). Hold A (right): object menu. Hold X (left): palette.
+const SCALE_STEP = 1.05;   // stick up / down: +5% / -5% (reversible)
+const NO_BTN = { trigger: false, grip: false, stick: false, low: false, high: false, sx: 0, sy: 0 };
 function readButtons(c) {
   const src = c.userData.inputSource, gp = src?.gamepad;
   if (!gp || src.hand) return null;
   const p = i => !!gp.buttons[i]?.pressed;
-  return { trigger: p(0), grip: p(1), low: p(4), high: p(5), sx: gp.axes[2] || 0, sy: gp.axes[3] || 0 };
+  return { trigger: p(0), grip: p(1), stick: p(3), low: p(4), high: p(5), sx: gp.axes[2] || 0, sy: gp.axes[3] || 0 };
 }
 function processInput(c, now) {
   const u = c.userData, b = readButtons(c);
   if (!b) return;
   const prev = u.btn || NO_BTN; u.btn = b;
   const down = k => b[k] && !prev[k], up = k => !b[k] && prev[k];
+  if (down('stick') && !u.drag) {
+    const other = controllers.find(k => k !== c);
+    if (state.menuVisible && state.menuAttach === other && now - (other.userData.stickDownAt ?? -1e9) < 400) openMenu(c, true);
+    else if (state.menuVisible) closeMenu();
+    else openMenu(c, false);
+    u.stickDownAt = now;
+  }
   if (u.inputSource.handedness !== 'left') {
     if (down('low')) { u.aDownAt = now; if (ctxMenu.open) { closePopup(ctxMenu); u.aDownAt = null; } }
     if (b.low && u.aDownAt != null && now - u.aDownAt > 250) { u.aDownAt = null; openContext(c); }
@@ -979,19 +1021,18 @@ function processInput(c, now) {
   } else {
     if (down('low')) { openPalette(c); panel.mesh.visible = false; }
     if (up('low')) { closePopup(palette); panel.mesh.visible = state.menuVisible; }
-    if (down('high')) { state.menuVisible = !state.menuVisible; panel.mesh.visible = state.menuVisible; if (state.menuVisible) updateMenuPlacement(true); }
   }
   if (u.drag?.type === 'move' && bHeld()) convertToFree(c);
   if (down('trigger')) onTriggerDown(c, b);
   if (down('grip')) onGripDown(c, b);
   if (up('trigger')) u.pressShape = null;
   const t = u.drag?.type;
-  if ((t === 'handle' && up('trigger')) || (t === 'scale' && up('grip')) || ((t === 'move' || t === 'free') && (up('trigger') || up('grip')))) onDragRelease(c);
+  if ((t === 'handle' && up('trigger')) || ((t === 'move' || t === 'free') && (up('trigger') || up('grip')))) onDragRelease(c);
   if (u.drag && (u.drag.type === 'move' || u.drag.type === 'free')) {
     if (Math.abs(b.sx) < 0.3) u.latchX = false;
     if (Math.abs(b.sy) < 0.3) u.latchY = false;
     if (!u.latchX && Math.abs(b.sx) > 0.7) { u.latchX = true; rotateHeld(c, b.sx < 0 ? -Math.PI / 4 : Math.PI / 4); haptic(c, 0.3, 20); }
-    if (!u.latchY && Math.abs(b.sy) > 0.7) { u.latchY = true; scaleHeld(c, b.sy < 0 ? 1.05 : 0.95); haptic(c, 0.3, 20); }
+    if (!u.latchY && Math.abs(b.sy) > 0.7) { u.latchY = true; scaleHeld(c, b.sy < 0 ? SCALE_STEP : 1 / SCALE_STEP); haptic(c, 0.3, 20); }
   } else { u.latchX = u.latchY = true; }   // stick must return to centre after a grab starts
 }
 function onTriggerDown(c, b) {
@@ -1003,8 +1044,7 @@ function onTriggerDown(c, b) {
     return;
   }
   if (ctxMenu.open) { closePopup(ctxMenu); return; }
-  if (u.drag?.type === 'scale') { const s = u.drag.shape; u.drag = null; startMove(c, s); return; }
-  if (u.handleHit) { startHandle(c, u.handleHit.object); haptic(c); return; }
+  if (u.handleHit && !b.grip && !anyoneCarrying()) { startHandle(c, u.handleHit.object); haptic(c); return; }
   if (state.mode !== 'select') {
     const p = u.target ? u.target.point : pointTarget(c);
     if (!u.target) setStatus('No surface there: used a point 80 cm along the ray.');
@@ -1013,7 +1053,7 @@ function onTriggerDown(c, b) {
   if (u.shapeHit) {
     const s = u.shapeHit.object.userData.shape;
     select(s); u.pressShape = s; haptic(c, 0.2, 15);
-    if (b.grip) startMove(c, s);
+    if (b.grip && !refusePinned(c, s)) startMove(c, s);
     return;
   }
   if (state.selected) select(null);
@@ -1021,11 +1061,19 @@ function onTriggerDown(c, b) {
 function onGripDown(c, b) {
   const u = c.userData; state.lastCtrl = c;
   if (u.ui?.kind === 'palette') { const it = popupItemAt(palette, u.ui.hit.uv); if (it) spawnFromPalette(c, it, u.ui.hit.point); return; }
+  if (u.drag?.type === 'handle') {
+    // Grip during a resize: stop resizing (size stays) and grab to move instead.
+    const hs = u.drag.shape; u.drag = null;
+    if (!refusePinned(c, hs)) startMove(c, hs);
+    return;
+  }
   if (u.ui || state.mode !== 'select' || u.drag) return;
   const s = (b.trigger && u.pressShape) || u.shapeHit?.object.userData.shape;
   if (!s) return;
   select(s);
-  if (b.trigger) startMove(c, s); else startScale(c, s);
+  if (refusePinned(c, s)) return;
+  // Grabbing only ever moves a shape. Size and rotation change only with the stick (snap steps).
+  startMove(c, s);
   haptic(c);
 }
 function onDragRelease(c) {
@@ -1034,6 +1082,19 @@ function onDragRelease(c) {
   u.drag = null;
   if (dr.type === 'move' || dr.type === 'free') { settle(dr.shape); gridPatch.visible = false; setStatus(`${dr.shape.name} placed`); }
   persist(); panel.dirty = true;
+}
+// Pinned shapes stay put: no grabbing, carrying, resizing or dropping until unpinned from the hold-A menu.
+function setPinned(s, on) {
+  s.pinned = on;
+  if (state.selected === s) select(s); else refreshShape(s);
+  panel.dirty = true;
+}
+function anyoneCarrying() { return controllers.some(k => k.userData.drag && (k.userData.drag.type === 'move' || k.userData.drag.type === 'free')); }
+function refusePinned(c, s) {
+  if (!s?.pinned) return false;
+  setStatus(`${s.name} is pinned. Hold A on it and pick Unpin to move it.`);
+  haptic(c, 0.6, 60);
+  return true;
 }
 function snapUndo(s) { const sn = snapshot(s); return { undo: () => applySnapshot(s, sn) }; }
 function startMove(c, s) {
@@ -1083,24 +1144,6 @@ function scaleHeld(c, f) {
   setStatus(`${s.name}: ${dimsText(s)}`);
 }
 // Grip alone on a shape: push the controller forward to grow, pull back to shrink (x2 per 20 cm).
-function startScale(c, s) {
-  pushHistory(snapUndo(s));
-  const { o, d } = rayOf(c), g = s.group;
-  const bottom = g.position.y - halfHeight(s);
-  const resting = Math.abs(bottom - supportBelow(g.position.x, g.position.z, bottom + 0.02, s)) < 0.01;
-  c.userData.drag = { type: 'scale', shape: s, o0: o, d0: d, dims0: { ...s.dims }, bottom, resting };
-  setStatus(`Scaling ${s.name}: push to grow, pull to shrink`);
-}
-function updateScale(c, dr) {
-  const { o } = rayOf(c);
-  const ratio = THREE.MathUtils.clamp(Math.pow(2, o.sub(dr.o0).dot(dr.d0) / 0.2), 0.05, 20);
-  const s = dr.shape;
-  for (const k of Object.keys(s.dims)) s.dims[k] = Math.max(MIN_SIZE, Math.round(dr.dims0[k] * ratio * 1000) / 1000);
-  if (dr.resting) s.group.position.y = dr.bottom + halfHeight(s);
-  refreshShape(s);
-  setStatus(`${s.name}: ${dimsText(s)}`);
-}
-
 function closestT(p0, dir, o, r) {
   // Closest point on line p0 + dir*t to the ray o + r*u. Returns t.
   const w = p0.clone().sub(o), b = dir.dot(r), dd = dir.dot(w), e = r.dot(w);
@@ -1155,11 +1198,13 @@ function updatePreview() {
 }
 
 // ---------------------------------------------------------------- main loop
-const DRAG_UPDATE = { move: updateMove, free: updateFree, scale: updateScale, handle: updateHandle };
+const DRAG_UPDATE = { move: updateMove, free: updateFree, handle: updateHandle };
 renderer.setAnimationLoop((time, frame) => {
   const ref = renderer.xr.getReferenceSpace();
   const now = performance.now();
   if (frame && ref) updateRoom(frame, ref);
+  // Hand tracking has no sticks: keep the menu fixed in front so it's always reachable.
+  if (!state.menuVisible && controllers.some(isHand) && !controllers.some(k => readButtons(k))) openMenu(null, true);
   if (state.menuVisible) updateMenuPlacement(!panel.placed);
   for (const c of controllers) {
     updatePointer(c, frame, ref);
@@ -1168,6 +1213,7 @@ renderer.setAnimationLoop((time, frame) => {
     if (dr) DRAG_UPDATE[dr.type](c, dr);
   }
   updateHovers();
+  if (ctxLink.visible && !ctxMenu.open) ctxLink.visible = false;
   updateFalling(now);
   updatePreview();
   if (panel.dirty) drawPanel();
@@ -1191,8 +1237,8 @@ enterBtn.addEventListener('click', async () => {
     });
     session.addEventListener('end', onSessionEnd);
     await renderer.xr.setSession(session);
-    panel.placed = false;
-    setStatus('Welcome. Pick a shape or a measuring tool.');
+    panel.placed = false; closeMenu();
+    setStatus('Click a thumbstick for the menu.');
   } catch (err) {
     supportEl.textContent = `Could not start AR: ${err.message}`; supportEl.className = 'bad';
   }
@@ -1209,7 +1255,7 @@ checkSupport();
 function sceneData() {
   return {
     app: 'Framespace', build: BUILD, savedAt: new Date().toISOString(), units: state.units,
-    shapes: state.shapes.map(s => ({ name: s.name, type: s.type, dims: s.dims, volume_m3: volumeOf(s), position: s.group.position.toArray(), quaternion: s.group.quaternion.toArray(), ...(s.outline ? { outline: s.outline } : {}) })),
+    shapes: state.shapes.map(s => ({ name: s.name, type: s.type, dims: s.dims, volume_m3: volumeOf(s), position: s.group.position.toArray(), quaternion: s.group.quaternion.toArray(), ...(s.outline ? { outline: s.outline } : {}), ...(s.pinned ? { pinned: true } : {}) })),
     measurements: state.measures.map(m => {
       const base = { name: m.name, type: m.type, points: m.points.map(p => p.toArray()) };
       if (m.type === 'line') { const d = m.points[1].clone().sub(m.points[0]); return { ...base, distance_m: d.length(), vertical_m: Math.abs(d.y), horizontal_m: Math.hypot(d.x, d.z) }; }
@@ -1321,4 +1367,4 @@ document.getElementById('restore').onclick = () => {
 renderReport();
 
 // Test hook (used by the automated emulator test; harmless on the headset).
-window.__framespace = { THREE, palette, ctxMenu, PALETTE, state, onButton, controllers, sceneData, toCSV, panel, buttonAt, exportScene };
+window.__framespace = { THREE, palette, ctxMenu, ctxLink, PALETTE, state, onButton, controllers, sceneData, toCSV, panel, buttonAt, exportScene };

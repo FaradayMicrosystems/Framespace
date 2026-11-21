@@ -65,12 +65,12 @@ func run(m) -> void:
 	main.select(box)
 	c.drag = {"type": "move", "shape": box, "c0": Vector3.ZERO, "yaw0": 0.0, "p0": box.node.position, "base_y": box.node.position.y}
 	main.scale_held(c, main.SCALE_STEP)
-	check("Stick up scales +10%", absf(box.dims.x - 0.33) < 0.0005, str(box.dims))
+	check("Stick up scales +5%", absf(box.dims.x - 0.315) < 0.0005, str(box.dims))
 	check("Scaled box stays on the floor", absf(box.node.position.y - box.dims.y / 2.0) < 0.002, str(box.node.position))
 	main.rotate_held(c, -PI / 4)
 	check("Stick left rotates 45° clockwise", absf(main.yaw_of_quat(box.node.quaternion) + PI / 4) < 0.01, str(main.yaw_of_quat(box.node.quaternion)))
 	main.scale_held(c, 1.0 / main.SCALE_STEP)
-	check("Stick down undoes it exactly (-10%)", absf(box.dims.x - 0.3) < 0.0005, str(box.dims))
+	check("Stick down undoes it exactly (-5%)", absf(box.dims.x - 0.3) < 0.0005, str(box.dims))
 	main.scale_held(c, main.SCALE_STEP)
 	c.drag = null
 
@@ -106,6 +106,49 @@ func run(m) -> void:
 	main.undo()
 	check("Undo restores it", main.shapes.size() == 5)
 
+	# Pin: context menu Pin/Unpin; a pinned shape can't be grabbed, resized or dropped.
+	var cp = main.ctrls[1]
+	cp.o = Vector3(0, 1.2, 0)
+	cp.d = (box.node.position - cp.o).normalized()
+	cp.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
+	main.open_context(cp)
+	check("Hold-A menu on a shape offers Pin", main.ctx.is_open and main.ctx.item("pin") != null and main.ctx.item("pin").label == "Pin")
+	var ctx_pos: Vector3 = main.ctx.global_position
+	check("Context menu opens near the hand, not at the object", ctx_pos.distance_to(main.content.to_global(cp.o)) < 0.5, str(ctx_pos))
+	check("...linked to the object by a dotted line", main.ctx_link.visible)
+	main.run_context("pin")
+	check("Pin pins it (no resize cubes)", box.pinned and box.handles.size() == 0)
+	var pos_pinned: Vector3 = box.node.position
+	main.on_grip_down(cp, {"grip": true})
+	check("A pinned shape can't be grabbed", cp.drag == null and box.node.position == pos_pinned, main.status)
+	main.on_trigger_down(cp, {"trigger": true, "grip": true})
+	check("...not even with grip + trigger", cp.drag == null)
+	check("Drop is disabled while pinned", not main.button_enabled("drop"))
+	check("Pinned flag is saved", main.room_data().shapes[0].pinned == true)
+	main.open_context(cp)
+	check("Pinned shape offers Unpin", main.ctx.item("pin").label == "Unpin")
+	main.run_context("pin")
+	main.on_grip_down(cp, {"grip": true})
+	check("Unpin makes it grabbable again", not box.pinned and cp.drag != null and cp.drag.type == "move")
+	main.on_drag_release(cp)
+	check("Context link hides when the menu closes", (func(): main._process(0.0); return not main.ctx_link.visible).call())
+
+	# Resize cubes can never fire while grabbing (the accidental-scaling bug).
+	main.select(box)
+	var dims0: Dictionary = box.dims.duplicate()
+	cp.handle_hit = box.handles[0]
+	main.on_trigger_down(cp, {"trigger": true, "grip": true})
+	check("Trigger on a resize cube while gripping doesn't start a resize", cp.drag == null or cp.drag.type != "handle")
+	cp.drag = null
+	main.on_trigger_down(cp, {"trigger": true})
+	check("Trigger alone on a resize cube still resizes", cp.drag != null and cp.drag.type == "handle")
+	main.on_grip_down(cp, {"grip": true, "trigger": true})
+	check("Grip during a resize switches to moving, size unchanged", cp.drag != null and cp.drag.type == "move" and box.dims == dims0, str(box.dims))
+	main.on_drag_release(cp)
+	cp.handle_hit = null
+	cp.shape_hit = null
+	box.node.position = pos_pinned
+
 	# Stacking: drop a box on top of another.
 	main.select(box)
 	var top = main.make_shape("box", {"x": 0.1, "y": 0.1, "z": 0.1}, box.node.position + Vector3(0, 1.0, 0))
@@ -138,6 +181,7 @@ func run(m) -> void:
 	# Save, new room, reload.
 	var first_id: String = main.room.id
 	var n_shapes: int = main.shapes.size()
+	main.set_pinned(box, true)
 	main.save_room_now()
 	main.new_room()
 	check("New room starts empty", main.shapes.size() == 0 and main.room.id != first_id)
@@ -146,6 +190,7 @@ func run(m) -> void:
 	main.load_room(first_id)
 	check("Loading the first room brings its shapes back", main.shapes.size() == n_shapes, "%d vs %d" % [main.shapes.size(), n_shapes])
 	check("...and its measurements", main.measures.size() == 2)
+	check("...and pinned shapes stay pinned", main.shapes[0].pinned)
 	check("Rooms list has 2 rooms", main.list_rooms().size() == 2)
 
 	# Placement: rooms drop where you stand, facing the way you look; recentering re-places them.

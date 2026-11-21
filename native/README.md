@@ -30,12 +30,14 @@ Uninstalling the app deletes its saved rooms.
 | Point + **trigger** | Select a shape / press a button |
 | Point + **grip** (or grip + trigger) on a shape | Slide it along the floor, snapped to the grid. Grabbing never changes its size |
 | **Grip + B** while holding | Pick it up freely. It follows your hand but keeps its rotation. Let go and it drops onto the floor, a table or another shape |
-| Stick **up / down** while holding | Scale +10% / -10% |
+| Stick **up / down** while holding | Scale +5% / -5% |
 | Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
-| Hold **A** on a shape | Cut / Copy / Delete / Duplicate |
+| Hold **A** on a shape | Cut / Copy / Delete / Duplicate / **Pin** (a pinned shape can't be grabbed, moved or resized until you Unpin it) |
 | Hold **A** on empty space | Paste / Next clip |
+
+The hold-A menu opens next to your hand, with a dotted line (in the object's colour) to the object, so far-away objects are easy to work on.
 | Hold **X** | Object palette from [`objects.csv`](../objects.csv) (shared with the web app): pallets, containers, IBC, forklift, door, car, person and more |
-| Yellow / orange cubes on a selected shape | Drag with trigger to resize one side / the radius |
+| Yellow / orange cubes on a selected shape | Drag with trigger alone to resize one side / the radius. Ignored while you're gripping or holding anything |
 
 Size and rotation only change in steps, with the stick (or the yellow / orange resize cubes), never by moving your hand.
 

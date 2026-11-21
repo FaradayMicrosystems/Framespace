@@ -11,16 +11,15 @@ Measure, design and wireframe real spaces on **Meta Quest 3**, right in the brow
 | Do this | Get this |
 |---|---|
 | Point + **trigger** | Select a shape / press a button |
-| Point + **grip**, push or pull | Scale the shape (push = bigger, pull = smaller, x2 per 20 cm) |
-| **Grip + trigger** on a shape | Slide it along the floor, snapped to the grid |
+| **Click a thumbstick** | Main menu on that hand (click both: fixed in front of you). Click again to close |
+| Point + **grip** (or grip + trigger) on a shape | Slide it along the floor, snapped to the grid. Grabbing never changes its size |
 | **Grip + trigger + B** | Pick it up freely. Let go and it drops onto the floor, a table or another shape, squared to the grid |
 | Stick **up / down** while holding | Scale +5% / -5% |
 | Stick **left / right** while holding | Rotate 45° clockwise / counter-clockwise |
-| Hold **A** on a shape | Cut / Copy / Delete / Duplicate |
+| Hold **A** on a shape | Cut / Copy / Delete / Duplicate / **Pin** (a pinned shape can't be grabbed, moved or resized until you Unpin it) |
 | Hold **A** on empty space | Paste / Next clip |
 | Hold **X** | Object palette (37 true-scale objects: pallets, IBC, drum, racking, forklift, door, car, person...): point at one with the other controller, trigger or grip, drop it in |
-| **Y** | Show / hide the tools menu (tape, circle 3-pt, units, grid, undo, room, export) |
-| Yellow / orange cubes on a selected shape | Drag with trigger to resize one side / the radius |
+| Yellow / orange cubes on a selected shape | Drag with trigger alone to resize one side / the radius. Ignored while you're gripping or holding anything |
 
 The grid (5 cm default; 1 cm, 10 cm or off in the tools menu) is aligned to the direction you face when you recenter the headset.
 
