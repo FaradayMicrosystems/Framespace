@@ -5,7 +5,8 @@ Built with Godot 4.6.2 and Meta's official OpenXR plugin (GodotOpenXRVendors 5.0
 
 ## Get the APK
 
-- **Latest build from `main`:** [Releases > native-latest](https://github.com/FaradayMicrosystems/Framespace/releases/tag/native-latest), file `framespace.apk`.
+- **Latest release (v0.21):** [Releases > latest](https://github.com/FaradayMicrosystems/Framespace/releases/latest), file `framespace.apk`. Direct link: https://github.com/FaradayMicrosystems/Framespace/releases/latest/download/framespace.apk
+- **Newest build from `main` (may be ahead of the release):** [Releases > native-latest](https://github.com/FaradayMicrosystems/Framespace/releases/tag/native-latest), file `framespace.apk`.
 - **Any branch or PR:** Actions > "Native Quest APK" > pick a run > Artifacts > `framespace-quest-apk` (a zip that holds the APK).
 
 ## Sideload it (one-time setup, then about 1 minute per update)
@@ -27,25 +28,24 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 
 | Do this | Get this |
 |---|---|
-| **Y or B** (tap) | Main menu, stuck to that hand: a **tools sidebar** and, in Rotate/Move, the **object tray** beside it (on the inside, toward your other hand). Point and trigger with the other hand. Tap again to close |
-| Trigger on a **tray object** (or grip) | It's in your hand; the menu closes. Let go to place it |
-| **X or A** | Tool menu, stuck to that hand: Rotate/Move, Cut, Copy, Paste, Duplicate, Delete, Reset size, Drop, Pin, Next clip |
-| Hold **Y or B** (½ s) | Undo |
+| **Click a thumbstick** | Main menu, stuck to that hand: tools and settings. Point and trigger with the other hand. Click again to close |
+| **Click both thumbsticks** | Main menu, fixed in front of you |
+| **X** or **A** | Objects menu, stuck to that hand (press to open / close) from [`objects.csv`](../objects.csv): pallets, walk-in 20ft / 40ft containers, IBC, forklift, pallet jack, motorcycle, vans, furniture and more. Trigger or grip one with the other hand and it's in your hand |
+| **Y** or **B** pointing at a shape | Clipboard menu, stuck to that hand (press to open / close): Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Bigger 5%** / **Smaller 5%** / **Reset size** / **Undo** |
+| **Y** or **B** pointing at empty space | Paste (where you pointed) / Next clip / **Undo** |
 | **Rotate/Move:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** (floor, table, another object's top) and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
 | **Rotate/Move:** quick trigger **tap** on an object | Select it (nothing moves) |
-| **Grip** on an object | Slide it on the grid, staying on its floor/surface |
+| **Grip** on an object | Slide it on the grid, staying on its floor (steps up onto floors up to 30 cm high, e.g. into a container) |
+| **Grip + trigger** | Lift it off the floor (same as a trigger carry) |
 | Stick **left / right** while holding | Turn it smoothly (gentle near the centre, fast at full tilt) |
-| Stick **forward / back** while holding | Push it away / pull it in, continuously. Your hand does the fine positioning |
-| **Scale** tool | Trigger an object, then trigger-drag its yellow / orange cubes to resize one side / the radius. Reset size puts it back |
-| **Cut / Copy / Duplicate / Delete / Reset size / Drop / Pin** tool | Trigger on an object does that. Cut and Copy switch you to Paste |
-| **Paste** tool | Trigger where you want the clipboard item. Next clip cycles the clipboard |
-| **Reset size** | Back to the size it was created with (from the tray or objects.csv) |
+| Stick **forward / back** while holding | Push it away / pull it in, continuously |
+| **Scale** tool (main menu) | Trigger an object, then trigger-drag its yellow / orange cubes to resize one side / the radius |
 
-**Building blocks** at the top of the tray: bricks (1×1, 2×1, 4×1, 2×2 at 10 cm), big block, slabs, 1 m / 2 m beams, post, wall, peg, pillar, cap and ball, sized to stack on the 5 cm grid like Lego. Edit them in `objects.csv`.
+**Walk-in loading:** the 20ft / 40ft containers and the V7E open cargo are hollow. Pin one, walk in, and drop or slide pallets onto its floor. Things dropped from above land on the roof.
 
-**Measuring tools** (sidebar, yellow): **Tape**, **Circle 3-pt** (radius/diameter), **Rect 3-pt** (two corners + the far edge: W × D, area, perimeter), **Height** (point to floor), **Angle 3-pt** (arm, corner, arm), **Path** (multi-leg total; tap the last point again to finish), **Area** (tap an outline, tap the first point to close: area + perimeter). Points snap to corners and existing points.
+**Measuring tools** (main menu, yellow): **Tape**, **Circle 3-pt** (radius/diameter), **Rect 3-pt** (two corners + the far edge: W × D, area, perimeter), **Height** (point to floor), **Angle 3-pt** (arm, corner, arm), **Path** (multi-leg total; tap the last point again to finish), **Area** (tap an outline, tap the first point to close: area + perimeter). Points snap to corners and existing points.
 
-The sidebar also has units, grid, undo, room lines, room scan, save, **Rooms...** (load, new, delete), export, clear, place room here, quit and **Turn room** (5° or 1°, left or right).
+The main menu also has units, grid, room lines, room scan, save, **Rooms...** (load, new, delete, place here), export, clear, quit, **Turn room** (5° or 1°, left or right), **Accuracy test**, **Room info** and **Fit check**.
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
 
 ## Accuracy test

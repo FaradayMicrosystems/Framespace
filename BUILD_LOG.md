@@ -90,3 +90,37 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - **Fit check** (on by default): objects that push more than 2 cm into walls, ceiling, furniture or each other turn red, and the label names what they hit. Live while carrying. The floor and the whole-room mesh are ignored (things always touch them; the room mesh is too noisy). The 2 cm margin absorbs scan noise and flush contact.
 - Built on top of PR #9 (brush-and-canvas controls), which was still unmerged. APK 0.5.0-native.
 - Tests: native self-test 115 checks (was 93), run locally on Godot 4.6.2 before pushing.
+
+## 2026-11-22 (Brisbane): stick forward/back pushes and pulls
+
+- Aurora reported that in the APK, stick up/down while holding still scaled the object instead of moving it closer or farther away, as she'd asked on 2026-11-21.
+- Native app: stick **forward / back** while holding (sliding or carrying) now pushes the shape away from you or pulls it in, smoothly. Tilting further moves it faster, up to 1.5 m/s, and it stops 10 cm from the controller. Sliding stays on the floor and grid; a free carry moves along the line from your hand to the shape. Why: placing things across the room without walking over, as with the "brush and canvas" feel she wants.
+- Scaling moved to **Bigger 5% / Smaller 5%** in the hold-A menu (undoable). The resize cubes still work. Why: she rarely scales, so it shouldn't sit on the stick.
+- Stick left/right still rotates 45° steps; a mostly-sideways flick never pushes.
+- AI involvement: Claude found the cause (the stick-Y handler still called the scale step) and wrote the fix, docs and 5 new self-test checks in about 15 minutes.
+
+## 2026-11-22 (Brisbane): grip slides, trigger holds, grip + trigger lifts; Y/B clipboard, X/A objects
+
+- Aurora asked for grip alone to slide on the floor, grip + trigger to lift, and trigger alone on an object to hold it so a wrist twist rotates it. She also said the hold-A menu never appeared, and asked for the clipboard menu on Y and B and the objects menu on A as well as X.
+- Native app: **trigger alone** on a shape now holds it like a brush. It follows the controller's position and rotation, and on release it drops and squares to the grid (45° steps). **Grip + trigger** (either order) lifts it and keeps its rotation. **Grip alone** slides it on the floor as before. "Grip + B to pick up" is gone because grip + trigger replaces it. Tapping trigger still selects, and trigger on a resize cube still resizes.
+- **Y / B** press toggles the clipboard menu (cut, copy, delete, duplicate, pin, bigger/smaller, paste). Why: a press is more reliable than the old 0.25 s hold on A, which she couldn't get to open. **Hold X or A** shows the objects palette.
+- 10 new self-test checks (77 total, all passing locally and in CI).
+
+## 2026-11-22 (Brisbane): cleaner menus, walk-in containers, detailed wireframes
+
+- Aurora asked to strip shapes, clipboard, undo, drop and delete out of the thumbstick menu (the Y/B menu covers them), to add Undo to the Y/B menu, and to make X/A a toggle like Y/B. She also asked to cut the objects list down to useful items, to give forklifts, pallet jacks and pallets real wireframes, to add a motorcycle, and for walk-in 20ft/40ft containers (doors open) and a V7E load bed she can actually load, for load-master training and house planning.
+- Thumbstick menu is down to 16 buttons (tools, units, grid, room, file, quit, turn room). The Y/B menu gains **Undo**. **X/A** toggles the objects menu, and picking an object closes it.
+- objects.csv goes from 39 to 26 objects and gains a `parts` column (boxes, lines, wheels in mm). `s:`/`c:` parts make an object **hollow**: only those parts are solid, so things land on a container's floor (not its roof) and the pointer reaches inside through the open doors. Still editable without code.
+- Hollow: 20ft and 40ft containers (outside 6058 / 12192 x 2438 x 2591; 150 mm floor; doors open flat against the sides) and the V7E open cargo (510 mm load bed, open rear). Detailed: AU/EUR/US pallets, loaded AU pallet, crate, IBC cage, forklift (forks, carriage, mast, guard, seat, wheels), pallet jack (forks, rollers, pump, handle), and a new 2150 mm motorcycle.
+- Sliding on the floor now steps up onto or down off surfaces up to 30 cm, so a pallet slid into a container rises onto its floor. Why: loading by sliding, the way you would with a pallet jack.
+- Wireframes stay as lines only, so rendering cost stays negligible. 85/85 self-test checks (8 new for hollow containers, menus and palette), run locally and in CI.
+- Answered: scanning real objects into wireframes is possible with the Quest 3 Passthrough Camera API, but full reconstruction is a big build. Offered corner-capture boxes (~1 h) or phone-scan glTF import (~half day) as next steps.
+- Follow-up (same morning): Aurora said the V7E open cargo looked like a flatbed. It now uses the full van body (sides and roof) with only the rear open, plus a rear portal, ribs and floor boards, and it stays walk-in. She asked for a trayback version too, so I added the **Farizon F3E tray** (V7E cab, 5830 long, 3700 wheelbase): solid deck at 950 mm with drop sides, tailgate and headboard. The tray size is estimated, since none is published. 27 objects, 87/87 self-test checks.
+
+## 2026-11-22 (Brisbane): v0.21, first versioned release (PRs #9, #10, #11 merged)
+
+- Aurora asked to merge everything unmerged and publish a full GitHub release named v0.21 before any new features.
+- #9/#10 (brush controls, measuring tools, accuracy test, room info, fit check) and #11 (Y/B clipboard menu, X/A objects, walk-in containers, detailed wireframes) were built in parallel from the same base and conflicted in 17 places in main.gd. Resolution: #10's tools and trigger carry (wrist twist, surface snap), plus #11's button layout, which matches her newest feedback. Stick click opens the main menu (tools and settings only), X/A opens the objects menu, Y/B opens the clipboard menu (now also Drop and Reset size). #11's objects list (27, no basic shapes) wins over #10's building blocks, which she later asked to remove.
+- Release: a `v*` tag now builds the APK and publishes a full (non-prerelease, "latest") GitHub Release. Android version 0.21 (code 21, up from 5, so it installs over older builds and keeps rooms).
+- Tests: native self-test 125/125, run locally on Godot 4.6.2.
+- AI involvement: Claude did the conflict analysis, resolution, test rework and release pipeline in about 50 minutes.

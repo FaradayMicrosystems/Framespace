@@ -46,10 +46,48 @@ func run(m) -> void:
 	var labels := []
 	for p in main.PALETTE:
 		labels.append(p.label)
-	check("Palette has 20ft / 40ft / 40ft HC containers", labels.has("20ft container") and labels.has("40ft container") and labels.has("40ft high cube"))
+	check("Palette has walk-in 20ft / 40ft containers (no high cube)", labels.has("20ft container") and labels.has("40ft container") and not labels.has("40ft high cube"))
+	check("Basic shapes and unused objects are gone", not (labels.has("Cube") or labels.has("Sphere") or labels.has("Rack bay") or labels.has("Brick") or labels.has("Door")))
+	check("Motorcycle is in the palette", labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
-	check("20ft container interior volume ~33.2 m3", absf(main.volume_of("box", c20.dims) - 33.2) < 0.1, str(main.volume_of("box", c20.dims)))
-	check("Palette loaded from objects.csv (54 objects incl. 15 building blocks)", main.PALETTE.size() == 54 and labels.has("Brick 2x1") and labels.has("Slab 100"), str(main.PALETTE.size()))
+	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
+	check("Palette loaded from objects.csv (27 objects)", main.PALETTE.size() == 27, str(main.PALETTE.size()))
+	var fl = main.PALETTE[labels.find("Forklift 2.5 t")]
+	check("Forklift has a detailed wireframe", fl.has("outline") and fl.outline.parts.size() > 15, str(fl.get("outline", {}).get("parts", []).size()))
+	# Walk-in container: things land on its floor, not its roof; sliding in steps up onto the floor; stacking on the roof works.
+	var ct = main.make_shape("box", c20.dims, Vector3(10, c20.dims.y / 2.0, 10), Quaternion.IDENTITY, "Container test", c20.outline)
+	check("Container is hollow (solid floor, walls, roof)", ct.cols.size() == 6 and not ct.fill.visible, str(ct.cols.size()))
+	var inside = main.make_shape("box", {"x": 0.3, "y": 0.3, "z": 0.3}, Vector3(10, 1.2, 10))
+	main.settle(inside)
+	check("A box dropped inside lands on the container floor", absf(inside.node.position.y - 0.30) < 0.003, str(inside.node.position))
+	var cm = main.ctrls[1]
+	var o_save: Vector3 = cm.o
+	var d_save: Vector3 = cm.d
+	inside.node.position = Vector3(10, 0.15, 12.5)
+	cm.d = Vector3.FORWARD
+	cm.drag = {"type": "move", "shape": inside, "c0": Vector3(10, 1.2, 13), "yaw0": 0.0, "p0": inside.node.position, "base_y": 0.15}
+	cm.o = Vector3(10, 1.2, 10.5)
+	main.update_move(cm, cm.drag)
+	check("Sliding a box into the container steps it up onto the floor", absf(inside.node.position.y - 0.30) < 0.003 and absf(inside.node.position.z - 10.0) < 0.03, str(inside.node.position))
+	cm.drag = null
+	cm.o = o_save
+	cm.d = d_save
+	inside.node.position = Vector3(10, 4.0, 10)
+	main.settle(inside)
+	check("A box dropped from above lands on the roof", absf(inside.node.position.y - (2.591 + 0.15)) < 0.003, str(inside.node.position))
+	main.remove_shape(ct)
+	ct.node.queue_free()
+	var tr = main.PALETTE[labels.find("Farizon F3E tray")] if labels.has("Farizon F3E tray") else null
+	check("F3E trayback is in the palette", tr != null and tr.outline.solids.size() == 6)
+	if tr != null:
+		ct = main.make_shape("box", tr.dims, Vector3(10, tr.dims.y / 2.0, 10), Quaternion.IDENTITY, "Tray test", tr.outline)
+		inside.node.position = Vector3(10 - 1.0, 3.0, 10)
+		main.settle(inside)
+		check("A box dropped on the tray lands on the deck", absf(inside.node.position.y - (0.95 + 0.15)) < 0.003, str(inside.node.position))
+	main.remove_shape(inside)
+	inside.node.queue_free()
+	main.remove_shape(ct)
+	ct.node.queue_free()
 	var pallet = main.PALETTE[labels.find("AU pallet")] if labels.has("AU pallet") else null
 	var van = main.PALETTE[labels.find("Farizon V7E open cargo")] if labels.has("Farizon V7E open cargo") else null
 	check("V7E open cargo: whole van with load box and wheels", van != null and van.has("outline") and van.outline.inner.size() == 1 and van.outline.wheels.size() == 2, str(van))
@@ -60,18 +98,14 @@ func run(m) -> void:
 		vs.node.queue_free()
 	check("AU pallet is 1165 x 1165 mm", pallet != null and is_equal_approx(pallet.dims.x, 1.165) and is_equal_approx(pallet.dims.z, 1.165), str(pallet))
 
-	# Stick scale / rotate on a held shape (move drag, no headset: fake the drag dict).
+	# Bigger / Smaller 5% (Y / B menu) on a shape standing on the floor.
 	var c = main.ctrls[1]
 	main.select(box)
-	c.drag = {"type": "move", "shape": box, "c0": Vector3.ZERO, "yaw0": 0.0, "p0": box.node.position, "base_y": box.node.position.y}
-	main.scale_held(c, main.SCALE_STEP)
-	check("Stick up scales +5%", absf(box.dims.x - 0.315) < 0.0005, str(box.dims))
+	main.scale_shape(box, main.SCALE_STEP)
+	check("Bigger 5% scales +5%", absf(box.dims.x - 0.315) < 0.0005, str(box.dims))
 	check("Scaled box stays on the floor", absf(box.node.position.y - box.dims.y / 2.0) < 0.002, str(box.node.position))
-	main.rotate_held(c, -PI / 4)
-	check("Stick left rotates 45° clockwise", absf(main.yaw_of_quat(box.node.quaternion) + PI / 4) < 0.01, str(main.yaw_of_quat(box.node.quaternion)))
-	main.scale_held(c, 1.0 / main.SCALE_STEP)
-	check("Stick down undoes it exactly (-5%)", absf(box.dims.x - 0.3) < 0.0005, str(box.dims))
-	main.scale_held(c, main.SCALE_STEP)
+	main.scale_shape(box, 1.0 / main.SCALE_STEP)
+	check("Smaller 5% undoes it exactly (-5%)", absf(box.dims.x - 0.3) < 0.0005, str(box.dims))
 	c.drag = null
 
 	# Grip slides on the grid (never resizes); trigger picks it up, wrist twist turns it, surfaces snap.
@@ -118,16 +152,16 @@ func run(m) -> void:
 	c.shape_hit = null
 	box.node.quaternion = Quaternion(Vector3.UP, -PI / 4)
 
-	# Reset size.
+	# Reset size (Y / B menu).
 	main.select(box)
-	c.drag = {"type": "move", "shape": box, "c0": Vector3.ZERO, "yaw0": 0.0, "p0": box.node.position, "base_y": box.node.position.y}
-	main.scale_held(c, main.SCALE_STEP)
-	main.scale_held(c, main.SCALE_STEP)
-	c.drag = null
-	main.set_tool("reset")
-	main.apply_tool(c, box)
+	main.scale_shape(box, main.SCALE_STEP)
+	main.scale_shape(box, main.SCALE_STEP)
+	c.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
+	main.open_tools(c)
+	check("Y / B menu on a shape offers Reset size", main.ctx.item("reset") != null)
+	main.run_tool("reset")
 	check("Reset size puts it back to its original size, still on the floor", box.dims == box.orig_dims and absf(box.dims.x - 0.3) < 0.0005 and absf(box.node.position.y - 0.15) < 0.002, str(box.dims))
-	main.set_tool("select")
+	c.shape_hit = null
 
 	# Stick while holding: right = turn clockwise smoothly, forward = push away.
 	c.drag = null
@@ -147,85 +181,98 @@ func run(m) -> void:
 	main.undo()
 	box.node.quaternion = Quaternion(Vector3.UP, -PI / 4)
 
-	# Clipboard.
+	# Clipboard (Y / B menu).
 	main.select(box)
 	main.copy_selected(false)
 	main.paste_at(Vector3(1.0, 0, 1.0))
 	check("Copy + paste makes a 5th shape", main.shapes.size() == 5)
-	main.set_tool("delete")
-	main.apply_tool(c, main.shapes[4])
-	check("Delete tool removes it", main.shapes.size() == 4)
+	var cq = main.ctrls[1]
+	cq.shape_hit = {"shape": main.shapes[4], "point": main.shapes[4].node.position, "normal": Vector3.UP, "dist": 1.0}
+	main.open_tools(cq)
+	check("Y / B on a shape: 10 buttons incl. Cut, Pin, Bigger, Undo", main.ctx.is_open and main.ctx.items.size() == 10 and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("bigger") != null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
+	check("...stuck to that hand", main.ctx_attach == cq and main.ctx.global_position.distance_to(cq.node.global_position) < 0.4)
+	main.run_tool("delete")
+	check("Delete removes it and closes the menu", main.shapes.size() == 4 and not main.ctx.is_open)
+	cq.shape_hit = null
+	main.open_tools(cq)
+	check("Y / B on empty space: Paste, Next clip, Undo", main.ctx.items.size() == 3 and main.ctx.item("paste") != null)
+	main.run_tool("undo")
+	check("Undo brings it back", main.shapes.size() == 5)
+	var victim = main.shapes[4]
+	cq.shape_hit = {"shape": victim, "point": victim.node.position, "normal": Vector3.UP, "dist": 1.0}
+	main.open_tools(cq)
+	main.run_tool("cut")
+	check("Cut removes it and puts it on the clipboard", main.shapes.size() == 4 and main.clipboard[0].name == victim.name)
+	cq.shape_hit = null
+	cq.target = {"point": Vector3(2, 0, 2), "normal": Vector3.UP, "dist": 1.0, "kind": "surface"}
+	main.open_tools(cq)
+	main.run_tool("paste")
+	check("Paste puts it where you pointed", main.shapes.size() == 5 and Vector2(main.shapes[4].node.position.x, main.shapes[4].node.position.z).is_equal_approx(Vector2(2, 2)))
+	cq.target = null
+	cq.shape_hit = {"shape": main.shapes[4], "point": main.shapes[4].node.position, "normal": Vector3.UP, "dist": 1.0}
+	main.open_tools(cq)
+	main.run_tool("duplicate")
+	check("Duplicate makes a copy", main.shapes.size() == 6)
+	main.undo()
+	cq.shape_hit = null
+
+	# Buttons: Y / B toggle the clipboard menu, X / A toggle the objects menu, stick click the main menu.
 	var cu = main.ctrls[0]
 	cu.drag = null
-	main.process_input(cu, {"high": true})
-	cu.high_at -= 1.0
-	main.process_input(cu, {"high": true})
-	main.process_input(cu, {})
-	cu.btn = {}
-	check("Hold Y undoes (restores it)", main.shapes.size() == 5)
-	main.process_input(cu, {"high": false})
-	check("...and a hold doesn't open the menu", not main.menu.is_open)
-	main.process_input(cu, {"high": true})
-	main.process_input(cu, {"high": false})
-	check("Tap Y opens the main menu stuck to the left hand", main.menu.is_open and main.menu_attach == cu)
-	check("...just above the hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.4, str(main.menu.global_position))
+	var nb := {"high": false, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0}
+	var press := func(k: String) -> void:
+		var b2: Dictionary = nb.duplicate()
+		b2[k] = true
+		main.process_input(cu, b2)
+		main.process_input(cu, nb.duplicate())
+	cu.btn = nb.duplicate()
+	press.call("high")
+	check("Y opens the clipboard menu on the left hand", main.ctx.is_open and main.ctx_attach == cu)
+	press.call("high")
+	check("Y again closes it", not main.ctx.is_open)
+	press.call("low")
+	check("X opens the objects menu on that hand", main.tray.is_open and main.tray_attach == cu and main.tray.items.size() == main.PALETTE.size())
+	check("...just above the hand", main.tray.global_position.distance_to(cu.node.global_position) < 0.6, str(main.tray.global_position))
+	press.call("low")
+	check("X again closes it", not main.tray.is_open)
+	press.call("stick")
+	check("Stick click opens the main menu stuck to that hand", main.menu.is_open and main.menu_attach == cu)
 	cu.node.position += Vector3(0.3, 0.1, -0.2)
 	main._process(0.0)
-	check("...and follows the hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.4)
+	check("...and it follows the hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.6)
 	cu.node.position = Vector3.ZERO
-	main.process_input(cu, {"high": true})
-	main.process_input(cu, {"high": false})
-	check("Tap Y again closes it", not main.menu.is_open)
+	cu.stick_down_at = -10.0
+	press.call("stick")
+	check("Stick click again closes it", not main.menu.is_open)
 	cu.btn = {}
 
-	# X / A tool menu: cut -> paste via trigger.
-	var ct = main.ctrls[1]
-	main.open_tools(ct)
-	check("X / A opens the tool menu with 11 tools", main.ctx.is_open and main.ctx.items.size() == 11, str(main.ctx.items.size()))
-	check("...stuck to that hand", main.ctx_attach == ct and main.ctx.global_position.distance_to(ct.node.global_position) < 0.4)
-	check("...first tool is Rotate/Move", main.ctx.items[0].label == "Rotate/Move")
-	main.run_tool("cut")
-	check("Picking Cut sets the tool and closes the menu", main.mode == "cut" and not main.ctx.is_open)
-	var victim = main.shapes[4]
-	ct.ui = null
-	ct.shape_hit = {"shape": victim, "point": victim.node.position, "normal": Vector3.UP, "dist": 1.0}
-	main.on_trigger_down(ct, {"trigger": true})
-	check("Trigger in Cut mode cuts the object, then switches to Paste", main.shapes.size() == 4 and main.mode == "paste" and main.clipboard[0].name == victim.name)
-	ct.shape_hit = null
-	ct.target = {"point": Vector3(2, 0, 2), "normal": Vector3.UP, "dist": 1.0, "kind": "surface"}
-	main.on_trigger_down(ct, {"trigger": true})
-	check("Trigger in Paste mode pastes where you point", main.shapes.size() == 5 and Vector2(main.shapes[4].node.position.x, main.shapes[4].node.position.z).is_equal_approx(Vector2(2, 2)))
-	ct.target = null
-	main.set_tool("duplicate")
-	main.apply_tool(ct, main.shapes[4])
-	check("Duplicate tool makes a copy", main.shapes.size() == 6)
-	main.undo()
-	main.set_tool("select")
-
-	# Pin tool; a pinned shape can't be grabbed, resized or dropped.
+	# Pin (Y / B menu); a pinned shape can't be grabbed, resized or dropped.
 	var cp = main.ctrls[1]
 	cp.o = Vector3(0, 1.2, 0)
 	cp.d = (box.node.position - cp.o).normalized()
+	cp.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.open_tools(cp)
-	check("Tool menu offers Pin", main.ctx.item("pin") != null)
+	check("Y / B menu offers Pin", main.ctx.item("pin") != null and main.ctx.item("pin").label == "Pin")
 	main.run_tool("pin")
-	main.apply_tool(cp, box)
-	main.set_tool("select")
 	main.select(box)
 	check("Pin pins it (no resize cubes)", box.pinned and box.handles.size() == 0)
 	var pos_pinned: Vector3 = box.node.position
-	cp.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.on_grip_down(cp, {"grip": true})
 	check("A pinned shape can't be slid", cp.drag == null and box.node.position == pos_pinned, main.status)
 	main.on_trigger_down(cp, {"trigger": true})
 	check("...or picked up", cp.drag == null)
 	check("Pinned flag is saved", main.room_data().shapes[0].pinned == true)
-	main.set_tool("pin")
-	main.apply_tool(cp, box)
-	main.set_tool("select")
+	main.open_tools(cp)
+	check("...and the menu now says Unpin", main.ctx.item("pin").label == "Unpin")
+	main.run_tool("pin")
 	main.on_grip_down(cp, {"grip": true})
 	check("Unpin makes it grabbable again", not box.pinned and cp.drag != null and cp.drag.type == "move")
+	main.on_trigger_down(cp, {"grip": true, "trigger": true})
+	check("Grip + trigger lifts it", cp.drag != null and cp.drag.type == "free", str(cp.drag.type if cp.drag else null))
 	main.on_drag_release(cp)
+	box.node.position = pos_pinned
+	box.node.quaternion = Quaternion(Vector3.UP, -PI / 4)
+	main.refresh_shape(box)
 
 	# Resize cubes live in the Scale tool only, and never fire while grabbing (the accidental-scaling bug).
 	main.select(box)
@@ -293,19 +340,14 @@ func run(m) -> void:
 
 	# Menu builds (main page + rooms page).
 	main.open_menu(main.ctrls[0], true)
-	check("Y/B menu: sidebar of every tool (35)", main.menu.is_open and main.menu.items.size() == 35, str(main.menu.items.size()))
-	check("...with the object tray beside it in Rotate/Move", main.tray.is_open and main.tray.items.size() == main.PALETTE.size())
-	check("...tray to the right of the sidebar, not overlapping", main.menu.to_local(main.tray.global_position).x > (main.menu.size.x + main.tray.size.x) / 2.0)
-	main.on_button("tape")
-	main.rebuild_menu()
-	check("Tray hides in other tools", not main.tray.is_open)
-	main.on_button("select")
-	main.rebuild_menu()
+	check("Main menu: tools and settings only (25 buttons, no clipboard / undo)", main.menu.is_open and main.menu.items.size() == 25 and main.menu.item("copy") == null and main.menu.item("undo") == null and main.menu.item("delete") == null, str(main.menu.items.size()))
+	main.close_menu()
 	var n0: int = main.shapes.size()
 	var cg = main.ctrls[1]
+	main.open_tray(main.ctrls[0])
 	cg.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.5, "point": main.tray.global_position}
 	main.on_trigger_down(cg, {"trigger": true})
-	check("Trigger on a tray object puts it in your hand and closes the menu", main.shapes.size() == n0 + 1 and cg.drag != null and cg.drag.type == "free" and not main.menu.is_open)
+	check("Trigger on an objects-menu item puts it in your hand and closes the menu", main.shapes.size() == n0 + 1 and cg.drag != null and cg.drag.type == "free" and not main.tray.is_open)
 	cg.ui = null
 	main.on_drag_release(cg)
 	main.undo()
