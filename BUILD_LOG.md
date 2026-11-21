@@ -81,3 +81,12 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Web app unchanged (Aurora is on the APK only).
 - Follow-up (same day, after first headset test): menus are stuck to the hands. Y/B tap = main menu (sidebar + tray), X/A = tool menu; hold Y/B = undo. "Move/Scale" became **Rotate/Move**: while holding, stick left/right turns smoothly and forward/back pushes/pulls continuously; hands do fine adjustment. Self-test 91 checks.
 - Then: wrist-twist rotation kept ("really nice"); resizing moved into its own **Scale** tool (rarely used); 15 Lego-style **building blocks** added to objects.csv (bricks, slabs, beams, post, wall, peg, pillar, cap, ball). Self-test 93 checks.
+
+## 2026-11-22 (Brisbane): accuracy test, room info, fit check
+
+- Aurora picked two of three improvement ideas Claude suggested: an accuracy test (in the menu) to give the CTO a hard number, and using the Quest's room scan to answer "will this fit?".
+- **Accuracy test** (menu > Accuracy test...): pick a known reference (A4, bank card, door leaf, or a custom tape-measured length), tap its ends, and every trial is logged with its error and distance from your head. Running average, worst, bias and RMS show in the menu; **Export results** writes a CSV. Why: "±X mm over N trials" is evidence, "looks about right" isn't.
+- **Room info** (menu > Room info...): floor size and area (real outline for L-shaped rooms), ceiling height, volume, walls and perimeter, doors, windows, furniture, all from Space Setup. Also in the JSON export.
+- **Fit check** (on by default): objects that push more than 2 cm into walls, ceiling, furniture or each other turn red, and the label names what they hit. Live while carrying. The floor and the whole-room mesh are ignored (things always touch them; the room mesh is too noisy). The 2 cm margin absorbs scan noise and flush contact.
+- Built on top of PR #9 (brush-and-canvas controls), which was still unmerged. APK 0.5.0-native.
+- Tests: native self-test 115 checks (was 93), run locally on Godot 4.6.2 before pushing.

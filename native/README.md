@@ -27,7 +27,7 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 
 | Do this | Get this |
 |---|---|
-| **Y or B** (tap) | Main menu, stuck to that hand: a **4×8 tools sidebar** and, in Rotate/Move, the **object tray** beside it (on the inside, toward your other hand). Point and trigger with the other hand. Tap again to close |
+| **Y or B** (tap) | Main menu, stuck to that hand: a **tools sidebar** and, in Rotate/Move, the **object tray** beside it (on the inside, toward your other hand). Point and trigger with the other hand. Tap again to close |
 | Trigger on a **tray object** (or grip) | It's in your hand; the menu closes. Let go to place it |
 | **X or A** | Tool menu, stuck to that hand: Rotate/Move, Cut, Copy, Paste, Duplicate, Delete, Reset size, Drop, Pin, Next clip |
 | Hold **Y or B** (½ s) | Undo |
@@ -47,6 +47,20 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 
 The sidebar also has units, grid, undo, room lines, room scan, save, **Rooms...** (load, new, delete), export, clear, place room here, quit and **Turn room** (5° or 1°, left or right).
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
+
+## Accuracy test
+
+Menu > **Accuracy test...** measures things whose true size you know, so you get a real error figure.
+
+1. Pick a reference: A4 sheet (long 297 mm / short 210 mm), bank card (85.6 mm), door leaf height (2040 mm) or width (820 mm), or **Custom length** (tape-measure it first, then set it with the -100 … +100 mm buttons).
+2. Tap its two ends with the trigger (same snapping as Tape). The label shows measured mm and the error; the status shows the running average.
+3. Repeat as often as you like; switch references from the menu. Results are kept between sessions.
+4. **Export results** writes `framespace-accuracy-<time>.csv` to `Download/Framespace/` (per-trial rows, then a summary: trials, average error mm and %, RMS, worst, bias, average distance from your head). **Clear results** starts over (Undo brings them back).
+
+## Room info and Fit check
+
+- Menu > **Room info...** shows the room from your Space Setup scan: floor size and area (L-shaped rooms use the real outline), ceiling height, room volume, wall count and perimeter, doors, windows and furniture. It's in the JSON export too (`room_scan`).
+- **Fit check** (on by default, in the main menu and on the Room info page): any object that pushes more than 2 cm into a wall, the ceiling, a piece of scanned furniture or another object turns **red**, and its label says what it hits ("DOESN'T FIT: hits wall face"). It updates live while you carry things. Sitting on the floor, or flush against a wall or another object, is fine.
 
 ## Rooms
 

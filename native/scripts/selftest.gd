@@ -293,7 +293,7 @@ func run(m) -> void:
 
 	# Menu builds (main page + rooms page).
 	main.open_menu(main.ctrls[0], true)
-	check("Y/B menu: 4×8 sidebar of tools", main.menu.is_open and main.menu.items.size() == 32, str(main.menu.items.size()))
+	check("Y/B menu: sidebar of every tool (35)", main.menu.is_open and main.menu.items.size() == 35, str(main.menu.items.size()))
 	check("...with the object tray beside it in Rotate/Move", main.tray.is_open and main.tray.items.size() == main.PALETTE.size())
 	check("...tray to the right of the sidebar, not overlapping", main.menu.to_local(main.tray.global_position).x > (main.menu.size.x + main.tray.size.x) / 2.0)
 	main.on_button("tape")
@@ -315,6 +315,119 @@ func run(m) -> void:
 	check("Rooms page lists the current room", main.menu.item("room:" + main.room.id) != null)
 	main.on_button("back")
 	main.close_menu()
+
+	# Accuracy test (menu > Accuracy test...).
+	main.acc_trials.clear()
+	main.open_menu(main.ctrls[0], true)
+	main.on_button("accuracy")
+	main.rebuild_menu()
+	check("Accuracy test page opens from the menu", main.menu_page == "accuracy" and main.menu.item("acc:a4l") != null and main.menu.item("accu:+10") != null)
+	main.on_button("acc:a4l")
+	check("Picking A4 starts the test and closes the menu", main.mode == "acctest" and not main.menu.is_open and is_equal_approx(main.acc_ref.mm, 297.0))
+	var nm0: int = main.measures.size()
+	main.add_pending_point(Vector3(10, 0.8, 10))
+	main.add_pending_point(Vector3(10.299, 0.8, 10))
+	check("Trial 1: A4 measured 299 mm = +2.0 mm", main.acc_trials.size() == 1 and is_equal_approx(main.acc_trials[0].error_mm, 2.0), str(main.acc_trials))
+	check("...is not saved as a room measurement", main.measures.size() == nm0)
+	main.start_accuracy("a4s")
+	main.add_pending_point(Vector3(10, 0.8, 11))
+	main.add_pending_point(Vector3(10, 0.8, 11.207))
+	var st: Dictionary = main.accuracy_stats()
+	check("Stats: 2 trials, avg ±2.5 mm, worst 3.0, bias -0.5", st.n == 2 and is_equal_approx(st.mean_abs_mm, 2.5) and is_equal_approx(st.worst_mm, 3.0) and is_equal_approx(st.bias_mm, -0.5), str(st))
+	main.on_button("acc:custom")
+	main.on_button("accu:+100")
+	main.on_button("accu:-1")
+	check("Custom length steps: 1000 +100 -1 = 1099 mm", is_equal_approx(main.acc_ref.mm, 1099.0) and main.mode == "acctest", str(main.acc_ref))
+	main.acc_custom_mm = 1000.0
+	var ap: String = main.export_accuracy()
+	var acsv := FileAccess.get_file_as_string(ap) if ap != "" else ""
+	check("Accuracy CSV export: header, 2 trials, summary", acsv.begins_with("time,reference,true_mm") and acsv.contains("A4 sheet, long side") and acsv.contains("\ntrials,mean_abs_error_mm"), ap)
+	main.load_accuracy()
+	check("Trials survive a restart (accuracy.json)", main.acc_trials.size() == 2)
+	main.undo()
+	check("Undo removes the last trial", main.acc_trials.size() == 1)
+	main.on_button("accclear")
+	check("Clear results empties the list", main.acc_trials.is_empty())
+	main.set_tool("select")
+
+	# Room info + Fit check against fake Space Setup surfaces.
+	var fake := []
+	var mk := func(lab: String, pos: Vector3, basis: Basis, size: Vector2, collide: bool):
+		var n = main.SceneAnchorScene.instantiate()
+		n.label_name = lab
+		n.size_2d = size
+		n.transform = Transform3D(basis, pos)
+		if collide:
+			var body := StaticBody3D.new()
+			body.collision_layer = main.LAYER_ROOM
+			body.collision_mask = 0
+			var cs := CollisionShape3D.new()
+			var bs := BoxShape3D.new()
+			bs.size = Vector3(size.x, size.y, 0.02)
+			cs.shape = bs
+			body.add_child(cs)
+			n.add_child(body)
+			if lab == "floor":
+				main.ignore_for_fit.call_deferred(body.get_rid())
+		main.origin.add_child(n)
+		main.register_surface(n)
+		fake.append(n)
+		return n
+	var flo = mk.call("floor", Vector3(20, 0, 0), Basis(Vector3.RIGHT, -PI / 2), Vector2(4, 3), true)
+	flo.boundary = PackedVector2Array([Vector2(-2, -1.5), Vector2(2, -1.5), Vector2(2, 1.5), Vector2(-2, 1.5)])
+	mk.call("ceiling", Vector3(20, 2.4, 0), Basis(Vector3.RIGHT, PI / 2), Vector2(4, 3), false)
+	mk.call("wall face", Vector3(20, 1.2, -1.5), Basis.IDENTITY, Vector2(4, 2.4), true)
+	mk.call("wall face", Vector3(20, 1.2, 1.5), Basis(Vector3.UP, PI), Vector2(4, 2.4), false)
+	mk.call("wall face", Vector3(18, 1.2, 0), Basis(Vector3.UP, PI / 2), Vector2(3, 2.4), false)
+	mk.call("wall face", Vector3(22, 1.2, 0), Basis(Vector3.UP, -PI / 2), Vector2(3, 2.4), false)
+	mk.call("door frame", Vector3(18, 1.0, 0), Basis(Vector3.UP, PI / 2), Vector2(0.82, 2.04), false)
+	mk.call("table", Vector3(21, 0.75, 0.5), Basis(Vector3.RIGHT, -PI / 2), Vector2(1.2, 0.8), false)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var rs: Dictionary = main.room_summary()
+	check("Room info: floor 4 × 3 m = 12 m²", is_equal_approx(rs.floor_area_m2, 12.0) and is_equal_approx(rs.floor_w_m, 4.0), str(rs))
+	check("Room info: ceiling 2.4 m, volume 28.8 m³", is_equal_approx(rs.ceiling_m, 2.4) and is_equal_approx(rs.volume_m3, 28.8), str(rs))
+	check("Room info: 4 walls, perimeter 14 m, 1 door, 1 furniture", rs.walls == 4 and is_equal_approx(rs.perimeter_m, 14.0) and rs.doors == 1 and rs.furniture == 1, str(rs))
+	main.open_menu(main.ctrls[0], true)
+	main.on_button("roominfo")
+	main.rebuild_menu()
+	check("Room info page opens from the menu with the floor size", main.menu_page == "roominfo" and main.room_info_lines()[0].begins_with("Floor 4.000 m × 3.000 m"), str(main.room_info_lines()))
+	main.on_button("back")
+	main.close_menu()
+	var at := func(p: Vector3) -> Vector3: return main.content.to_local(p)
+	var fa = main.make_shape("box", {"x": 0.5, "y": 0.5, "z": 0.5}, at.call(Vector3(20, 0.25, -1.4)), main.content.quaternion.inverse(), "Fit A")
+	var fb = main.make_shape("box", {"x": 0.5, "y": 0.5, "z": 0.5}, at.call(Vector3(20.5, 0.25, -0.5)), main.content.quaternion.inverse(), "Fit B")
+	var fc = main.make_shape("box", {"x": 0.5, "y": 0.5, "z": 0.5}, at.call(Vector3(20.8, 0.25, -0.5)), main.content.quaternion.inverse(), "Fit C")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	main.set_fit_check(true)
+	main.update_fit(0.0, true)
+	check("Fit check: box through the wall is flagged", fa.fit_hits == ["wall face"], str(fa.fit_hits))
+	check("...turns red and says why on its label", fa.wire_mat.albedo_color == main.C_RED and (fa.label.get_child(3) as Label3D).text.contains("wall face"))
+	check("...sitting on the floor doesn't count", not fb.fit_hits.has("floor") and not fa.fit_hits.has("floor"))
+	check("Two overlapping boxes flag each other", fb.fit_hits == ["Fit C"] and fc.fit_hits == ["Fit B"], "%s / %s" % [fb.fit_hits, fc.fit_hits])
+	fc.node.position = at.call(Vector3(21.0, 0.25, -0.5))
+	fa.node.position = at.call(Vector3(20, 0.25, -1.25))
+	await get_tree().physics_frame
+	main.update_fit(0.0, true)
+	check("Boxes touching side by side, and flush against the wall, fit", fb.fit_hits.is_empty() and fc.fit_hits.is_empty() and fa.fit_hits.is_empty(), "%s %s %s" % [fa.fit_hits, fb.fit_hits, fc.fit_hits])
+	check("...and go back to their own colour", fa.wire_mat.albedo_color == fa.color)
+	fa.node.position = at.call(Vector3(20, 0.25, -1.4))
+	await get_tree().physics_frame
+	main.update_fit(0.0, true)
+	main.on_button("fitcheck")
+	check("Fit check off clears the warning", not main.fit_check and fa.fit_hits.is_empty() and fa.wire_mat.albedo_color == fa.color)
+	main.on_button("fitcheck")
+	var ex2: Dictionary = main.export_all()
+	var js = JSON.parse_string(FileAccess.get_file_as_string(ex2.base + ".json"))
+	check("JSON export includes the room scan summary", js is Dictionary and js.has("room_scan") and is_equal_approx(js.room_scan.floor_area_m2, 12.0))
+	for s in [fa, fb, fc]:
+		main.remove_shape(s)
+		s.node.queue_free()
+	for n in fake:
+		n.queue_free()
+	main.surfaces.clear()
+	main.fit_ignore.clear()
 
 	# Save, new room, reload.
 	var first_id: String = main.room.id

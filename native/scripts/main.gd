@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.4.0-native"
+const BUILD := "0.5.0-native"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -168,15 +168,27 @@ const MENU_MAIN := [
 	"roomvis", "scan", "save", "rooms",
 	"export", "clear", "scale", "quit",
 	"turnl5", "turnl1", "turnr1", "turnr5",
+	"accuracy", "roominfo", "fitcheck",
 ]
+# Accuracy test references: things with a known true size. True sizes in mm.
+const ACC_REFS := [
+	{"id": "a4l", "label": "A4 sheet, long side", "mm": 297.0},
+	{"id": "a4s", "label": "A4 sheet, short side", "mm": 210.0},
+	{"id": "card", "label": "Bank card, long side", "mm": 85.6},
+	{"id": "door", "label": "Door leaf height", "mm": 2040.0},
+	{"id": "doorw", "label": "Door leaf width (820)", "mm": 820.0},
+]
+const FIT_MARGIN := 0.02        # overlaps under 2 cm (scan noise, flush contact) don't count as "doesn't fit"
+const FIT_EVERY := 0.2          # seconds between fit checks
+const C_RED := Color("ff4d4d")
 # Press X or A: tool menu. The picked tool is what trigger does on an object.
 const TOOLS_MENU := ["select", "scale", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin", "nextclip"]
-const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area"]
+const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area", "acctest"]
 const EDIT_TOOLS := ["scale", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin"]
 const MODE_NAMES := {"select": "Rotate/Move", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
 	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
-	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin"}
+	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test"}
 const HOLD_UNDO := 0.5          # seconds holding B or Y
 const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
 const ROT_SPEED := 120.0        # degrees/s at full stick left/right while holding
@@ -202,6 +214,7 @@ class Shape:
 	var outline: Dictionary = {}
 	var pinned := false
 	var orig_dims: Dictionary = {}   # size it was created with (Reset size)
+	var fit_hits: Array = []         # names of walls / furniture / shapes it overlaps (Fit check)
 
 
 class Measure:
@@ -270,6 +283,14 @@ var ctx_attach: Ctrl = null    # hand the tool menu is stuck to
 var menu_dirty := true
 var selftest := false
 
+var fit_check := true          # shapes overlapping walls, furniture or each other turn red
+var fit_timer := 0.0
+var fit_ignore: Array[RID] = []   # floor + whole-room mesh: never count as "doesn't fit"
+var acc_ref := {}              # current accuracy reference {id, label, mm}
+var acc_custom_mm := 1000.0
+var acc_trials: Array = []     # [{time, ref, true_mm, measured_mm, error_mm, error_pct, distance_m}]
+var acc_line: Node3D = null    # the last accuracy trial, drawn until the next one
+
 var xr_interface: XRInterface
 var xr_active := false
 var origin: XROrigin3D
@@ -303,6 +324,7 @@ func _ready() -> void:
 	_build_world()
 	_init_xr()
 	load_settings()
+	load_accuracy()
 	if not xr_active:
 		# Desktop / CI: no headset, so start the room straight away.
 		start_rooms.call_deferred()
@@ -538,9 +560,9 @@ func AREA(m2: float) -> String:
 
 
 # ================================================================ labels
-func make_label(accent: Color) -> Node3D:
+func make_label(accent: Color, lines := 3) -> Node3D:
 	var n := Node3D.new()
-	for i in 3:
+	for i in lines:
 		var l := Label3D.new()
 		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		l.no_depth_test = true
@@ -578,6 +600,12 @@ func make_room_label(label_name: String, size: Vector2) -> Label3D:
 
 func register_surface(n: Node3D) -> void:
 	surfaces.append(n)
+	menu_dirty = true
+
+
+## Floor and the whole-room mesh: things always touch them, so they never count for Fit check.
+func ignore_for_fit(rid: RID) -> void:
+	fit_ignore.append(rid)
 
 
 func _on_scene_data_missing() -> void:
@@ -588,6 +616,7 @@ func _on_scene_capture_completed(_ok: bool) -> void:
 	if scene_mgr:
 		scene_mgr.call("remove_scene_anchors")
 		surfaces.clear()
+		fit_ignore.clear()
 		scene_mgr.call("create_scene_anchors")
 	set_status("Room scan finished.")
 
@@ -674,7 +703,7 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	s.body.set_meta("shape", s)
 	s.col = CollisionShape3D.new()
 	s.body.add_child(s.col)
-	s.label = make_label(s.color)
+	s.label = make_label(s.color, 4)   # 4th line: Fit check warning
 	s.node.add_child(s.wire)
 	s.node.add_child(s.fill)
 	s.node.add_child(s.body)
@@ -718,7 +747,12 @@ func refresh_shape(s: Shape) -> void:
 			cv.points = pts
 			s.col.shape = cv
 	s.label.position = Vector3(0, sc.y / 2.0 + 0.09, 0)
-	set_label(s.label, shape_lines(s.type, ("%s (pinned)" % s.name) if s.pinned else s.name, s.dims))
+	var lines := shape_lines(s.type, ("%s (pinned)" % s.name) if s.pinned else s.name, s.dims)
+	if s.fit_hits.size():
+		lines.append("DOESN'T FIT: hits " + ", ".join(s.fit_hits))
+	set_label(s.label, lines)
+	if s.label.get_child_count() > 3:
+		(s.label.get_child(3) as Label3D).modulate = C_RED
 	for h in s.handles:
 		var hd: Dictionary = h.get_meta("hd")
 		var e: float = s.dims.r if hd.mode == "radius" else extent(s, hd.key) / 2.0
@@ -756,16 +790,14 @@ func apply_snapshot(s: Shape, sn: Dictionary) -> void:
 
 func select(s: Shape) -> void:
 	var prev := selected
+	selected = s
 	if prev:
-		prev.wire_mat.albedo_color = prev.color
-		prev.fill_mat.albedo_color = Color(prev.color, 0.06)
+		apply_shape_colors(prev)
 		for h in prev.handles:
 			h.queue_free()
 		prev.handles = []
-	selected = s
 	if s:
-		s.wire_mat.albedo_color = Color.WHITE
-		s.fill_mat.albedo_color = Color(s.color, 0.14)
+		apply_shape_colors(s)
 		# Resize cubes only in the Scale tool, and never on a pinned shape.
 		for hd in ([] if s.pinned or mode != "scale" else handle_defs(s.type)):
 			var h := MeshInstance3D.new()
@@ -979,7 +1011,7 @@ func clear_pending() -> void:
 	preview_label.visible = false
 
 
-const TOOL_POINTS := {"tape": 2, "circle": 3, "rect": 3, "angle": 3, "height": 1}
+const TOOL_POINTS := {"tape": 2, "circle": 3, "rect": 3, "angle": 3, "height": 1, "acctest": 2}
 
 func tool_hint(t: String, n: int) -> String:
 	match t:
@@ -990,6 +1022,9 @@ func tool_hint(t: String, n: int) -> String:
 		"angle": return ["Angle: tap a point on the first arm.", "Tap the corner (vertex).", "Tap a point on the second arm."][mini(n, 2)]
 		"path": return "Path: tap points along the route. Tap the last point again to finish." if n < 2 else "Path: keep tapping. Tap the last point again to finish."
 		"area": return "Area: tap the corners of the outline. Tap the first point again to close it." if n < 3 else "Area: keep tapping, or tap the first point to close."
+		"acctest":
+			var lbl: String = acc_ref.get("label", "reference")
+			return ("Accuracy: tap one end of the %s (true %.1f mm)." % [lbl, acc_ref.get("mm", 0.0)]) if n == 0 else "Now tap the other end of the %s." % lbl
 	return ""
 
 
@@ -1010,6 +1045,12 @@ func add_pending_point(p: Vector3) -> void:
 		if pending.size() < need:
 			set_status(tool_hint(mode, pending.size()))
 			return
+	if mode == "acctest":
+		var a: Vector3 = pending[0]
+		var b: Vector3 = pending[1]
+		clear_pending()
+		record_trial(a, b)
+		return
 	var m := create_measure(measure_type(mode), pending)
 	clear_pending()
 	if m == null:
@@ -1244,6 +1285,11 @@ func button_text(id: String) -> String:
 		"turnl1": return "Turn room 1° left"
 		"turnr1": return "Turn room 1° right"
 		"turnr5": return "Turn room 5° right"
+		"accuracy": return "Accuracy test..."
+		"roominfo": return "Room info..."
+		"fitcheck": return "Fit check: on" if fit_check else "Fit check: off"
+		"accexport": return "Export results"
+		"accclear": return "Clear results"
 	return id
 
 
@@ -1266,6 +1312,15 @@ func menu_items() -> Array:
 		for r in list_rooms():
 			out.append({"id": "room:" + r.id, "label": r.name, "sub": "%d shapes · %s" % [r.count, r.updated], "active": r.id == room.get("id", "")})
 		return out
+	if menu_page == "accuracy":
+		return accuracy_items()
+	if menu_page == "roominfo":
+		return [
+			{"id": "back", "label": "< Back"},
+			{"id": "scan", "label": button_text("scan"), "sub": "Meta Space Setup"},
+			{"id": "fitcheck", "label": button_text("fitcheck"), "sub": "red = overlaps", "active": fit_check},
+			{"id": "roomvis", "label": button_text("roomvis")},
+		]
 	for id in MENU_MAIN:
 		var col := Color.WHITE
 		if id in MEASURE_TOOLS:
@@ -1287,6 +1342,18 @@ func tray_items() -> Array:
 
 
 func menu_header() -> Array:
+	if menu_page == "accuracy":
+		var last = acc_trials[-1] if acc_trials.size() else null
+		return [
+			[status, Color.WHITE],
+			[accuracy_summary(), C_YELLOW],
+			[("Last: %s  %.1f mm (true %.1f, error %+.1f)" % [last.ref, last.measured_mm, last.true_mm, last.error_mm]) if last else "Pick a reference, then tap its two ends with the trigger.", Color(0.6, 0.65, 0.7)],
+		]
+	if menu_page == "roominfo":
+		var out := [[status, Color.WHITE]]
+		for l in room_info_lines():
+			out.append([l, C_CYAN])
+		return out
 	var clip = clipboard[clip_index] if clipboard.size() else null
 	return [
 		[status, Color.WHITE],
@@ -1300,7 +1367,7 @@ func tray_wanted() -> bool:
 
 
 func rebuild_menu() -> void:
-	var title: String = "ROOMS" if menu_page == "rooms" else "FRAMESPACE  " + BUILD
+	var title: String = {"rooms": "ROOMS", "accuracy": "ACCURACY TEST", "roominfo": "ROOM INFO"}.get(menu_page, "FRAMESPACE  " + BUILD)
 	menu.build(title, menu_header(), menu_items(), 4, 0.075)
 	menu_dirty = false
 	var want := tray_wanted()
@@ -1374,7 +1441,39 @@ func on_button(id: String, c: Ctrl = null) -> void:
 		menu_page = "main"
 		menu_dirty = true
 		return
+	if id.begins_with("acc:"):
+		start_accuracy(id.substr(4))
+		close_menu()
+		return
+	if id.begins_with("accu:"):
+		acc_custom_mm = maxf(1.0, acc_custom_mm + float(id.substr(5)))
+		if acc_ref.get("id", "") == "custom":
+			acc_ref.mm = acc_custom_mm
+		save_accuracy()
+		set_status("Custom true length: %.0f mm. Tape-measure the real thing first, then set it here." % acc_custom_mm)
+		menu_dirty = true
+		return
 	match id:
+		"accuracy":
+			menu_page = "accuracy"
+			set_status("Accuracy test: measure things whose true size you know.")
+		"roominfo":
+			menu_page = "roominfo"
+			set_status("From your Space Setup scan." if surfaces.size() else "No Space Setup yet: press Scan room.")
+		"fitcheck":
+			set_fit_check(not fit_check)
+			set_status("Fit check on: objects that hit walls, furniture or each other turn red." if fit_check else "Fit check off.")
+		"accexport":
+			export_accuracy()
+		"accclear":
+			var old := acc_trials.duplicate()
+			acc_trials.clear()
+			_clear_acc_line()
+			save_accuracy()
+			push_history(func():
+				acc_trials = old
+				save_accuracy())
+			set_status("Accuracy results cleared. Undo brings them back.")
 		"box", "sphere", "cylinder", "cone":
 			var p := spawn_point()
 			var s := make_shape(id, DEFAULT_DIMS[id], p)
@@ -2184,6 +2283,10 @@ func update_preview() -> void:
 	var at: Vector3 = p
 	var draw := PackedVector3Array(pts)
 	match mode:
+		"acctest":
+			var mm: float = (pending[0] as Vector3).distance_to(p) * 1000.0
+			lines = ["%.1f mm" % mm, "error %+.1f mm" % (mm - float(acc_ref.get("mm", 0.0)))]
+			at = (pending[0] + p) / 2.0
 		"tape":
 			var dv: Vector3 = p - pending[0]
 			lines = [L(dv.length()), "vert %s · horiz %s" % [L(absf(dv.y)), L(Vector2(dv.x, dv.z).length())]]
@@ -2248,6 +2351,7 @@ func _process(delta: float) -> void:
 	update_hovers()
 	update_falling()
 	update_preview()
+	update_fit(delta)
 	if menu.is_open:
 		if menu_dirty:
 			rebuild_menu()
@@ -2260,6 +2364,310 @@ func _process(delta: float) -> void:
 		save_timer -= delta
 		if save_timer <= 0.0:
 			save_room_now()
+
+
+# ================================================================ fit check
+## Wire / fill colours: red when it doesn't fit, white wire while selected.
+func apply_shape_colors(s: Shape) -> void:
+	var base: Color = C_RED if s.fit_hits.size() else s.color
+	s.wire_mat.albedo_color = Color.WHITE if s == selected else base
+	s.fill_mat.albedo_color = Color(base, (0.14 if s == selected else 0.06) + (0.08 if s.fit_hits.size() else 0.0))
+
+
+func set_fit_check(on: bool) -> void:
+	fit_check = on
+	if not on:
+		for s in shapes:
+			if s.fit_hits.size():
+				s.fit_hits = []
+				refresh_shape(s)
+				apply_shape_colors(s)
+	fit_timer = 0.0
+	save_settings()
+	menu_dirty = true
+
+
+## The shape's collider shrunk by FIT_MARGIN on every side, so flush contact and scan noise don't count.
+func fit_query_shape(s: Shape) -> Shape3D:
+	var m := FIT_MARGIN
+	match s.type:
+		"box":
+			var b := BoxShape3D.new()
+			b.size = (scale_of(s.type, s.dims) - Vector3.ONE * 2.0 * m).max(Vector3.ONE * 0.005)
+			return b
+		"sphere":
+			var sp := SphereShape3D.new()
+			sp.radius = maxf(0.005, s.dims.r - m)
+			return sp
+		"cylinder":
+			var cy := CylinderShape3D.new()
+			cy.radius = maxf(0.005, s.dims.r - m)
+			cy.height = maxf(0.005, s.dims.h - 2.0 * m)
+			return cy
+	var r := maxf(0.005, s.dims.r - m)
+	var h := maxf(0.005, s.dims.h - 2.0 * m)
+	var pts := PackedVector3Array([Vector3(0, h / 2.0, 0)])
+	for k in 16:
+		var t := float(k) / 16 * TAU
+		pts.append(Vector3(cos(t) * r, -h / 2.0, sin(t) * r))
+	var cv := ConvexPolygonShape3D.new()
+	cv.points = pts
+	return cv
+
+
+## Names of the walls, furniture and other shapes this shape overlaps by more than FIT_MARGIN.
+func fit_hits_for(s: Shape, space: PhysicsDirectSpaceState3D) -> Array:
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = fit_query_shape(s)
+	q.transform = s.col.global_transform
+	q.collision_mask = LAYER_ROOM | LAYER_SHAPE
+	var ex: Array[RID] = fit_ignore.duplicate()
+	ex.append(s.body.get_rid())
+	q.exclude = ex
+	var out := []
+	for r in space.intersect_shape(q, 16):
+		var col: Object = r.collider
+		var nm := ""
+		if col == null:
+			continue
+		if col.has_meta("shape"):
+			var o = col.get_meta("shape")
+			if not shapes.has(o):
+				continue
+			nm = o.name
+		else:
+			var a = col.get_parent()
+			nm = String(a.label_name) if a != null and "label_name" in a else "room"
+		if nm != "" and not out.has(nm):
+			out.append(nm)
+	out.sort()
+	return out
+
+
+func update_fit(delta: float, force := false) -> void:
+	if not fit_check:
+		return
+	fit_timer -= delta
+	if fit_timer > 0.0 and not force:
+		return
+	fit_timer = FIT_EVERY
+	var space := get_world_3d().direct_space_state
+	for s in shapes:
+		if not s.node.is_inside_tree():
+			continue
+		var hits := fit_hits_for(s, space)
+		if hits != s.fit_hits:
+			s.fit_hits = hits
+			refresh_shape(s)
+			apply_shape_colors(s)
+
+
+# ================================================================ room info (Space Setup)
+func _poly2_area(pts: PackedVector2Array) -> float:
+	var a := 0.0
+	for i in pts.size():
+		var p := pts[i]
+		var q := pts[(i + 1) % pts.size()]
+		a += p.x * q.y - q.x * p.y
+	return absf(a) / 2.0
+
+
+## Size of the room from the Space Setup scan: floor, ceiling height, walls, doors, windows, furniture.
+func room_summary() -> Dictionary:
+	var fl = null
+	var ce = null
+	var walls := []
+	var doors := 0
+	var windows := 0
+	var things := 0
+	for n in surfaces:
+		if not is_instance_valid(n):
+			continue
+		var lab := String(n.label_name)
+		if lab == "floor":
+			fl = n
+		elif lab == "ceiling":
+			ce = n
+		elif lab.contains("wall"):
+			walls.append(n.size_2d.x)
+		elif lab.contains("door"):
+			doors += 1
+		elif lab.contains("window"):
+			windows += 1
+		elif not lab.contains("global mesh"):
+			things += 1
+	var out := {"scanned": surfaces.size() > 0, "walls": walls.size(), "doors": doors, "windows": windows, "furniture": things}
+	var per := 0.0
+	for w in walls:
+		per += w
+	out["perimeter_m"] = per
+	if fl != null:
+		out["floor_w_m"] = fl.size_2d.x
+		out["floor_d_m"] = fl.size_2d.y
+		out["floor_area_m2"] = _poly2_area(fl.boundary) if fl.boundary.size() >= 3 else fl.size_2d.x * fl.size_2d.y
+		if ce != null:
+			out["ceiling_m"] = ce.global_position.y - fl.global_position.y
+			out["volume_m3"] = out.floor_area_m2 * out.ceiling_m
+	return out
+
+
+func room_info_lines() -> Array:
+	var r := room_summary()
+	if not r.scanned:
+		return ["No Space Setup data yet.", "Press Scan room to map the walls, floor and furniture."]
+	var out := []
+	if r.has("floor_area_m2"):
+		out.append("Floor %s × %s  ·  area %s" % [L(r.floor_w_m), L(r.floor_d_m), AREA(r.floor_area_m2)])
+	else:
+		out.append("No floor in the scan.")
+	if r.has("ceiling_m"):
+		out.append("Ceiling height %s  ·  room volume %s" % [L(r.ceiling_m), VOL(r.volume_m3)])
+	out.append("%d walls, perimeter %s" % [r.walls, L(r.perimeter_m)])
+	var pl := func(n: int, w: String) -> String: return "%d %s%s" % [n, w, "" if n == 1 else "s"]
+	out.append("%s · %s · %s" % [pl.call(r.doors, "door"), pl.call(r.windows, "window"), pl.call(r.furniture, "furniture item")])
+	return out
+
+
+# ================================================================ accuracy test
+func accuracy_items() -> Array:
+	var cur: String = acc_ref.get("id", "") if mode == "acctest" else ""
+	var out := [{"id": "back", "label": "< Back"}]
+	for r in ACC_REFS:
+		out.append({"id": "acc:" + r.id, "label": r.label, "sub": "%.1f mm" % r.mm, "active": cur == r.id, "color": C_YELLOW})
+	out.append({"id": "acc:custom", "label": "Custom length", "sub": "%.0f mm (set below)" % acc_custom_mm, "active": cur == "custom", "color": C_YELLOW})
+	out.append({"id": "accexport", "label": button_text("accexport"), "sub": "CSV to Download/Framespace", "enabled": acc_trials.size() > 0})
+	for d in ["-100", "-10", "-1", "+1", "+10", "+100"]:
+		out.append({"id": "accu:" + d, "label": "%s mm" % d, "sub": "custom length", "color": Color(0.6, 0.8, 1.0)})
+	out.append({"id": "accclear", "label": button_text("accclear"), "color": Color("ff6b6b"), "enabled": acc_trials.size() > 0})
+	return out
+
+
+func start_accuracy(ref_id: String) -> void:
+	if ref_id == "custom":
+		acc_ref = {"id": "custom", "label": "Custom length", "mm": acc_custom_mm}
+	else:
+		for r in ACC_REFS:
+			if r.id == ref_id:
+				acc_ref = r.duplicate()
+	if acc_ref.is_empty():
+		return
+	set_tool("acctest")
+
+
+func _clear_acc_line() -> void:
+	if acc_line != null and is_instance_valid(acc_line):
+		acc_line.queue_free()
+	acc_line = null
+
+
+func record_trial(a: Vector3, b: Vector3) -> Dictionary:
+	var true_mm: float = acc_ref.get("mm", 0.0)
+	var meas := a.distance_to(b) * 1000.0
+	var err := meas - true_mm
+	var head := content.to_local(camera.global_position)
+	var t := {
+		"time": _now_iso(), "ref": String(acc_ref.get("label", "?")),
+		"true_mm": snappedf(true_mm, 0.1), "measured_mm": snappedf(meas, 0.1), "error_mm": snappedf(err, 0.1),
+		"error_pct": snappedf(100.0 * err / true_mm, 0.01) if true_mm > 0 else 0.0,
+		"distance_m": snappedf(head.distance_to((a + b) / 2.0), 0.01),
+	}
+	acc_trials.append(t)
+	save_accuracy()
+	_clear_acc_line()
+	acc_line = Node3D.new()
+	acc_line.add_child(_dot(a))
+	acc_line.add_child(_dot(b))
+	var li := MeshInstance3D.new()
+	li.material_override = mat_measure
+	li.mesh = _lines_mesh(PackedVector3Array([a, b]))
+	acc_line.add_child(li)
+	var lbl := make_label(C_YELLOW if absf(err) <= 10.0 else C_RED)
+	lbl.position = (a + b) / 2.0 + Vector3(0, 0.05, 0)
+	set_label(lbl, ["%.1f mm  (%+.1f)" % [meas, err], "true %.1f mm · trial %d" % [true_mm, acc_trials.size()]])
+	acc_line.add_child(lbl)
+	content.add_child(acc_line)
+	push_history(func():
+		acc_trials.erase(t)
+		save_accuracy()
+		_clear_acc_line())
+	set_status("%s: %.1f mm, true %.1f, error %+.1f mm. %s. Tap again for another trial." % [t.ref, meas, true_mm, err, accuracy_summary()])
+	if last_ctrl:
+		haptic(last_ctrl, 0.5, 0.04)
+	menu_dirty = true
+	return t
+
+
+func accuracy_stats() -> Dictionary:
+	var n := acc_trials.size()
+	if n == 0:
+		return {"n": 0}
+	var sum := 0.0
+	var sabs := 0.0
+	var sq := 0.0
+	var worst := 0.0
+	var spct := 0.0
+	var sdist := 0.0
+	for t in acc_trials:
+		var e: float = t.error_mm
+		sum += e
+		sabs += absf(e)
+		sq += e * e
+		worst = maxf(worst, absf(e))
+		spct += absf(float(t.error_pct))
+		sdist += float(t.distance_m)
+	return {"n": n, "bias_mm": sum / n, "mean_abs_mm": sabs / n, "rms_mm": sqrt(sq / n), "worst_mm": worst,
+		"mean_abs_pct": spct / n, "mean_distance_m": sdist / n}
+
+
+func accuracy_summary() -> String:
+	var st := accuracy_stats()
+	if st.n == 0:
+		return "No trials yet"
+	return "%d trials · avg error ±%.1f mm (%.1f%%) · worst %.1f mm · bias %+.1f mm" % [st.n, st.mean_abs_mm, st.mean_abs_pct, st.worst_mm, st.bias_mm]
+
+
+func accuracy_csv() -> String:
+	var lines := ["time,reference,true_mm,measured_mm,error_mm,error_pct,distance_m"]
+	for t in acc_trials:
+		lines.append("%s,\"%s\",%.1f,%.1f,%.1f,%.2f,%.2f" % [t.time, String(t.ref).replace("\"", "\"\""), t.true_mm, t.measured_mm, t.error_mm, t.error_pct, t.distance_m])
+	var st := accuracy_stats()
+	if st.n > 0:
+		lines.append("")
+		lines.append("trials,mean_abs_error_mm,mean_abs_error_pct,rms_mm,worst_mm,bias_mm,mean_distance_m")
+		lines.append("%d,%.1f,%.2f,%.1f,%.1f,%.1f,%.2f" % [st.n, st.mean_abs_mm, st.mean_abs_pct, st.rms_mm, st.worst_mm, st.bias_mm, st.mean_distance_m])
+	return "\n".join(lines)
+
+
+func export_accuracy() -> String:
+	var dir := export_dir()
+	var stamp := _now_iso().substr(0, 16).replace(":", "-").replace("T", "-")
+	var path := dir.path_join("framespace-accuracy-%s.csv" % stamp)
+	var csv := accuracy_csv()
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		set_status("Export failed: can't write to %s" % dir)
+		return ""
+	f.store_string(csv)
+	f.close()
+	DisplayServer.clipboard_set(csv)
+	set_status("Exported %d trials to %s (also copied)." % [acc_trials.size(), path])
+	return path
+
+
+func save_accuracy() -> void:
+	var f := FileAccess.open("user://accuracy.json", FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify({"custom_mm": acc_custom_mm, "trials": acc_trials}, "  "))
+
+
+func load_accuracy() -> void:
+	var f := FileAccess.open("user://accuracy.json", FileAccess.READ)
+	if f == null:
+		return
+	var d = JSON.parse_string(f.get_as_text())
+	if d is Dictionary:
+		acc_custom_mm = float(d.get("custom_mm", 1000.0))
+		acc_trials = d.get("trials", []) if d.get("trials") is Array else []
 
 
 # ================================================================ rooms
@@ -2278,12 +2686,13 @@ func load_settings() -> void:
 		var d = JSON.parse_string(f.get_as_text())
 		if d is Dictionary:
 			room["id"] = d.get("current_room", "")
+			fit_check = bool(d.get("fit_check", true))
 
 
 func save_settings() -> void:
 	var f := FileAccess.open("user://settings.json", FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"current_room": room.get("id", "")}))
+		f.store_string(JSON.stringify({"current_room": room.get("id", ""), "fit_check": fit_check}))
 
 
 func list_rooms() -> Array:
@@ -2569,6 +2978,7 @@ func _writable(dir: String) -> bool:
 func export_all() -> Dictionary:
 	save_room_now()
 	var data := room_data()
+	data["room_scan"] = room_summary()
 	var dir := export_dir()
 	var stamp := _now_iso().substr(0, 16).replace(":", "-").replace("T", "-")
 	var base := dir.path_join("framespace-%s-%s" % [String(data.name).replace(" ", "-").to_lower(), stamp])
