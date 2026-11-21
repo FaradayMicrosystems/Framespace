@@ -15,6 +15,10 @@ func check(name: String, ok: bool, info := "") -> void:
 	print("%s  %s%s" % ["PASS" if ok else "FAIL", name, ("  -- " + info) if info != "" else ""])
 
 
+func half_y(s) -> float:
+	return main.half_height(s)
+
+
 func run(m) -> void:
 	main = m
 	await get_tree().process_frame
@@ -60,12 +64,36 @@ func run(m) -> void:
 	var c = main.ctrls[1]
 	main.select(box)
 	c.drag = {"type": "move", "shape": box, "c0": Vector3.ZERO, "yaw0": 0.0, "p0": box.node.position, "base_y": box.node.position.y}
-	main.scale_held(c, 1.05)
-	check("Stick up scales +5%", absf(box.dims.x - 0.315) < 0.0005, str(box.dims))
+	main.scale_held(c, main.SCALE_STEP)
+	check("Stick up scales +10%", absf(box.dims.x - 0.33) < 0.0005, str(box.dims))
 	check("Scaled box stays on the floor", absf(box.node.position.y - box.dims.y / 2.0) < 0.002, str(box.node.position))
 	main.rotate_held(c, -PI / 4)
 	check("Stick left rotates 45° clockwise", absf(main.yaw_of_quat(box.node.quaternion) + PI / 4) < 0.01, str(main.yaw_of_quat(box.node.quaternion)))
+	main.scale_held(c, 1.0 / main.SCALE_STEP)
+	check("Stick down undoes it exactly (-10%)", absf(box.dims.x - 0.3) < 0.0005, str(box.dims))
+	main.scale_held(c, main.SCALE_STEP)
 	c.drag = null
+
+	# Grabbing never changes size or (in a free carry) rotation; only the stick does.
+	var dims_before: Dictionary = box.dims.duplicate()
+	c.shape_hit = {"shape": box, "point": box.node.position, "normal": Vector3.UP, "dist": 1.0}
+	main.on_grip_down(c, {"grip": true})
+	check("Grip alone grabs to move (not scale)", c.drag != null and c.drag.type == "move", str(c.drag.type if c.drag else null))
+	c.node.position += Vector3(0, 0, -0.4)   # push the hand forward, like the old push-to-grow
+	c.o += Vector3(0, 0, -0.4)
+	main.update_move(c, c.drag)
+	check("Pushing the hand while holding doesn't change size", box.dims == dims_before, str(box.dims))
+	main.convert_to_free(c)
+	var q_before: Quaternion = box.node.quaternion
+	c.node.rotate_object_local(Vector3.FORWARD, 0.7)    # twist the wrist
+	c.node.rotate_object_local(Vector3.RIGHT, 0.4)
+	main.update_free(c, c.drag)
+	check("Twisting the wrist while carrying doesn't rotate it", box.node.quaternion.is_equal_approx(q_before) and box.dims == dims_before, str(box.node.quaternion))
+	c.node.transform = Transform3D.IDENTITY
+	main.on_drag_release(c)
+	c.shape_hit = null
+	box.node.position = Vector3(0, half_y(box), -1.0)
+	box.node.quaternion = Quaternion(Vector3.UP, -PI / 4)
 
 	# Clipboard.
 	main.select(box)
@@ -100,7 +128,7 @@ func run(m) -> void:
 
 	# Menu builds (main page + rooms page).
 	main.open_menu(main.ctrls[0], true)
-	check("Main menu opens with 24 buttons", main.menu.is_open and main.menu.items.size() == 24, str(main.menu.items.size()))
+	check("Main menu opens with 28 buttons", main.menu.is_open and main.menu.items.size() == 28, str(main.menu.items.size()))
 	main.on_button("rooms")
 	main.rebuild_menu()
 	check("Rooms page lists the current room", main.menu.item("room:" + main.room.id) != null)
@@ -119,6 +147,46 @@ func run(m) -> void:
 	check("Loading the first room brings its shapes back", main.shapes.size() == n_shapes, "%d vs %d" % [main.shapes.size(), n_shapes])
 	check("...and its measurements", main.measures.size() == 2)
 	check("Rooms list has 2 rooms", main.list_rooms().size() == 2)
+
+	# Placement: rooms drop where you stand, facing the way you look; recentering re-places them.
+	var cam0: Transform3D = main.camera.transform
+	main.camera.transform = Transform3D(Basis(Vector3.UP, PI / 2), Vector3(2, 1.6, -1))
+	var sf: Transform3D = main.stand_frame()
+	check("Stand frame is on the floor under your head", sf.origin.is_equal_approx(Vector3(2, 0, -1)), str(sf.origin))
+	check("Stand frame faces the way you look", absf(main.yaw_of_quat(sf.basis.get_rotation_quaternion()) - PI / 2) < 0.001)
+	main.camera.transform = Transform3D(Basis(Vector3.UP, PI / 2) * Basis(Vector3.RIGHT, -PI / 2 + 0.01), Vector3(2, 1.6, -1))
+	check("Looking straight down still keeps your heading", absf(main.yaw_of_quat(main.stand_frame().basis.get_rotation_quaternion()) - PI / 2) < 0.01)
+	main.camera.transform = Transform3D(Basis(Vector3.UP, PI / 2), Vector3(2, 1.6, -1))
+	var s0 = main.shapes[0]
+	var local0: Vector3 = s0.node.position
+	main.place_here()
+	check("Place here moves the room to where you stand", s0.node.global_position.is_equal_approx(sf * local0), "%s vs %s" % [s0.node.global_position, sf * local0])
+	check("...without changing its saved layout", s0.node.position.is_equal_approx(local0))
+	main.camera.transform = Transform3D(Basis(Vector3.UP, -PI / 2), Vector3(-3, 1.6, 4))
+	main.save_room_now()
+	main.load_room(main.room.id)
+	check("Loading a room drops it where you stand", main.content.transform.origin.is_equal_approx(Vector3(-3, 0, 4)) and absf(main.yaw_of_quat(main.content.quaternion) + PI / 2) < 0.001, str(main.content.transform))
+	main.camera.transform = cam0
+	main.place_here()
+	check("Back at the spot you started, facing the same way, it lines up exactly", main.shapes[0].node.global_position.is_equal_approx(local0), str(main.shapes[0].node.global_position))
+	# Turn room: fine heading fix after a recenter, around where you stand.
+	main.camera.transform = Transform3D(Basis.IDENTITY, Vector3(1, 1.6, 0))
+	var before: Vector3 = main.shapes[0].node.global_position
+	main.on_button("turnl5")
+	main.on_button("turnr1")
+	check("Turn room 5° left then 1° right = 4° left", absf(main.yaw_of_quat(main.content.quaternion) - deg_to_rad(4)) < 0.0001, str(rad_to_deg(main.yaw_of_quat(main.content.quaternion))))
+	var pivot := Vector3(1, 0, 0)
+	var expect: Vector3 = pivot + (before - pivot).rotated(Vector3.UP, deg_to_rad(4))
+	check("...turned around where you stand", main.shapes[0].node.global_position.is_equal_approx(expect), "%s vs %s" % [main.shapes[0].node.global_position, expect])
+	check("...without changing the saved layout", main.shapes[0].node.position.is_equal_approx(local0))
+	main.camera.transform = cam0
+	main.place_here()
+	main.open_menu(main.ctrls[0], true)
+	main.on_button("rooms")
+	main.rebuild_menu()
+	check("Rooms page has Place room here", main.menu.item("placehere") != null)
+	main.on_button("back")
+	main.close_menu()
 
 	# Export.
 	var res: Dictionary = main.export_all()
