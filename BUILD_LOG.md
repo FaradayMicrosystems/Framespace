@@ -166,3 +166,7 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Decisions: each object gets an invisible depth-only body 4 mm inside its own lines (so its own edges stay visible), drawn before all wireframes: the box itself for simple objects, the drawn parts for detailed ones (legs and gaps stay open), the walls for walk-in containers and garages, the side profile for vans and utes. Toggle in Settings, default on, saved.
 - Tests: native self-test 222/222 (was 216), run locally on Godot 4.6.2 (headless, so the depth shader itself is only checked on the headset).
 - AI involvement: Claude built, tested, merged and released it in one session.
+
+## 2026-11-22 (Brisbane): v0.27.1, update test
+
+- Aurora asked for a no-op release to test updating the installed APK in place. Only the version (name 0.27.1, Android code 29) changed.
