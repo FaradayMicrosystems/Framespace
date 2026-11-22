@@ -51,13 +51,26 @@ func run(m) -> void:
 	check("Motorcycle is in the palette", labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (48 objects)", main.PALETTE.size() == 48, str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (53 objects)", main.PALETTE.size() == 53, str(main.PALETTE.size()))
+	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
+	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
+	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
+	var drm = main.PALETTE[labels.find("Drum 205 L")] if labels.has("Drum 205 L") else null
+	check("205 L drum is 584 x 880 with rims and rolling hoops", drm != null and is_equal_approx(drm.dims.x, 0.584) and is_equal_approx(drm.dims.y, 0.88) and drm.outline.parts.size() > 100)
+	for nm in ["Kitchen sink bench 900", "Kitchen oven bench 600", "Dishwasher 600", "Kitchen corner 900", "Pantry 600", "Wall cabinet 600", "Island bench 1800", "Bar stool"]:
+		check("Kitchen: " + nm, labels.has(nm))
+	var wc = main.PALETTE[labels.find("Wall cabinet 600")] if labels.has("Wall cabinet 600") else null
+	check("Wall cabinet hangs at 1450 mm and is hollow below (slides over a bench)", wc != null and wc.outline.solids.size() == 1)
 	for nm in ["Carton large", "Carton small", "10ft container", "Tandem box trailer", "Pantech truck 4.5 t", "King bed", "Single bed", "Wardrobe 2-door", "Kitchen bench 600", "Dryer",
-			"Shelf 5 cm", "Shelf 30 cm", "Shelf spacer 50 cm", "Rack 18RU 1200D", "Rack 24RU 1200D", "Rack 42RU 1200D", "Rack 48RU 1200D"]:
+			"Shelf 5 cm", "Shelf 30 cm", "Shelf spacer 1 m", "Shelf spacer 1.5 m", "Rack 18RU 1200D", "Rack 22RU 1200D", "Rack 24RU 1200D", "Garage shelving 1800", "Snow leopard 1.75 m"]:
 		if not labels.has(nm):
 			check("New object " + nm, false)
-	var rk = main.PALETTE[labels.find("Rack 42RU 1200D")]
-	check("42RU rack: 600 x 1200 x 2067 mm with a detailed wireframe", is_equal_approx(rk.dims.x, 1.2) and is_equal_approx(rk.dims.z, 0.6) and is_equal_approx(rk.dims.y, 2.067) and rk.outline.parts.size() > 80)
+	var rk = main.PALETTE[labels.find("Rack 22RU 1200D")]
+	check("22RU rack: 600 x 1200 x 1178 mm with a detailed wireframe", is_equal_approx(rk.dims.x, 1.2) and is_equal_approx(rk.dims.z, 0.6) and is_equal_approx(rk.dims.y, 1.178) and rk.outline.parts.size() > 50, str(rk.dims))
+	var snl = main.PALETTE[labels.find("Snow leopard 1.75 m")]
+	check("Snow leopard is 1.75 m tall and a detailed wireframe", is_equal_approx(snl.dims.y, 1.75) and snl.outline.parts.size() > 100)
+	var gsh = main.PALETTE[labels.find("Garage shelving 1800")]
+	check("Garage shelving: 5 solid decks you can put things on", gsh.outline.solids.size() == 5)
 	# Stacking: dryer on the washer; shelves stack board-gap by board-gap; spacer panel holds things.
 	var wsh = main.PALETTE[labels.find("Washing machine")]
 	var dry = main.PALETTE[labels.find("Dryer")]
@@ -67,7 +80,7 @@ func run(m) -> void:
 	check("Dryer dropped on the washer stacks on top (bottom at 850 mm)", absf(ds.node.position.y - dry.dims.y / 2.0 - 0.85) < 0.003, str(ds.node.position))
 	var sh30 = main.PALETTE[labels.find("Shelf 30 cm")]
 	var sh20 = main.PALETTE[labels.find("Shelf 20 cm")]
-	var spc = main.PALETTE[labels.find("Shelf spacer 50 cm")]
+	var spc = main.PALETTE[labels.find("Shelf spacer 1 m")]
 	var a1 = main.make_shape("box", spc.dims, Vector3(22, spc.dims.y / 2.0, 22), Quaternion.IDENTITY, "Sp", spc.outline)
 	# (Created off to the side, then moved over: a new physics body only moves on the next physics frame.)
 	var a2 = main.make_shape("box", sh30.dims, Vector3(26, 3.0, 26), Quaternion.IDENTITY, "S30", sh30.outline)
@@ -76,11 +89,11 @@ func run(m) -> void:
 	var a3 = main.make_shape("box", sh20.dims, Vector3(27, 4.0, 27), Quaternion.IDENTITY, "S20", sh20.outline)
 	a3.node.position = Vector3(22, 4.0, 22)
 	main.settle(a3)
-	check("Spacer 50 + shelf 30 + shelf 20 stack: top board at 1.0 m", absf(a3.node.position.y + sh20.dims.y / 2.0 - 1.0) < 0.003, str(a3.node.position))
+	check("Spacer 1 m + shelf 30 + shelf 20 stack: top board at 1.5 m", absf(a3.node.position.y + sh20.dims.y / 2.0 - 1.5) < 0.003, str(a3.node.position))
 	var cart = main.make_shape("box", {"x": 0.3, "y": 0.2, "z": 0.2}, Vector3(28, 4.0, 28))
 	cart.node.position = Vector3(22, 4.0, 22)
 	main.settle(cart)
-	check("A box dropped on the top shelf sits on its board", absf(cart.node.position.y - 1.1) < 0.003, str(cart.node.position))
+	check("A box dropped on the top shelf sits on its board", absf(cart.node.position.y - 1.6) < 0.003, str(cart.node.position))
 	for sx in [ws, ds, a1, a2, a3, cart]:
 		main.remove_shape(sx)
 		sx.node.queue_free()
@@ -277,6 +290,14 @@ func run(m) -> void:
 	main.face_button(cu, "high", false, true, 12.1)
 	check("Tap Y: objects menu + sidebar (Trace, Box, Custom, Save selected)", main.tray.is_open and main.tray_side.is_open and main.tray.items.size() == main.PALETTE.size() and main.tray_side.item("side:trace") != null and main.tray_side.item("side:box") != null and main.tray_side.item("side:custom") != null and main.tray_side.item("side:save") != null)
 	check("...sidebar sits left of the grid", main.tray.to_local(main.tray_side.global_position).x < -(main.tray.size.x + main.tray_side.size.x) / 2.0 + 0.001)
+	check("...tapped open, it rides on that wrist (above the hand)", main.tray_follow and main.tray.global_position.y > cu.node.global_position.y + 0.05)
+	var tray_p0: Vector3 = main.tray.global_position
+	cu.node.position += Vector3(0.3, -0.2, 0.1)
+	main._process(0.0)
+	var tray_rel: Vector3 = main.tray.global_position - cu.node.global_position
+	check("...and follows the hand when it moves", not main.tray.global_position.is_equal_approx(tray_p0) and tray_rel.y > 0.05 and tray_rel.length() < 0.6, str(tray_rel))
+	cu.node.position = Vector3.ZERO
+	main._process(0.0)
 	var n1: int = main.shapes.size()
 	var cg2 = main.ctrls[1]
 	cg2.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.5, "point": main.tray.global_position}
@@ -315,7 +336,7 @@ func run(m) -> void:
 		main.process_input(cu, nb.duplicate())
 	cu.btn = nb.duplicate()
 	press.call("stick")
-	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, 7 measuring tools, Free draw, Reset position)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 13 and main.menu.item("tape") != null and main.menu.item("freedraw") != null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
+	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, 7 measuring tools, Reset position; no Free draw)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 12 and main.menu.item("tape") != null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
 	cu.node.position += Vector3(0.3, 0.1, -0.2)
 	main._process(0.0)
 	check("...stuck to that hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.6)
@@ -608,11 +629,14 @@ func run(m) -> void:
 	var moved: Vector3 = main.content.transform.origin - home.origin
 	check("Player move: left stick slides you through the room (75 cm in ½ s at full tilt)", absf(moved.length() - 0.75) < 0.01 and absf(moved.y) < 0.001, str(moved))
 	var pr = main.ctrls[1]
-	pr.turn_latch = false
 	pr.drag = null
-	main.player_move(pr, {"sx": 1.0, "sy": 0.0}, 0.1)
-	main.player_move(pr, {"sx": 1.0, "sy": 0.0}, 0.1)
-	check("Right stick flick turns you 15° (once per flick)", absf(absf(rad_to_deg(main.yaw_of_quat(main.content.quaternion) - main.yaw_of_quat(home.basis.get_rotation_quaternion()))) - 15.0) < 0.01, str(rad_to_deg(main.yaw_of_quat(main.content.quaternion))))
+	main.player_move(pr, {"sx": 1.0, "sy": 0.0}, 0.25)
+	check("Right stick left/right turns you smoothly (15° in ¼ s at full tilt, no snap)", absf(absf(rad_to_deg(main.yaw_of_quat(main.content.quaternion) - main.yaw_of_quat(home.basis.get_rotation_quaternion()))) - 15.0) < 0.01, str(rad_to_deg(main.yaw_of_quat(main.content.quaternion))))
+	main.player_move(pr, {"sx": 0.0, "sy": 0.5}, 0.1)
+	var y1: float = main.content.transform.origin.y
+	check("Right stick up raises you smoothly (the room goes down a little)", y1 < home.origin.y and y1 > home.origin.y - 0.1, str(y1))
+	main.player_move(pr, {"sx": 0.0, "sy": -1.0}, 1.0)
+	check("Right stick down lowers you", main.content.transform.origin.y > y1 + 0.5, str(main.content.transform.origin.y))
 	main.on_button("resetpos")
 	check("Reset position puts the room back where it really is", main.content.transform.is_equal_approx(home))
 	main.set_tool("select")
@@ -673,7 +697,10 @@ func run(m) -> void:
 	cb.o = Vector3(8.01, 0, 8.01)
 	main.on_trigger_down(cb, {"trigger": true})
 	check("Trace: clicking the first corner closes the outline", main.draft.get("phase", "") == "height")
-	cb.o = Vector3(8.7, 0.8, 8.3)
+	cb.o = Vector3(8.5, 1.0, 10.0)
+	cb.d = (Vector3(8.5, 2.5, 8.5) - cb.o).normalized()
+	check("Trace height follows where you point: aim 2.5 m up without reaching", absf(main.trace_top_y(cb) - 2.5) < 0.001, str(main.trace_top_y(cb)))
+	cb.d = (Vector3(8.5, 0.8, 8.5) - cb.o).normalized()
 	main.on_trigger_down(cb, {"trigger": true})
 	var trc = main.shapes[-1]
 	check("...a click sets the height: L-shaped trace 1 × 0.8 × 1 m", main.shapes.size() == ntr + 1 and is_equal_approx(trc.dims.x, 1.0) and is_equal_approx(trc.dims.y, 0.8) and is_equal_approx(trc.dims.z, 1.0), str(trc.dims))
@@ -691,32 +718,20 @@ func run(m) -> void:
 	check("Grip undoes the last point", main.draft.pts.size() >= 8)
 	main.set_tool("select")
 
-	# Free draw: six square faces sharing corners make a closed cube.
-	main.set_tool("freedraw")
-	var nfd: int = main.shapes.size()
-	var cube := [[[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], [[0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 0]],
-		[[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]], [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]],
-		[[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]], [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]]]
-	for f in cube:
-		for k in 5:
-			var cn: Array = f[k % 4]
-			cb.o = Vector3(10 + 0.5 * cn[0], 0.5 * cn[1], 10 + 0.5 * cn[2]) + Vector3(0.005, 0, 0)
-			main.on_trigger_down(cb, {"trigger": true})
-			main.tip_up(cb)
-	check("Free draw: 6 faces, 8 shared corners", main.draft.faces.size() == 6 and main.draft.verts.size() == 8, "%d faces, %d corners" % [main.draft.faces.size(), main.draft.verts.size()])
-	main.tip_grip(cb)
-	var fd = main.shapes[-1]
-	check("Grip finishes it: a closed 50 cm cube, 0.125 m³", main.shapes.size() == nfd + 1 and is_equal_approx(fd.dims.x, 0.5) and absf(main.shape_volume(fd) - 0.125) < 0.001, "%s %s" % [fd.dims, main.shape_volume(fd)])
-	for k in 4:
-		var cn2: Array = cube[0][k]
-		cb.o = Vector3(14 + 0.5 * cn2[0], 0.0, 14 + 0.5 * cn2[2])
-		main.on_trigger_down(cb, {"trigger": true})
-		main.tip_up(cb)
-	cb.o = Vector3(14, 0, 14)
-	main.on_trigger_down(cb, {"trigger": true})
-	main.tip_grip(cb)
-	check("A single face is an open surface (no volume)", main.shapes[-1].outline.vfrac < 0.0 and main.shape_volume(main.shapes[-1]) == 0.0)
+	# Trace / Box toggle in the objects menu sidebar: tap again to turn it off.
 	main.set_tool("select")
+	main.open_tray(main.ctrls[0])
+	main.run_side(main.ctrls[0], "side:trace")
+	check("Sidebar Trace turns Trace on", main.mode == "trace")
+	main.open_tray(main.ctrls[0])
+	check("...its button says Trace: ON", main.tray_side.item("side:trace").label == "Trace: ON")
+	main.run_side(main.ctrls[0], "side:trace")
+	check("...tap it again: Trace off, back to Rotate/Move", main.mode == "select" and main.tray_side.item("side:trace").label == "Trace: off")
+	main.run_side(main.ctrls[0], "side:box")
+	main.open_tray(main.ctrls[0])
+	main.run_side(main.ctrls[0], "side:box")
+	check("Box toggles off the same way", main.mode == "select")
+	main.close_tray()
 
 	# Custom objects: Save selected, pick it again, remove it.
 	main.select(trc)

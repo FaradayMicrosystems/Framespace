@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.22"
+const BUILD := "0.23"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -246,8 +246,7 @@ func load_palette() -> void:
 const MENU_TOOLS := [
 	"select", "scale", "edit", "playermove",
 	"tape", "circle", "rect", "height",
-	"angle", "path", "area", "freedraw",
-	"resetpos",
+	"angle", "path", "area", "resetpos",
 ]
 const MENU_SETTINGS := [
 	"units", "grid", "roomvis", "scan",
@@ -255,8 +254,8 @@ const MENU_SETTINGS := [
 	"turnl5", "turnl1", "turnr1", "turnr5",
 	"accuracy", "roominfo", "fitcheck", "quit",
 ]
-const MODE_TOOLS := ["select", "scale", "edit", "playermove", "freedraw", "trace", "boxmake"]
-const TIP_MODES := ["trace", "boxmake", "freedraw"]   # draw with the tip of the controller
+const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake"]
+const TIP_MODES := ["trace", "boxmake"]   # draw with the tip of the controller
 const TIP_SNAP := 0.03          # tip points join an earlier point within 3 cm (closes loops, shares corners)
 const FREEHAND_STEP := 0.03     # holding trigger while drawing drops a point every 3 cm
 # Accuracy test references: things with a known true size. True sizes in mm.
@@ -272,7 +271,7 @@ const FIT_EVERY := 0.2          # seconds between fit checks
 const C_RED := Color("ff4d4d")
 const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area", "acctest"]
 const EDIT_TOOLS := ["scale", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin"]
-const MODE_NAMES := {"select": "Rotate/Move", "edit": "Edit", "playermove": "Player move", "freedraw": "Free draw",
+const MODE_NAMES := {"select": "Rotate/Move", "edit": "Edit", "playermove": "Player move",
 	"trace": "Trace", "boxmake": "Box", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
 	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
@@ -283,6 +282,8 @@ const PUSH_SPEED := 1.5         # m/s at full stick forward/back while holding
 const SNAP_TOUCH := 0.03        # carried shape snaps onto a surface when its bottom is within 3 cm
 const TAP_SEC := 0.25           # a trigger tap shorter than this (and not moved) only selects
 const HOLD_SEC := 0.3           # face button held this long = quick-pick (release picks + closes); shorter = palette
+const PLAYER_TURN_SPEED := 60.0  # Player move: degrees/s at full right stick left/right
+const PLAYER_LIFT_SPEED := 0.75  # Player move: m/s up/down at full right stick
 const MENU_AHEAD := 0.2         # face-button menus pop up 20 cm in front of the controller
 
 
@@ -377,7 +378,7 @@ var tray_side: Node3D          # sidebar beside the objects menu: Trace, Box, Cu
 var tray_page := "all"         # all (objects.csv) | custom (your saved objects)
 var custom_objs: Array = []    # [{label, type, dims, outline}] saved to user://custom_objects.json
 var custom_remove := false     # Custom page: picking an object deletes it
-var draft := {}                # Trace / Box / Free draw in progress
+var draft := {}                # Trace / Box in progress
 var make_prev: MeshInstance3D  # their live preview (content-local lines)
 var make_lbl: Node3D
 var tip_ctrl: Ctrl = null      # controller drawing with its tip
@@ -386,6 +387,7 @@ var menu_anchor := Vector3.ZERO
 var ctx_attach: Ctrl = null    # hand whose X / A button opened the clipboard menu
 var tray_attach: Ctrl = null   # hand whose Y / B button opened the objects menu
 var ctx_hold: Ctrl = null      # hand still holding X / A: releasing picks what it points at and closes
+var tray_follow := false       # tapped open: the objects menu rides on that wrist like a palette
 var tray_hold: Ctrl = null     # hand still holding Y / B: same, for the objects menu
 var menu_dirty := true
 var selftest := false
@@ -1448,7 +1450,6 @@ func button_text(id: String) -> String:
 		"select": return "Rotate/Move"
 		"edit": return "Edit"
 		"playermove": return "Player move"
-		"freedraw": return "Free draw"
 		"resetpos": return "Reset position"
 		"units": return "Units: cm" if units == "metric" else "Units: in"
 		"copy": return "Copy"
@@ -1509,7 +1510,7 @@ func menu_items() -> Array:
 		]
 	for id in (MENU_TOOLS if menu_kind == "tools" else MENU_SETTINGS):
 		var col := Color.WHITE
-		if id in MEASURE_TOOLS or id == "freedraw":
+		if id in MEASURE_TOOLS:
 			col = C_YELLOW
 		elif id in ["quit", "delete", "clear"]:
 			col = Color("ff6b6b")
@@ -1599,6 +1600,7 @@ func _ahead_of(c: Ctrl) -> Vector3:
 func open_tray(c: Ctrl) -> void:
 	_build_tray()
 	tray_attach = c
+	tray_follow = false
 	tray.open_at(_ahead_of(c), camera.global_position)
 	tray_side.is_open = true
 	tray_side.visible = true
@@ -1619,8 +1621,8 @@ func _build_tray() -> void:
 
 func side_items() -> Array:
 	var out := [
-		{"id": "side:trace", "label": "Trace", "sub": "outline + height", "color": C_YELLOW, "active": mode == "trace"},
-		{"id": "side:box", "label": "Box", "sub": "corner to corner", "color": C_YELLOW, "active": mode == "boxmake"},
+		{"id": "side:trace", "label": "Trace: ON" if mode == "trace" else "Trace: off", "sub": "tap to turn off" if mode == "trace" else "outline + height", "color": C_YELLOW, "active": mode == "trace"},
+		{"id": "side:box", "label": "Box: ON" if mode == "boxmake" else "Box: off", "sub": "tap to turn off" if mode == "boxmake" else "corner to corner", "color": C_YELLOW, "active": mode == "boxmake"},
 		{"id": "side:custom", "label": "< All objects" if tray_page == "custom" else "Custom...", "sub": "%d saved" % custom_objs.size(), "active": tray_page == "custom"},
 		{"id": "side:save", "label": "Save selected", "sub": selected.name if selected else "select one first", "enabled": selected != null},
 	]
@@ -1647,6 +1649,26 @@ func _layout_tray_side() -> void:
 	tray_side.global_position = tray.global_position - right * (tray.size.x / 2.0 + 0.012 + tray_side.size.x / 2.0) + up * (tray.size.y - tray_side.size.y) / 2.0
 
 
+## Objects menu on the wrist: it sits just above the hand that opened it, out to that side,
+## turned to face you, and follows the hand. Look down, grab with the other hand.
+func layout_tray_wrist() -> void:
+	if not (tray.is_open and tray_follow and tray_attach != null):
+		return
+	var hand: Vector3 = tray_attach.node.global_position
+	var head := camera.global_position
+	var to_head := head - hand
+	to_head.y = 0
+	to_head = to_head.normalized() if to_head.length() > 0.01 else Vector3.BACK
+	var side := Vector3.UP.cross(to_head).normalized()      # your right, seen from the hand
+	var out := -1.0 if tray_attach.hand == "left" else 1.0
+	var off: Vector3 = side * out * (float(tray.size.x) / 2.0 - 0.05)
+	if out < 0.0:
+		off += side * out * (tray_side.size.x + 0.012)      # sidebar sits on the left: keep it clear of the hand
+	tray.global_position = hand + Vector3(0, 0.05 + tray.size.y / 2.0, 0) + off + to_head * 0.03
+	tray.face(head)
+	_layout_tray_side()
+
+
 ## Rebuild the objects menu where it is (page switch, new custom object...).
 func refresh_tray() -> void:
 	if not tray.is_open:
@@ -1655,14 +1677,20 @@ func refresh_tray() -> void:
 	_build_tray()
 	tray.global_transform = xf
 	_layout_tray_side()
+	layout_tray_wrist()
 
 
 func run_side(c: Ctrl, id: String) -> void:
 	match id:
 		"side:trace", "side:box":
-			set_tool("trace" if id == "side:trace" else "boxmake")
-			close_tray()
-			return
+			var want := "trace" if id == "side:trace" else "boxmake"
+			if mode == want:
+				set_tool("select", false)       # toggle off: back to Rotate/Move
+				set_status("%s off. Back to Rotate/Move." % MODE_NAMES[want])
+			else:
+				set_tool(want)
+				close_tray()
+				return
 		"side:custom":
 			tray_page = "all" if tray_page == "custom" else "custom"
 			custom_remove = false
@@ -1678,6 +1706,7 @@ func close_tray() -> void:
 	tray.close()
 	tray_side.close()
 	tray_attach = null
+	tray_follow = false
 	tray_hold = null
 
 
@@ -1902,11 +1931,10 @@ func set_tool(t: String, announce := true) -> void:
 	set_status({
 		"select": "Rotate/Move: trigger picks up (twist your wrist to turn it), grip slides. While holding: stick left/right turns, forward/back pushes/pulls.",
 		"scale": "Scale: trigger an object to select it, then drag its yellow cubes.",
-		"trace": "Trace: tip on a corner, trigger. Click each corner (or hold trigger and draw). Click the first point to close, then raise the tip and click for the height. Grip = undo last point.",
-		"boxmake": "Box: tip on one corner, hold trigger, pull to the opposite corner, let go. (Or click, move, click.) Grip cancels.",
-		"freedraw": "Free draw: click corners with the tip (or hold and draw); click the first one to close a face. Faces share corners within 3 cm. Grip: undo last point; grip with no open loop finishes the shape.",
+		"trace": "Trace: tip on a corner, trigger. Click each corner (or hold trigger and draw). Click the first point to close, then POINT the controller up or down to set the height and click. Grip = undo last point. Y / B > Trace again turns it off.",
+		"boxmake": "Box: tip on one corner, hold trigger, pull to the opposite corner, let go. (Or click, move, click.) Grip cancels. Y / B > Box again turns it off.",
 		"edit": "Edit: point at a face, hold trigger and pull. The face moves along its axis; the opposite face stays put.",
-		"playermove": "Player move: left stick slides you through the room, right stick turns you 15°. Tools > Reset position puts it back.",
+		"playermove": "Player move: left stick slides you through the room. Right stick: left/right turns you, up/down raises or lowers you (smooth). Tools > Reset position puts it back.",
 		"cut": "Cut: trigger on an object.",
 		"copy": "Copy: trigger on an object.",
 		"paste": ("Paste: trigger where you want %s." % clip.name) if clip else "Paste: clipboard is empty. Cut or Copy something first.",
@@ -2323,6 +2351,8 @@ func face_button(c: Ctrl, k: String, is_down: bool, is_up: bool, now: float) -> 
 				ctx_hold = null
 			else:
 				tray_hold = null
+				tray_follow = true       # palette mode: it rides on this wrist
+				layout_tray_wrist()
 			return
 		var on_pnl: bool = c.ui != null and (c.ui.panel == pnl or (k == "high" and c.ui.panel == tray_side))
 		var id: String = c.ui.id if on_pnl else ""
@@ -2655,7 +2685,7 @@ func stick_held(c: Ctrl, sx: float, sy: float, dt: float) -> void:
 			dr["push"] = float(dr.get("push", 0.0)) + push
 
 
-# ================================================================ drawing with the controller tip (Trace, Box, Free draw)
+# ================================================================ drawing with the controller tip (Trace, Box)
 func tip_point(c: Ctrl) -> Vector3:
 	var p := c.o
 	var sp = snap_point(p)
@@ -2681,23 +2711,17 @@ func tip_down(c: Ctrl) -> void:
 			if draft.is_empty():
 				draft = {"kind": "trace", "pts": [], "phase": "outline"}
 			if draft.phase == "height":
-				finish_trace(p.y)
+				finish_trace(trace_top_y(c))
 				return
 			var pts: Array = draft.pts
 			if pts.size() >= 3 and _flat(p).distance_to(_flat(pts[0])) < TIP_SNAP:
 				draft.phase = "height"
 				haptic(c, 0.6, 0.05)
-				set_status("Outline closed (%s). Raise or lower the tip and click for the height." % AREA(_poly_area_xz(pts)))
+				set_status("Outline closed (%s). Point up or down to set the height, then click." % AREA(_poly_area_xz(pts)))
 				return
 			if pts.size():
 				p.y = pts[0].y
 			pts.append(p)
-			c.stroke = true
-			c.stroke_t0 = now
-		"freedraw":
-			if draft.is_empty():
-				draft = {"kind": "free", "verts": [], "faces": [], "loop": []}
-			_free_add(c, p, true)
 			c.stroke = true
 			c.stroke_t0 = now
 
@@ -2716,18 +2740,11 @@ func tip_hold(c: Ctrl) -> void:
 				draft.phase = "height"
 				c.stroke = false
 				haptic(c, 0.6, 0.05)
-				set_status("Outline closed (%s). Raise or lower the tip and click for the height." % AREA(_poly_area_xz(pts)))
+				set_status("Outline closed (%s). Point up or down to set the height, then click." % AREA(_poly_area_xz(pts)))
 				return
 			if _flat(p).distance_to(_flat(pts[-1])) >= FREEHAND_STEP:
 				p.y = pts[0].y
 				pts.append(p)
-		"freedraw":
-			var loop: Array = draft.loop
-			if loop.is_empty():
-				return
-			var last: Vector3 = draft.verts[loop[-1]]
-			if p.distance_to(last) >= FREEHAND_STEP:
-				_free_add(c, p, false)
 
 
 func tip_up(c: Ctrl) -> void:
@@ -2742,7 +2759,7 @@ func tip_up(c: Ctrl) -> void:
 			finish_box(p)
 
 
-## Grip while drawing: undo the last point (Free draw: grip with no open loop finishes the shape).
+## Grip while drawing: undo the last point (Box: cancel).
 func tip_grip(c: Ctrl) -> void:
 	haptic(c, 0.3, 0.03)
 	match mode:
@@ -2760,14 +2777,6 @@ func tip_grip(c: Ctrl) -> void:
 				draft.pts.pop_back()
 				if draft.pts.is_empty():
 					draft = {}
-		"freedraw":
-			if draft.is_empty():
-				return
-			if draft.loop.size():
-				var i: int = draft.loop.pop_back()
-				_free_drop_vert(i)
-			elif draft.faces.size():
-				finish_free()
 
 
 func _flat(p: Vector3) -> Vector2:
@@ -2809,6 +2818,32 @@ func finish_box(b: Vector3) -> void:
 	_add_made(s, "Next box: same again.")
 
 
+## Trace height: where the controller's ray crosses the vertical line above the outline's middle.
+## Point up to raise it (any height, no reaching), down to lower it. Falls back to the tip height.
+func trace_top_y(c: Ctrl) -> float:
+	var pts: Array = draft.get("pts", [])
+	if pts.is_empty():
+		return c.o.y
+	var by: float = pts[0].y
+	var cen := Vector2.ZERO
+	for q: Vector3 in pts:
+		cen += _flat(q)
+	cen /= pts.size()
+	var to_c := Vector2(c.o.x, c.o.z) - cen
+	var y := c.o.y
+	var dh := Vector2(c.d.x, c.d.z)
+	if to_c.length() > 0.05 and dh.length() > 0.05:
+		# Distance along the ray to the vertical plane through the middle, facing the controller.
+		var n := to_c.normalized()
+		var denom := -dh.dot(n)
+		if denom > 0.02:
+			var t: float = to_c.length() / denom
+			y = c.o.y + c.d.y * t
+	elif dh.length() <= 0.05:
+		y = by + 3.0 if c.d.y > 0 else by     # pointing straight up / down
+	return clampf(y, maxf(0.0, by - 5.0), by + 6.0)
+
+
 func finish_trace(top_y: float) -> void:
 	var pts: Array = draft.pts
 	draft = {}
@@ -2822,7 +2857,7 @@ func finish_trace(top_y: float) -> void:
 		return
 	var base_y: float = clean[0].y
 	var y0 := minf(base_y, top_y)
-	var h := maxf(MIN_SIZE, absf(top_y - base_y))
+	var h := maxf(MIN_SIZE, roundf(absf(top_y - base_y) * 1000.0) / 1000.0)   # whole mm
 	var mn := Vector2(INF, INF)
 	var mx := Vector2(-INF, -INF)
 	for p: Vector3 in clean:
@@ -2842,87 +2877,6 @@ func finish_trace(top_y: float) -> void:
 	var o := {"poly": poly, "hull": hull, "vfrac": _poly_area_xz(clean) / (w * dd)}
 	var s := make_shape("box", {"x": w, "y": h, "z": dd}, Vector3(cen.x, y0 + h / 2.0, cen.y), Quaternion.IDENTITY, _next_name("Trace"), o)
 	_add_made(s, "Y / B > Save selected keeps it as a Custom object.")
-
-
-## Free draw: add a vertex (reusing one within TIP_SNAP) to the open loop; closing the loop makes a face.
-func _free_add(c: Ctrl, p: Vector3, allow_close: bool) -> void:
-	var verts: Array = draft.verts
-	var loop: Array = draft.loop
-	var idx := -1
-	for i in verts.size():
-		if (verts[i] as Vector3).distance_to(p) < TIP_SNAP:
-			idx = i
-			break
-	if loop.size() >= 3 and idx == loop[0]:
-		draft.faces.append(loop.duplicate())
-		draft.loop = []
-		c.stroke = false
-		haptic(c, 0.6, 0.05)
-		set_status("Face %d closed. Start the next face on a shared corner, or grip to finish." % draft.faces.size())
-		return
-	if not allow_close and idx >= 0 and idx in loop:
-		return
-	if loop.size() and idx == loop[-1]:
-		return
-	if idx < 0:
-		verts.append(p)
-		idx = verts.size() - 1
-	loop.append(idx)
-
-
-## Remove vertex i if no face or the open loop uses it any more (and renumber).
-func _free_drop_vert(i: int) -> void:
-	for f in draft.faces:
-		if i in f:
-			return
-	if i in draft.loop:
-		return
-	draft.verts.remove_at(i)
-	for f in draft.faces:
-		for k in f.size():
-			if f[k] > i:
-				f[k] -= 1
-	for k in draft.loop.size():
-		if draft.loop[k] > i:
-			draft.loop[k] -= 1
-
-
-func finish_free() -> void:
-	var verts: Array = draft.verts
-	var faces: Array = draft.faces
-	draft = {}
-	# Only the corners the faces use.
-	var used := {}
-	for f in faces:
-		for i in f:
-			used[i] = true
-	var remap := {}
-	var pts := []
-	for i in verts.size():
-		if used.has(i):
-			remap[i] = pts.size()
-			pts.append(verts[i])
-	var fs := []
-	for f in faces:
-		var nf := []
-		for i in f:
-			nf.append(remap[i])
-		fs.append(nf)
-	var mn := Vector3(INF, INF, INF)
-	var mx := -mn
-	for p: Vector3 in pts:
-		mn = mn.min(p)
-		mx = mx.max(p)
-	var size := (mx - mn).max(Vector3.ONE * MIN_SIZE)
-	var cen := (mn + mx) / 2.0
-	var nv := []
-	for p: Vector3 in pts:
-		var q: Vector3 = (p - cen) / size
-		nv.append([q.x, q.y, q.z])
-	var vol := mesh_volume(nv, fs)        # normalised: fraction of the box, or -1 if not closed
-	var o := {"mesh": {"v": nv, "f": fs}, "hull": nv, "vfrac": vol}
-	var s := make_shape("box", {"x": size.x, "y": size.y, "z": size.z}, cen, Quaternion.IDENTITY, _next_name("Drawn"), o)
-	_add_made(s, ("%d faces, closed." % fs.size()) if vol >= 0.0 else ("%d faces, open (no volume)." % fs.size()))
 
 
 ## Volume of a closed polygon mesh (faces oriented consistently first), or -1 if it isn't closed.
@@ -3012,24 +2966,14 @@ func update_make_preview() -> void:
 					lines = ["Trace", "Click to close" if closing else "%d corners · %s" % [pts.size(), L(_flat(q).distance_to(_flat(pts[-1])))]]
 			else:
 				var by: float = pts[0].y
+				p.y = trace_top_y(c)
 				for i in pts.size():
 					var a2: Vector3 = pts[i]
 					var b2: Vector3 = pts[(i + 1) % pts.size()]
 					for y in [by, p.y]:
 						v.append_array([Vector3(a2.x, y, a2.z), Vector3(b2.x, y, b2.z)])
 					v.append_array([Vector3(a2.x, by, a2.z), Vector3(a2.x, p.y, a2.z)])
-				lines = ["Trace", "H %s · Vol %s" % [L(absf(p.y - by)), VOL(_poly_area_xz(pts) * absf(p.y - by))]]
-		"free":
-			var verts: Array = draft.verts
-			for f in draft.faces:
-				for k in f.size():
-					v.append_array([verts[f[k]], verts[f[(k + 1) % f.size()]]])
-			var loop: Array = draft.loop
-			for k in range(loop.size() - 1):
-				v.append_array([verts[loop[k]], verts[loop[k + 1]]])
-			if loop.size():
-				v.append_array([verts[loop[-1]], p])
-			lines = ["Free draw", "%d faces%s" % [draft.faces.size(), (" · %d-point loop" % loop.size()) if loop.size() else " · grip to finish" if draft.faces.size() else ""]]
+				lines = ["Trace: point up/down for height, trigger to set", "H %s · Vol %s" % [L(absf(p.y - by)), VOL(_poly_area_xz(pts) * absf(p.y - by))]]
 	if v.is_empty():
 		make_prev.visible = false
 	else:
@@ -3096,13 +3040,15 @@ func player_move(c: Ctrl, b: Dictionary, dt: float) -> void:
 			var move := (fwd * v.y + right * v.x) * PUSH_SPEED * dt
 			content.global_position -= move
 	else:
-		if absf(sx) < 0.3:
-			c.turn_latch = false
-		if not c.turn_latch and absf(sx) > 0.7:
-			c.turn_latch = true
+		# Right stick: left/right turns you smoothly, up/down raises / lowers you smoothly. No snapping.
+		var tx := _stick_curve(sx)
+		var ty := _stick_curve(sy)
+		if tx != 0.0 or ty != 0.0:
 			_remember_home()
-			turn_player(15.0 if sx > 0 else -15.0)
-			haptic(c, 0.2, 0.02)
+		if tx != 0.0:
+			turn_player(tx * PLAYER_TURN_SPEED * dt)
+		if ty != 0.0:
+			content.global_position.y -= ty * PLAYER_LIFT_SPEED * dt   # stick up = you go up (the room goes down)
 
 
 func _remember_home() -> void:
@@ -3340,6 +3286,7 @@ func _process(delta: float) -> void:
 	update_falling()
 	update_preview()
 	update_fit(delta)
+	layout_tray_wrist()
 	if menu.is_open:
 		if menu_dirty:
 			rebuild_menu()

@@ -131,3 +131,11 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Decisions: Free draw kept alongside Trace (Trace = upright extrusions; Free draw = any faceted shape, e.g. ramps). Player move turns in 15° snaps (comfort in passthrough). Rotate/Move, Scale, Edit and Player move sit together in the Tools menu. Traced / drawn shapes keep their real volume (an L-shaped trace isn't counted as its box) and use their convex shape for pointing and stacking. Object categories deferred at Aurora's request.
 - Tests: native self-test 161/161 (was 125), run locally on Godot 4.6.2; new checks cover tap vs hold menus, Tools / Settings menus, Player move, Edit, Box, Trace (L-shape volume), Free draw (closed cube = 0.125 m³), Custom objects, and stacking dryer on washer, shelves on a spacer, a pallet into the Pantech.
 - AI involvement: Claude designed and built all of the above in one session, about 2.5 hours from "go".
+
+## 2026-11-22 (Brisbane): v0.23, wrist objects menu, Trace/Box toggle, Trace height, smooth Player move, kitchen
+
+- Aurora asked for: Free draw removed; Trace height fixed (not nearly enough travel); a way to switch Trace/Box off; the objects menu as a toggle on her wrist; Player move right stick = smooth turn + smooth up/down; AU pallet loaded, Person, Wheelchair turn, Office desk and Car (sedan) removed; IBC and 205 L drum made realistic; more kitchen pieces.
+- Decisions: Trace height now comes from where the controller's ray crosses the vertical above the outline's middle, so the height isn't limited by arm reach. Trace/Box sidebar buttons toggle (ON/off). Objects menu: a tap puts it on that wrist and it follows; hold still quick-picks in front of the controller (pointing at a wrist menu with the same hand isn't possible). Kitchen pieces sized to the 600 deep / 900 high bench line; the wall cabinet is hollow below so it overlaps a bench.
+- Added mid-build: 1 m / 1.5 m shelf spacers (50 cm removed), 22RU rack (42/48 removed), industrial garage shelving, and a 1.75 m anthro snow leopard wireframe replacing the Person cylinder.
+- Tests: native self-test 181/181 (was 161), run locally on Godot 4.6.2.
+- AI involvement: Claude built and tested all of it in one session.

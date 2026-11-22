@@ -1,21 +1,16 @@
-# Framespace v0.22 (Quest 3 APK)
+# Framespace v0.23 (Quest 3 APK)
 
-**Install:** download `framespace.apk` below and sideload it (see [native/README.md](https://github.com/FaradayMicrosystems/Framespace/blob/main/native/README.md)). It installs over v0.21a and keeps your saved rooms.
+**Install:** download `framespace.apk` below and sideload it (see [native/README.md](https://github.com/FaradayMicrosystems/Framespace/blob/main/native/README.md)). It installs over v0.22 and keeps your saved rooms.
 
-## New controls
-- **X / A = clipboard menu, Y / B = objects menu** (swapped).
-- **Tap** a face button: the menu pops up 20 cm in front of that controller and stays put like a palette. Picking doesn't close it. Tap again to close.
-- **Hold** a face button: quick-pick. Point with the same hand and let go of the button to pick; the menu closes.
-- **Stick click = Tools menu:** Rotate/Move, Scale, **Edit**, **Player move**, Tape, Circle 3-pt, Rect 3-pt, Height, Angle 3-pt, Path, Area, **Free draw**, **Reset position**.
-- **Left ≡ button = Settings menu:** units, grid, room, save/rooms, export, clear, Turn room, Accuracy test, Room info, Fit check, quit.
+## Changed
+- **Objects menu on your wrist:** tap Y / B and the menu rides on that wrist like a palette, facing you. Look down, grab with the other hand. Tap again to close. (Hold-to-quick-pick still works as before.)
+- **Trace and Box are toggles:** the sidebar button shows **ON** while active; tap it again to switch it off (back to Rotate/Move).
+- **Trace height fixed:** after closing the outline, *point* the controller up or down to set the height. The ray sets it, so tall things don't need you to reach up there. Height rounds to whole mm.
+- **Player move:** right stick left/right = smooth turn, up/down = smooth raise/lower. No snapping. Left stick still slides you.
+- **Free draw removed** from the Tools menu.
 
-## New tools
-- **Edit:** point at a face, hold trigger and pull it along its axis. The opposite face stays put.
-- **Player move:** left stick slides you through the wireframe, right stick turns 15°. Reset position puts the room back.
-- **Box** (objects sidebar): tip on one corner, pull to the opposite corner.
-- **Trace** (objects sidebar): click or draw an outline with the controller tip, close it, set the height. You get a solid with the real outline and volume.
-- **Free draw** (Tools menu): draw faces with the tip; shared corners join them into a 3D shape.
-- **Custom objects** (objects sidebar): Save selected, then place copies from Custom...
-
-## New objects (48 total)
-Large and small cartons, a walk-in 10ft container, tandem box trailer, 4.5 t Pantech, king and single beds, 2-door wardrobe, 600 kitchen bench, dryer (stacks on the washer), floating shelves 5/10/15/20/25/30 cm with a 50 cm spacer, and 18/24/42/48 RU server racks (600 × 1200, on castors).
+## Objects (53 total)
+- **Removed:** AU pallet loaded, the Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42 RU and 48 RU racks, 50 cm shelf spacer.
+- **New:** Snow leopard 1.75 m (anthro wireframe, person-sized reference), Garage shelving 1800 (industrial steel, 5 decks you can put things on), Rack 22RU 1200D (between the 18 and 24), Shelf spacer 1 m and 1.5 m.
+- **Rebuilt:** IBC 1000 L (steel cage, pallet base with forklift entries, HDPE tank, top cap, front valve) and 205 L drum (round wireframe with rims, chimes and two rolling hoops, lid bungs).
+- **New kitchen (fits the 600 / 900 bench line):** Kitchen sink bench 900, Kitchen oven bench 600 (cooktop on top), Dishwasher 600, Kitchen corner 900 (L-shape), Pantry 600 (2100 tall), Wall cabinet 600 (hangs at 1450–2170, hollow below so it slides over a bench), Island bench 1800, Bar stool.
