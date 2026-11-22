@@ -5,7 +5,7 @@ Built with Godot 4.6.2 and Meta's official OpenXR plugin (GodotOpenXRVendors 5.0
 
 ## Get the APK
 
-- **Latest release (v0.21a):** [Releases > latest](https://github.com/FaradayMicrosystems/Framespace/releases/latest), file `framespace.apk`. Direct link: https://github.com/FaradayMicrosystems/Framespace/releases/latest/download/framespace.apk
+- **Latest release (v0.22):** [Releases > latest](https://github.com/FaradayMicrosystems/Framespace/releases/latest), file `framespace.apk`. Direct link: https://github.com/FaradayMicrosystems/Framespace/releases/latest/download/framespace.apk
 - **Newest build from `main` (may be ahead of the release):** [Releases > native-latest](https://github.com/FaradayMicrosystems/Framespace/releases/tag/native-latest), file `framespace.apk`.
 - **Any branch or PR:** Actions > "Native Quest APK" > pick a run > Artifacts > `framespace-quest-apk` (a zip that holds the APK).
 
@@ -28,24 +28,36 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 
 | Do this | Get this |
 |---|---|
-| **Click a thumbstick** | Main menu, stuck to that hand: tools and settings. Point and trigger with the other hand. Click again to close |
-| **Click both thumbsticks** | Main menu, fixed in front of you |
-| **X** or **A** | Objects menu, stuck to that hand (press to open / close) from [`objects.csv`](../objects.csv): pallets, walk-in 20ft / 40ft containers, IBC, forklift, pallet jack, motorcycle, vans, furniture and more. Trigger or grip one with the other hand and it's in your hand |
-| **Y** or **B** pointing at a shape | Clipboard menu, stuck to that hand (press to open / close): Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Bigger 5%** / **Smaller 5%** / **Reset size** / **Undo** |
-| **Y** or **B** pointing at empty space | Paste (where you pointed) / Next clip / **Undo** |
-| **Rotate/Move:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** (floor, table, another object's top) and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
+| **Click a thumbstick** | **Tools** menu, stuck to that hand: Rotate/Move, Scale, Edit, Player move, the measuring tools, Free draw and Reset position. Point and trigger with the other hand. Click again to close |
+| **Click both thumbsticks** | Tools menu, fixed in front of you |
+| **Left ≡ button** | **Settings** menu, stuck to the left hand: units, grid, room lines, scan, save, Rooms..., export, clear, Turn room, Accuracy test, Room info, Fit check, quit |
+| **X** or **A** | **Clipboard** menu. Pointing at a shape: Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Bigger 5%** / **Smaller 5%** / **Reset size** / **Undo**. On empty space: Paste (where you pointed) / Next clip / Undo |
+| **Y** or **B** | **Objects** menu from [`objects.csv`](../objects.csv), with a sidebar: **Trace**, **Box**, **Custom...**, **Save selected** |
+| **Tap** X / A / Y / B | The menu pops up 20 cm in front of that controller and **stays put**, like a painter's palette. Picking from it doesn't close it (the clipboard menu follows whatever you select). Tap the same button again to close it |
+| **Hold** X / A / Y / B | Quick-pick: the same menu pops up; point at an item **with the same hand** and **let go of the button** to pick it. The menu closes. An object you quick-pick hangs on your pointer: click the trigger to put it down |
+| **Rotate/Move:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
 | **Rotate/Move:** quick trigger **tap** on an object | Select it (nothing moves) |
 | **Grip** on an object | Slide it on the grid, staying on its floor (steps up onto floors up to 30 cm high, e.g. into a container) |
 | **Grip + trigger** | Lift it off the floor (same as a trigger carry) |
 | Stick **left / right** while holding | Turn it smoothly (gentle near the centre, fast at full tilt) |
 | Stick **forward / back** while holding | Push it away / pull it in, continuously |
-| **Scale** tool (main menu) | Trigger an object, then trigger-drag its yellow / orange cubes to resize one side / the radius |
+| **Scale** tool | Trigger an object, then trigger-drag its yellow / orange cubes to resize one side / the radius |
+| **Edit** tool | Point at a face (it outlines in yellow), hold trigger and **pull**: that face moves along its axis, the opposite face stays put (1 mm steps). Round shapes: top/bottom = height, sides = radius |
+| **Player move** tool | **Left stick** slides you through the wireframe, **right stick** turns you 15° per flick (the room moves, your real office doesn't). Grabbing still works. Tools > **Reset position** puts the room back where it really is |
 
-**Walk-in loading:** the 20ft / 40ft containers and the V7E open cargo are hollow. Pin one, walk in, and drop or slide pallets onto its floor. Things dropped from above land on the roof.
+**Drawing with the controller tip** (a yellow dot shows the tip; points snap to corners within 2.5 cm):
+- **Box** (objects sidebar): put the tip on one corner, hold trigger, pull to the opposite corner, let go. Or click, move, click. Grip cancels.
+- **Trace** (objects sidebar): click each corner of the outline (or hold trigger and draw freehand), click the first corner again to close it, then raise or lower the tip and click for the height. You get a solid shape with the traced outline; its volume is the real shape's, not its box. Grip undoes the last point.
+- **Free draw** (Tools menu): click corners (or hold and draw) and click a loop's first corner to close it into a face. Corners within 3 cm are shared, so faces join up. Grip undoes the last point; grip with no open loop finishes the shape. A closed shape gets its real volume; an open one is a surface.
 
-**Measuring tools** (main menu, yellow): **Tape**, **Circle 3-pt** (radius/diameter), **Rect 3-pt** (two corners + the far edge: W × D, area, perimeter), **Height** (point to floor), **Angle 3-pt** (arm, corner, arm), **Path** (multi-leg total; tap the last point again to finish), **Area** (tap an outline, tap the first point to close: area + perimeter). Points snap to corners and existing points.
+**Custom objects:** select any object (a trace, a box, a resized pallet...), open the objects menu (Y / B) and press **Save selected**. **Custom...** shows your saved objects; pick one to place a copy. **Remove: on** deletes them. They're kept on the headset between sessions.
 
-The main menu also has units, grid, room lines, room scan, save, **Rooms...** (load, new, delete, place here), export, clear, quit, **Turn room** (5° or 1°, left or right), **Accuracy test**, **Room info** and **Fit check**.
+**Walk-in loading:** the 10ft / 20ft / 40ft containers, the V7E open cargo, the F3E tray, the tandem trailer and the 4.5 t Pantech are hollow. Pin one, walk in, and drop or slide pallets onto its floor. Things dropped from above land on the roof.
+
+**Shelving:** **Shelf 5 … 30 cm** are 900 × 250 floating boards (25 mm) at the top of a gap that tall, so stacking them puts boards that far apart. **Shelf spacer 50 cm** is a flat panel 50 cm up. Stack spacer + shelves to build a wall of shelves; things stand on the boards.
+
+**Measuring tools** (Tools menu, yellow): **Tape**, **Circle 3-pt** (radius/diameter), **Rect 3-pt** (two corners + the far edge: W × D, area, perimeter), **Height** (point to floor), **Angle 3-pt** (arm, corner, arm), **Path** (multi-leg total; tap the last point again to finish), **Area** (tap an outline, tap the first point to close: area + perimeter). Points snap to corners and existing points.
+
 There is no "Exit AR" button: a native app has no separate AR mode, so **Quit app** is how you leave.
 
 ## Accuracy test
