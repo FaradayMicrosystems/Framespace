@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.26"
+const BUILD := "0.27"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -252,7 +252,8 @@ const MENU_SETTINGS := [
 	"units", "grid", "roomvis", "scan",
 	"save", "rooms", "export", "clear",
 	"turnl5", "turnl1", "turnr1", "turnr5",
-	"accuracy", "roominfo", "fitcheck", "quit",
+	"accuracy", "roominfo", "fitcheck", "occlude",
+	"quit",
 ]
 const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake"]
 const TIP_MODES := ["trace", "boxmake"]   # draw with the tip of the controller
@@ -308,6 +309,8 @@ class Shape:
 	var pinned := false
 	var orig_dims: Dictionary = {}   # size it was created with (Reset size)
 	var fit_hits: Array = []         # names of walls / furniture / shapes it overlaps (Fit check)
+	var occ: MeshInstance3D          # invisible depth-only body: hides wireframe lines behind it (Occlusion)
+	var occ_key := ""
 
 
 class Measure:
@@ -393,6 +396,7 @@ var tray_hold: Ctrl = null     # hand still holding Y / B: same, for the objects
 var menu_dirty := true
 var selftest := false
 
+var occlusion := true          # wireframes hide the lines behind other objects
 var fit_check := true          # shapes overlapping walls, furniture or each other turn red
 var fit_timer := 0.0
 var fit_ignore: Array[RID] = []   # floor + whole-room mesh: never count as "doesn't fit"
@@ -506,6 +510,7 @@ func _circle_pts(pts: PackedVector3Array, fn: Callable, n := 48) -> void:
 
 
 func _build_assets() -> void:
+	_make_occ_mat()
 	# Unit wireframes (scaled per shape) ------------------------------------------------
 	var b := PackedVector3Array()
 	for a in [-0.5, 0.5]:
@@ -832,7 +837,14 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	else:
 		s.wire.mesh = unit_wire[type]
 	s.wire_mat = _unlit(s.color)
+	# Drawn after the occluders (transparent pass, higher priority) so lines behind any object are hidden.
+	s.wire_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	s.wire_mat.render_priority = 10
 	s.wire.material_override = s.wire_mat
+	s.occ = MeshInstance3D.new()
+	s.occ.material_override = occ_mat
+	s.occ.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	s.occ.visible = occlusion
 	s.fill = MeshInstance3D.new()
 	s.fill.mesh = unit_fill[type]
 	s.fill_mat = _unlit(Color(s.color, 0.06), false, true)
@@ -846,6 +858,7 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	s.col = CollisionShape3D.new()
 	s.body.add_child(s.col)
 	s.label = make_label(s.color, 4)   # 4th line: Fit check warning
+	s.node.add_child(s.occ)
 	s.node.add_child(s.wire)
 	s.node.add_child(s.fill)
 	s.node.add_child(s.body)
@@ -856,8 +869,90 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	return s
 
 
+# ---------------------------------------------------------------- occlusion (hidden-line wireframes)
+const OCC_INSET := 0.004        # occluders sit 4 mm inside the lines so the object's own lines stay visible
+var occ_mat: ShaderMaterial
+
+
+func _make_occ_mat() -> void:
+	var sh := Shader.new()
+	# Writes depth only: fully transparent, drawn before the wireframes (lower priority).
+	sh.code = "shader_type spatial;\nrender_mode unshaded, blend_mix, depth_draw_always, cull_disabled, shadows_disabled;\nvoid fragment() { ALBEDO = vec3(0.0); ALPHA = 0.0; }\n"
+	occ_mat = ShaderMaterial.new()
+	occ_mat.shader = sh
+	occ_mat.render_priority = -10
+
+
+static func _occ_box(st: SurfaceTool, c: Vector3, h: Vector3) -> void:
+	var p := [c + Vector3(-h.x, -h.y, -h.z), c + Vector3(h.x, -h.y, -h.z), c + Vector3(h.x, h.y, -h.z), c + Vector3(-h.x, h.y, -h.z),
+		c + Vector3(-h.x, -h.y, h.z), c + Vector3(h.x, -h.y, h.z), c + Vector3(h.x, h.y, h.z), c + Vector3(-h.x, h.y, h.z)]
+	for q in [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]]:
+		for t in [0, 1, 2, 0, 2, 3]:
+			st.add_vertex(p[q[t]])
+
+
+## A 2D polygon (any winding) extruded between a0 and a1 along one axis. to3: (Vector2, float) -> Vector3.
+static func _occ_prism(st: SurfaceTool, poly: PackedVector2Array, a0: float, a1: float, to3: Callable) -> void:
+	var tri := Geometry2D.triangulate_polygon(poly)
+	if tri.is_empty():
+		return
+	for a in [a0, a1]:
+		for i in tri:
+			st.add_vertex(to3.call(poly[i], a))
+	var n := poly.size()
+	for i in n:
+		var p0 := poly[i]
+		var p1 := poly[(i + 1) % n]
+		for v in [[p0, a0], [p1, a0], [p1, a1], [p0, a0], [p1, a1], [p0, a1]]:
+			st.add_vertex(to3.call(v[0], v[1]))
+
+
+## Solid bodies of the shape (world-scaled, shape-local) that hide lines behind them.
+func build_occ(s: Shape, sc: Vector3) -> void:
+	var key := "%s|%s" % [sc, s.outline.size()]
+	if key == s.occ_key:
+		return
+	s.occ_key = key
+	s.occ.scale = Vector3.ONE
+	if s.type != "box":
+		s.occ.mesh = unit_fill[s.type]
+		s.occ.scale = (sc - Vector3.ONE * OCC_INSET * 2.0).max(Vector3.ONE * 0.001)
+		return
+	var o := s.outline
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 0
+	var ins := Vector3.ONE * OCC_INSET
+	var pts: Array = o.get("pts", [])
+	if pts.size() >= 3:
+		var poly := PackedVector2Array()
+		for p in pts:
+			poly.append(Vector2(p[0] * sc.x, p[1] * sc.y))
+		var zw: float = maxf(0.001, sc.z / 2.0 - OCC_INSET)
+		_occ_prism(st, poly, -zw, zw, func(v: Vector2, a: float): return Vector3(v.x, v.y, a))
+		n += 1
+	for p in o.get("parts", []):
+		if p[0] == "b":
+			var h := (Vector3(p[4], p[5], p[6]) * sc - ins).max(Vector3.ONE * 0.0005)
+			_occ_box(st, Vector3(p[1], p[2], p[3]) * sc, h)
+			n += 1
+	var tp: Array = o.get("poly", [])
+	if tp.size() >= 3:
+		var poly2 := PackedVector2Array()
+		for p in tp:
+			poly2.append(Vector2(p[0] * sc.x, p[1] * sc.z))
+		var hy: float = maxf(0.001, sc.y / 2.0 - OCC_INSET)
+		_occ_prism(st, poly2, -hy, hy, func(v: Vector2, a: float): return Vector3(v.x, a, v.y))
+		n += 1
+	if n == 0 and pts.size() < 3 and o.get("mesh", {}).is_empty():
+		_occ_box(st, Vector3.ZERO, (sc / 2.0 - ins).max(Vector3.ONE * 0.0005))
+		n += 1
+	s.occ.mesh = st.commit() if n > 0 else null
+
+
 func refresh_shape(s: Shape) -> void:
 	var sc := scale_of(s.type, s.dims)
+	build_occ(s, sc)
 	s.wire.scale = sc
 	s.fill.scale = sc
 	match s.type:
@@ -1482,6 +1577,7 @@ func button_text(id: String) -> String:
 		"accuracy": return "Accuracy test..."
 		"roominfo": return "Room info..."
 		"fitcheck": return "Fit check: on" if fit_check else "Fit check: off"
+		"occlude": return "Occlusion: on" if occlusion else "Occlusion: off"
 		"accexport": return "Export results"
 		"accclear": return "Clear results"
 	return id
@@ -1741,6 +1837,12 @@ func on_button(id: String, c: Ctrl = null) -> void:
 		"roominfo":
 			menu_page = "roominfo"
 			set_status("From your Space Setup scan." if surfaces.size() else "No Space Setup yet: press Scan room.")
+		"occlude":
+			occlusion = not occlusion
+			for sh: Shape in shapes:
+				sh.occ.visible = occlusion
+			save_settings()
+			set_status("Occlusion on: you only see the wireframe lines that aren't behind something." if occlusion else "Occlusion off: see-through wireframes.")
 		"fitcheck":
 			set_fit_check(not fit_check)
 			set_status("Fit check on: objects that hit walls, furniture or each other turn red." if fit_check else "Fit check off.")
@@ -3802,12 +3904,13 @@ func load_settings() -> void:
 		if d is Dictionary:
 			room["id"] = d.get("current_room", "")
 			fit_check = bool(d.get("fit_check", true))
+			occlusion = bool(d.get("occlusion", true))
 
 
 func save_settings() -> void:
 	var f := FileAccess.open("user://settings.json", FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"current_room": room.get("id", ""), "fit_check": fit_check}))
+		f.store_string(JSON.stringify({"current_room": room.get("id", ""), "fit_check": fit_check, "occlusion": occlusion}))
 
 
 func list_rooms() -> Array:

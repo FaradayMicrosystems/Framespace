@@ -125,3 +125,5 @@ If Android blocks the Download folder, the files go to the app's own storage ins
 **Pinned objects are locked:** no moving, resizing, cut, copy, duplicate or delete (Clear all skips them) until you Unpin them from the X / A menu.
 
 **Stacks move together:** anything resting on an object (and on those) moves with it when you slide, lift or turn it. Pinned objects stay put.
+
+**Occlusion:** wireframe lines behind other objects are hidden (hidden-line wireframes). Settings (left ≡) > Occlusion turns it off for see-through wireframes.
