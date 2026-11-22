@@ -107,6 +107,39 @@ func run(m) -> void:
 	var pal_in = main.make_shape("box", {"x": 1.165, "y": 0.15, "z": 1.165}, Vector3(31.0, 2.5, 30))
 	main.settle(pal_in)
 	check("A pallet dropped into the H9E lands on its 1050 mm box floor", absf(pal_in.node.position.y - 1.125) < 0.003, str(pal_in.node.position))
+	# Stacks ride along: move the truck and the pallet inside goes with it; slide a pallet and its cartons go too.
+	var rc = main.ctrls[1]
+	rc.drag = null
+	rc.ui = null
+	rc.o = Vector3(30, 1.5, 33)
+	rc.d = (pts.node.position - rc.o).normalized()
+	main.start_free(rc, pts, true)
+	check("Picking up the truck takes what's inside it", rc.drag.riders.size() == 1 and rc.drag.riders[0][0] == pal_in)
+	var rel0: Vector3 = pal_in.node.position - pts.node.position
+	rc.o += Vector3(2.0, 0.0, 0.0)
+	main.update_free(rc, rc.drag)
+	check("...the pallet moves with the truck", (pal_in.node.position - pts.node.position).distance_to(rel0) < 0.001, str(pal_in.node.position - pts.node.position))
+	main.on_drag_release(rc)
+	check("...and is still on its floor after it's put down", absf(pal_in.node.position.y - (pts.node.position.y - pt.dims.y / 2.0 + 1.125)) < 0.005, str(pal_in.node.position))
+	main.undo()
+	check("Undo puts both back", absf(pal_in.node.position.x - 31.0) < 0.01, str(pal_in.node.position))
+	var bp = main.make_shape("box", {"x": 1.2, "y": 0.15, "z": 1.0}, Vector3(36, 0.075, 36))
+	var c1 = main.make_shape("box", {"x": 0.4, "y": 0.3, "z": 0.4}, Vector3(35.7, 0.3, 36))
+	var c2 = main.make_shape("box", {"x": 0.4, "y": 0.3, "z": 0.4}, Vector3(35.7, 0.6, 36))
+	var cfar = main.make_shape("box", {"x": 0.4, "y": 0.3, "z": 0.4}, Vector3(38, 0.15, 36))
+	check("Riders: two stacked cartons on the pallet, not the one on the floor beside it", main.riders_of(bp).size() == 2 and not (cfar in main.riders_of(bp)))
+	rc.o = Vector3(36, 1.0, 34)
+	rc.d = (bp.node.position - rc.o).normalized()
+	main.start_move(rc, bp)
+	rc.o += Vector3(1.0, 0.0, 0.5)
+	main.update_move(rc, rc.drag)
+	main.on_drag_release(rc)
+	check("Sliding the pallet slides the whole stack", absf(c2.node.position.x - bp.node.position.x + 0.3) < 0.06 and absf(c2.node.position.y - 0.6) < 0.005, "%s %s" % [bp.node.position, c2.node.position])
+	main.set_pinned(c1, true)
+	check("A pinned carton doesn't ride (it's locked)", not (c1 in main.riders_of(bp)))
+	main.set_pinned(c1, false)
+	for sx in [bp, c1, c2, cfar]:
+		main.remove_shape(sx)
 	for sx in [pts, pal_in]:
 		main.remove_shape(sx)
 		sx.node.queue_free()

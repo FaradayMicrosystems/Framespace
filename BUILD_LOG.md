@@ -152,3 +152,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Aurora asked for pinned objects to be fully locked (no copy, paste, delete or changes until unpinned), and for the stick-click Tools menu to pop up once and pick on trigger, like the objects menu.
 - Tests: native self-test 209/209 (was 202), run locally on Godot 4.6.2.
 - AI involvement: Claude built, tested, merged and released it in one session.
+
+## 2026-11-22 (Brisbane): v0.26, stacks ride along
+
+- Aurora asked that anything stacked on a moved object moves with it, rooted to what it sits on.
+- Decisions: riders are found by what rests on the object's real top surface (or a hollow object's floor), recursively; they keep their offset while carried, slid, turned, and while the base drops into place; pinned objects never ride; one undo restores the whole stack. Riders are ignored when finding what the carried object stands on (a container doesn't stand on its own cargo).
+- Tests: native self-test 216/216 (was 209), run locally on Godot 4.6.2.
+- AI involvement: Claude built, tested, merged and released it in one session.

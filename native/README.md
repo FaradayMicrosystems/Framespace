@@ -123,3 +123,5 @@ If Android blocks the Download folder, the files go to the app's own storage ins
 - Signing: `framespace-sideload.keystore` (password `framespace-sideload`) is committed on purpose. It's only for sideloading, and keeping it fixed lets updates install over the top. Make a private key before any store release.
 
 **Pinned objects are locked:** no moving, resizing, cut, copy, duplicate or delete (Clear all skips them) until you Unpin them from the X / A menu.
+
+**Stacks move together:** anything resting on an object (and on those) moves with it when you slide, lift or turn it. Pinned objects stay put.

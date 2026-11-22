@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.25"
+const BUILD := "0.26"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -1329,6 +1329,8 @@ func support_below(x: float, z: float, max_y: float, exclude: Shape) -> float:
 		ex.append(exclude.body.get_rid())
 	for f in falling:
 		ex.append(f.shape.body.get_rid())
+	for it in riding_now:
+		ex.append(it[0].body.get_rid())
 	for i in 6:
 		var q := PhysicsRayQueryParameters3D.create(from_w, from_w + Vector3.DOWN * 30.0, LAYER_ROOM | LAYER_SHAPE, ex)
 		var hit := space.intersect_ray(q)
@@ -1413,6 +1415,8 @@ func update_falling() -> void:
 		else:
 			f.shape.node.position.y = y
 			keep.append(f)
+		if f.has("riders"):
+			carry_riders(f.shape, f.riders)
 	falling = keep
 
 
@@ -2576,11 +2580,15 @@ func on_drag_release(c: Ctrl) -> void:
 		if dr.get("tap_ok", false) and now - dr.t0 < TAP_SEC and moved < 0.03:
 			# Just a tap: select, leave it exactly where it was.
 			apply_snapshot(s, dr.snap)
+			carry_riders(s, dr.get("riders", []))
 			if dr.undo_pushed and history.size():
 				history.pop_back()
 			set_status("Selected %s. Hold trigger to pick it up, grip to slide it." % s.name)
 		else:
+			riding_now = dr.get("riders", [])
 			settle(s)
+			riding_now = []
+			_ride_settle(s, dr)
 			set_status("%s placed" % s.name)
 		grid_patch.visible = false
 	elif dr.type == "two":
@@ -2589,11 +2597,76 @@ func on_drag_release(c: Ctrl) -> void:
 		set_status("%s size locked: %s" % [ts.name, dims_text(ts)])
 		haptic(c, 0.4, 0.04)
 	elif dr.type == "move":
+		riding_now = dr.get("riders", [])
 		settle(dr.shape, STEP_UP)
+		riding_now = []
+		_ride_settle(dr.shape, dr)
 		grid_patch.visible = false
 		set_status("%s placed" % dr.shape.name)
 	persist()
 	menu_dirty = true
+
+
+# ---------------------------------------------------------------- stacks ride along
+## Everything resting on s (and on those, and so on): cartons on a pallet, a pallet in a container.
+## Pinned objects never ride (they're locked where they are).
+var riding_now: Array = []     # riders of the shape being moved: ignored when looking for what it stands on
+
+
+func riders_of(s: Shape) -> Array:
+	var out := []
+	var todo := [s]
+	while todo.size():
+		var base: Shape = todo.pop_back()
+		for r: Shape in shapes:
+			if r == s or r in out or r.pinned:
+				continue
+			var b: float = r.node.position.y - half_height(r)
+			if b < base.node.position.y - half_height(base) + 0.005:
+				continue
+			var top = _shape_top_at(base, r.node.position.x, r.node.position.z, b + 0.03)
+			if top != null and absf(b - float(top)) < 0.03:
+				out.append(r)
+				todo.append(r)
+	return out
+
+
+func attach_riders(dr: Dictionary, s: Shape) -> void:
+	var inv := s.node.transform.affine_inverse()
+	var rs := []
+	for r: Shape in riders_of(s):
+		rs.append([r, inv * r.node.transform])
+		falling = falling.filter(func(f): return f.shape != r)
+	dr["riders"] = rs
+
+
+## After the base settles: riders follow it (also while it falls).
+func _ride_settle(s: Shape, dr: Dictionary) -> void:
+	var rs: Array = dr.get("riders", [])
+	if rs.is_empty():
+		return
+	carry_riders(s, rs)
+	for f in falling:
+		if f.shape == s:
+			f["riders"] = rs
+
+
+func carry_riders(s: Shape, rs: Array) -> void:
+	for it in rs:
+		var r: Shape = it[0]
+		if r in shapes:
+			r.node.transform = s.node.transform * it[1]
+			refresh_shape(r)
+
+
+## Undo for s plus everything riding on it.
+func _group_undo(s: Shape) -> Callable:
+	var sns := [[s, snapshot(s)]]
+	for r in riders_of(s):
+		sns.append([r, snapshot(r)])
+	return func():
+		for it in sns:
+			apply_snapshot(it[0], it[1])
 
 
 func _snap_undo(s: Shape) -> Callable:
@@ -2606,13 +2679,15 @@ func yaw_of_dir(d: Vector3) -> float:
 
 
 func start_move(c: Ctrl, s: Shape) -> void:
-	push_history(_snap_undo(s))
+	push_history(_group_undo(s))
 	falling = falling.filter(func(f): return f.shape != s)
 	c.drag = {"type": "move", "release": "grip", "shape": s, "c0": c.o, "yaw0": yaw_of_dir(c.d), "p0": s.node.position, "base_y": s.node.position.y}
+	attach_riders(c.drag, s)
 	set_status("Sliding %s" % s.name)
 
 
 func update_move(c: Ctrl, dr: Dictionary) -> void:
+	riding_now = dr.get("riders", [])
 	var qy := Quaternion(Vector3.UP, yaw_of_dir(c.d) - dr.yaw0)
 	var p: Vector3 = c.o + qy * (dr.p0 - dr.c0)
 	var flat := Vector3(c.d.x, 0, c.d.z)
@@ -2626,6 +2701,8 @@ func update_move(c: Ctrl, dr: Dictionary) -> void:
 	var y: float = support_below(x, z, dr.base_y - hh + STEP_UP, s) + hh
 	s.node.position = Vector3(x, y, z)
 	refresh_shape(s)
+	carry_riders(s, dr.get("riders", []))
+	riding_now = []
 	show_grid_patch(s.node.position.x, y - hh, s.node.position.z)
 
 
@@ -2638,13 +2715,14 @@ func _ctrl_local_quat(c: Ctrl) -> Quaternion:
 func start_free(c: Ctrl, s: Shape, push_undo: bool, grab_point = null) -> void:
 	var snap := snapshot(s)
 	if push_undo:
-		push_history(_snap_undo(s))
+		push_history(_group_undo(s))
 	falling = falling.filter(func(f): return f.shape != s)
 	var gp: Vector3 = grab_point if grab_point != null else s.node.position
 	var dist := maxf(0.05, (gp - c.o).dot(c.d))
 	c.drag = {"type": "free", "release": "trigger", "shape": s, "dist": dist, "off": s.node.position - (c.o + c.d * dist),
 		"yaw0": yaw_of_quat(s.node.quaternion), "q0": _ctrl_local_quat(c), "t0": Time.get_ticks_msec() / 1000.0,
 		"p_start": s.node.position, "snap": snap, "undo_pushed": push_undo, "tap_ok": push_undo, "snapped": false}
+	attach_riders(c.drag, s)
 	set_status("Carrying %s. Touch a surface to snap, twist to turn." % s.name)
 
 
@@ -2662,6 +2740,7 @@ func wrist_twist(c: Ctrl, q0: Quaternion) -> float:
 
 
 func update_free(c: Ctrl, dr: Dictionary) -> void:
+	riding_now = dr.get("riders", [])
 	var s: Shape = dr.shape
 	var p: Vector3 = c.o + c.d * dr.dist + dr.off
 	var yaw: float = dr.yaw0 + wrist_twist(c, dr.q0)
@@ -2678,6 +2757,8 @@ func update_free(c: Ctrl, dr: Dictionary) -> void:
 	s.node.position = p
 	s.node.quaternion = Quaternion(Vector3.UP, yaw)
 	refresh_shape(s)
+	carry_riders(s, dr.get("riders", []))
+	riding_now = []
 
 
 ## Second hand grabs (trigger) the object the other hand is carrying: pull the hands apart / together to
@@ -2768,6 +2849,7 @@ func stick_held(c: Ctrl, sx: float, sy: float, dt: float) -> void:
 		else:
 			s.node.quaternion = Quaternion(Vector3.UP, turn) * s.node.quaternion
 			refresh_shape(s)
+			carry_riders(s, dr.get("riders", []))
 	if push != 0.0:
 		if dr.type == "free":
 			dr.dist = clampf(dr.dist + push, 0.1, 15.0)
