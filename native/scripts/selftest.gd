@@ -348,11 +348,24 @@ func run(m) -> void:
 	cu.btn = nb.duplicate()
 	press.call("stick")
 	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, 7 measuring tools, Reset position; no Free draw)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 12 and main.menu.item("tape") != null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
+	check("...it pops up 70 cm in front of that controller", absf(main.menu.global_position.distance_to(cu.node.global_position) - 0.7) < 0.01, str(main.menu.global_position))
+	var mp0: Vector3 = main.menu.global_position
 	cu.node.position += Vector3(0.3, 0.1, -0.2)
 	main._process(0.0)
-	check("...stuck to that hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.6)
+	check("...and stays put when the hand moves", main.menu.global_position.is_equal_approx(mp0))
 	cu.node.position = Vector3.ZERO
+	cu.ui = {"panel": main.menu, "id": "tape", "dist": 0.7, "point": main.menu.global_position}
+	main.on_trigger_down(cu, {"trigger": true})
+	check("...point at a tool, pull the trigger: picked, and the menu closes", main.mode == "tape" and not main.menu.is_open)
+	cu.ui = null
+	main.set_tool("select")
+	press.call("stick")
+	cu.ui = {"panel": main.menu, "id": "resetpos", "dist": 0.7, "point": main.menu.global_position}
+	main.on_trigger_down(cu, {"trigger": true})
+	check("...any pick closes it (Reset position too)", not main.menu.is_open)
+	cu.ui = null
 	cu.stick_down_at = -10.0
+	press.call("stick")
 	press.call("stick")
 	check("Stick click again closes it", not main.menu.is_open)
 	press.call("menu")
@@ -377,6 +390,21 @@ func run(m) -> void:
 	main.on_trigger_down(cp, {"trigger": true})
 	check("...or picked up", cp.drag == null)
 	check("Pinned flag is saved", main.room_data().shapes[0].pinned == true)
+	var nsh: int = main.shapes.size()
+	main.open_tools(cp)
+	check("Pinned: Cut, Copy, Delete and Duplicate are greyed out", not main.ctx.item("cut").enabled and not main.ctx.item("copy").enabled and not main.ctx.item("delete").enabled and not main.ctx.item("duplicate").enabled)
+	var nclip: int = main.clipboard.size()
+	for tid in ["delete", "cut", "copy", "duplicate"]:
+		main.ctx.target = box
+		main.run_tool(tid)
+	check("...and refuse anyway: not deleted, cut, copied or duplicated", box in main.shapes and main.shapes.size() == nsh and main.clipboard.size() == nclip)
+	main.close_tools()
+	main.select(box)
+	main.copy_selected(true)
+	check("...cut via the selection refuses too", box in main.shapes and main.clipboard.size() == nclip)
+	main.on_button("clear")
+	check("Clear all leaves pinned objects", box in main.shapes)
+	main.undo()
 	main.open_tools(cp)
 	check("...and the menu now says Unpin", main.ctx.item("pin").label == "Unpin")
 	main.run_tool("pin")

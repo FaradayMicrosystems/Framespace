@@ -28,7 +28,7 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 
 | Do this | Get this |
 |---|---|
-| **Click a thumbstick** | **Tools** menu, stuck to that hand: Rotate/Move, Scale, Edit, Player move, the measuring tools and Reset position. Point and trigger with the other hand. Click again to close |
+| **Click a thumbstick** | **Tools** menu, 70 cm in front of that controller (stays put); point and pull the trigger to pick (it closes): Rotate/Move, Scale, Edit, Player move, the measuring tools and Reset position. Click again to close without picking |
 | **Click both thumbsticks** | Tools menu, fixed in front of you |
 | **Left ≡ button** | **Settings** menu, stuck to the left hand: units, grid, room lines, scan, save, Rooms..., export, clear, Turn room, Accuracy test, Room info, Fit check, quit |
 | **X** or **A** | **Clipboard** menu. Pointing at a shape: Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Bigger 5%** / **Smaller 5%** / **Reset size** / **Undo**. On empty space: Paste (where you pointed) / Next clip / Undo |
@@ -121,3 +121,5 @@ If Android blocks the Download folder, the files go to the app's own storage ins
 - `scripts/selftest.gd` is a headless test that CI runs before every build: `godot --headless --path native -- --selftest`.
 - The Meta plugin isn't committed. CI downloads it into `addons/`. For local work, unzip `godotopenxrvendorsaddon.zip` (5.0.0-stable) so it ends up at `native/addons/godotopenxrvendors`.
 - Signing: `framespace-sideload.keystore` (password `framespace-sideload`) is committed on purpose. It's only for sideloading, and keeping it fixed lets updates install over the top. Make a private key before any store release.
+
+**Pinned objects are locked:** no moving, resizing, cut, copy, duplicate or delete (Clear all skips them) until you Unpin them from the X / A menu.

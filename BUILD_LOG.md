@@ -146,3 +146,9 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Decisions: two-hand resize stretches along the object axis closest to the line between your hands (her "right size and dimension"), uniform turning around the vertical; H9E built as the 4.5 t cargo box (walk-in, like the Pantech it replaces); Bunnings sells light and heavy duty, so the run is light 26/72/107 L and heavy 52/104/150 L.
 - Tests: native self-test 202/202 (was 181), run locally on Godot 4.6.2.
 - AI involvement: Claude researched the specs (Chery, Farizon, Yamaha, Bunnings) and built and tested everything in one session.
+
+## 2026-11-22 (Brisbane): v0.25, pinned = locked, Tools menu picks like the objects menu
+
+- Aurora asked for pinned objects to be fully locked (no copy, paste, delete or changes until unpinned), and for the stick-click Tools menu to pop up once and pick on trigger, like the objects menu.
+- Tests: native self-test 209/209 (was 202), run locally on Godot 4.6.2.
+- AI involvement: Claude built, tested, merged and released it in one session.

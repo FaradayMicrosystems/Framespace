@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.24"
+const BUILD := "0.25"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -1261,6 +1261,8 @@ func copy_selected(cut: bool) -> void:
 	if s == null:
 		set_status("Select a shape first.")
 		return
+	if refuse_pinned(null, s):
+		return
 	clipboard.push_front(clip_item(s))
 	if clipboard.size() > CLIP_MAX:
 		clipboard.pop_back()
@@ -1565,12 +1567,16 @@ func open_menu(c: Ctrl, fixed := false, kind := "tools") -> void:
 	menu_attach = null if fixed else c
 	rebuild_menu()
 	var head := camera.global_position
-	if fixed:
+	if kind == "tools" and not fixed:
+		# Like the objects menu: 70 cm out from that controller, stationary. Point and pull the trigger to pick.
+		menu_attach = null
+		menu_anchor = c.node.global_position - c.node.global_basis.z.normalized() * TRAY_AHEAD
+	elif fixed:
 		var fwd := -camera.global_basis.z
 		fwd.y = 0
 		fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
 		menu_anchor = head + fwd * 0.55 + Vector3(0, -0.15, 0)
-	else:
+	elif menu_attach != null:
 		menu_anchor = _hand_top(c, menu.size.y)
 	menu.open_at(menu_anchor, head)
 	layout_menu()
@@ -1776,7 +1782,7 @@ func on_button(id: String, c: Ctrl = null) -> void:
 			else:
 				set_status("Room scan isn't available here.")
 		"clear":
-			var ss := shapes.duplicate()
+			var ss := shapes.filter(func(x): return not x.pinned)     # pinned objects stay
 			var ms := measures.duplicate()
 			for s in ss:
 				remove_shape(s)
@@ -1784,7 +1790,7 @@ func on_button(id: String, c: Ctrl = null) -> void:
 				remove_measure(m)
 			clear_pending()
 			push_history(_restore_all.bind(ss, ms))
-			set_status("Cleared. Undo brings everything back.")
+			set_status("Cleared (pinned objects stay). Undo brings everything back." if shapes.size() > 0 else "Cleared. Undo brings everything back.")
 			persist()
 		"grid":
 			var opts := [0.05, 0.1, 0.01, 0.0]
@@ -1931,8 +1937,9 @@ func clip_menu_items(s) -> Array:
 		var clip = clipboard[clip_index] if clipboard.size() else null
 		return [{"id": "paste", "label": "Paste", "enabled": clip != null}, {"id": "nextclip", "label": "Next clip", "enabled": clipboard.size() > 1},
 			{"id": "undo", "label": "Undo", "enabled": can_undo}]
-	return [{"id": "cut", "label": "Cut"}, {"id": "copy", "label": "Copy"},
-		{"id": "delete", "label": "Delete", "color": Color("ff6b6b")}, {"id": "duplicate", "label": "Duplicate"},
+	var free: bool = not s.pinned
+	return [{"id": "cut", "label": "Cut", "enabled": free}, {"id": "copy", "label": "Copy", "enabled": free},
+		{"id": "delete", "label": "Delete", "color": Color("ff6b6b"), "enabled": free}, {"id": "duplicate", "label": "Duplicate", "enabled": free},
 		{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW}, {"id": "drop", "label": "Drop", "enabled": not s.pinned},
 		{"id": "bigger", "label": "Bigger 5%", "enabled": not s.pinned}, {"id": "smaller", "label": "Smaller 5%", "enabled": not s.pinned},
 		{"id": "reset", "label": "Reset size", "enabled": not s.pinned}, {"id": "undo", "label": "Undo", "enabled": can_undo}]
@@ -2000,6 +2007,10 @@ func run_tool(id: String) -> void:
 	var p: Vector3 = ctx.point
 	if s != null and not (s in shapes):
 		s = null
+	if s != null and s.pinned and id in ["cut", "copy", "delete", "duplicate", "drop", "bigger", "smaller", "reset"]:
+		refuse_pinned(null, s)
+		menu_dirty = true
+		return
 	match id:
 		"cut", "copy":
 			if s:
@@ -2019,7 +2030,7 @@ func run_tool(id: String) -> void:
 			if s:
 				set_pinned(s, not s.pinned)
 				push_history(func(): set_pinned(s, not s.pinned))
-				set_status(("%s pinned. It can't be grabbed until you unpin it." % s.name) if s.pinned else ("%s unpinned." % s.name))
+				set_status(("%s pinned: locked until you unpin it." % s.name) if s.pinned else ("%s unpinned." % s.name))
 				persist()
 		"drop":
 			if s and not s.pinned:
@@ -2053,6 +2064,8 @@ func run_tool(id: String) -> void:
 
 ## What trigger does on a shape in an edit tool.
 func apply_tool(c: Ctrl, s: Shape) -> void:
+	if mode != "pin" and mode != "scale" and refuse_pinned(c, s):
+		return
 	haptic(c, 0.4, 0.03)
 	match mode:
 		"cut", "copy":
@@ -2378,7 +2391,7 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 				haptic(c, 0.4, 0.03)
 				on_button(id, c)
 				# Picking a tool other than Move/Scale gets the menu out of your way.
-				if (id in MEASURE_TOOLS or id in EDIT_TOOLS or id in MODE_TOOLS) and menu.is_open:
+				if (menu_kind == "tools" or id in MEASURE_TOOLS or id in EDIT_TOOLS or id in MODE_TOOLS) and menu.is_open:
 					close_menu()
 		elif pnl == tray:
 			grab_from_tray(c, id, "trigger")
@@ -2545,7 +2558,7 @@ func set_pinned(s: Shape, on: bool) -> void:
 func refuse_pinned(c: Ctrl, s: Shape, loud := true) -> bool:
 	if s == null or not s.pinned:
 		return false
-	set_status("%s is pinned. Press X or A on it and pick Unpin to move it." % s.name)
+	set_status("%s is pinned: it can't be moved, changed, copied or deleted. X / A > Unpin first." % s.name)
 	if c and loud:
 		haptic(c, 0.6, 0.06)
 	return true
