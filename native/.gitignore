@@ -4,3 +4,5 @@ android/
 build/
 *.import
 objects.txt
+openxr_action_map.tres
+*.uid

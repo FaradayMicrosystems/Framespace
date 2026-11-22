@@ -51,7 +51,47 @@ func run(m) -> void:
 	check("Motorcycle is in the palette", labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (27 objects)", main.PALETTE.size() == 27, str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (48 objects)", main.PALETTE.size() == 48, str(main.PALETTE.size()))
+	for nm in ["Carton large", "Carton small", "10ft container", "Tandem box trailer", "Pantech truck 4.5 t", "King bed", "Single bed", "Wardrobe 2-door", "Kitchen bench 600", "Dryer",
+			"Shelf 5 cm", "Shelf 30 cm", "Shelf spacer 50 cm", "Rack 18RU 1200D", "Rack 24RU 1200D", "Rack 42RU 1200D", "Rack 48RU 1200D"]:
+		if not labels.has(nm):
+			check("New object " + nm, false)
+	var rk = main.PALETTE[labels.find("Rack 42RU 1200D")]
+	check("42RU rack: 600 x 1200 x 2067 mm with a detailed wireframe", is_equal_approx(rk.dims.x, 1.2) and is_equal_approx(rk.dims.z, 0.6) and is_equal_approx(rk.dims.y, 2.067) and rk.outline.parts.size() > 80)
+	# Stacking: dryer on the washer; shelves stack board-gap by board-gap; spacer panel holds things.
+	var wsh = main.PALETTE[labels.find("Washing machine")]
+	var dry = main.PALETTE[labels.find("Dryer")]
+	var ws = main.make_shape(wsh.type, wsh.dims, Vector3(20, wsh.dims.y / 2.0, 20), Quaternion.IDENTITY, "W", wsh.get("outline"))
+	var ds = main.make_shape(dry.type, dry.dims, Vector3(20, 3.0, 20), Quaternion.IDENTITY, "D", dry.get("outline"))
+	main.settle(ds)
+	check("Dryer dropped on the washer stacks on top (bottom at 850 mm)", absf(ds.node.position.y - dry.dims.y / 2.0 - 0.85) < 0.003, str(ds.node.position))
+	var sh30 = main.PALETTE[labels.find("Shelf 30 cm")]
+	var sh20 = main.PALETTE[labels.find("Shelf 20 cm")]
+	var spc = main.PALETTE[labels.find("Shelf spacer 50 cm")]
+	var a1 = main.make_shape("box", spc.dims, Vector3(22, spc.dims.y / 2.0, 22), Quaternion.IDENTITY, "Sp", spc.outline)
+	# (Created off to the side, then moved over: a new physics body only moves on the next physics frame.)
+	var a2 = main.make_shape("box", sh30.dims, Vector3(26, 3.0, 26), Quaternion.IDENTITY, "S30", sh30.outline)
+	a2.node.position = Vector3(22, 3.0, 22)
+	main.settle(a2)
+	var a3 = main.make_shape("box", sh20.dims, Vector3(27, 4.0, 27), Quaternion.IDENTITY, "S20", sh20.outline)
+	a3.node.position = Vector3(22, 4.0, 22)
+	main.settle(a3)
+	check("Spacer 50 + shelf 30 + shelf 20 stack: top board at 1.0 m", absf(a3.node.position.y + sh20.dims.y / 2.0 - 1.0) < 0.003, str(a3.node.position))
+	var cart = main.make_shape("box", {"x": 0.3, "y": 0.2, "z": 0.2}, Vector3(28, 4.0, 28))
+	cart.node.position = Vector3(22, 4.0, 22)
+	main.settle(cart)
+	check("A box dropped on the top shelf sits on its board", absf(cart.node.position.y - 1.1) < 0.003, str(cart.node.position))
+	for sx in [ws, ds, a1, a2, a3, cart]:
+		main.remove_shape(sx)
+		sx.node.queue_free()
+	var pt = main.PALETTE[labels.find("Pantech truck 4.5 t")]
+	var pts = main.make_shape("box", pt.dims, Vector3(30, pt.dims.y / 2.0, 30), Quaternion.IDENTITY, "Pt", pt.outline)
+	var pal_in = main.make_shape("box", {"x": 1.165, "y": 0.15, "z": 1.165}, Vector3(31.5, 2.5, 30))
+	main.settle(pal_in)
+	check("A pallet dropped into the Pantech lands on its 1 m floor", absf(pal_in.node.position.y - 1.075) < 0.003, str(pal_in.node.position))
+	for sx in [pts, pal_in]:
+		main.remove_shape(sx)
+		sx.node.queue_free()
 	var fl = main.PALETTE[labels.find("Forklift 2.5 t")]
 	check("Forklift has a detailed wireframe", fl.has("outline") and fl.outline.parts.size() > 15, str(fl.get("outline", {}).get("parts", []).size()))
 	# Walk-in container: things land on its floor, not its roof; sliding in steps up onto the floor; stacking on the roof works.
@@ -189,13 +229,13 @@ func run(m) -> void:
 	var cq = main.ctrls[1]
 	cq.shape_hit = {"shape": main.shapes[4], "point": main.shapes[4].node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.open_tools(cq)
-	check("Y / B on a shape: 10 buttons incl. Cut, Pin, Bigger, Undo", main.ctx.is_open and main.ctx.items.size() == 10 and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("bigger") != null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
-	check("...stuck to that hand", main.ctx_attach == cq and main.ctx.global_position.distance_to(cq.node.global_position) < 0.4)
+	check("X / A on a shape: 10 buttons incl. Cut, Pin, Bigger, Undo", main.ctx.is_open and main.ctx.items.size() == 10 and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("bigger") != null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
+	check("...20 cm in front of that controller", main.ctx_attach == cq and absf(main.ctx.global_position.distance_to(cq.node.global_position) - 0.2) < 0.01, str(main.ctx.global_position))
 	main.run_tool("delete")
-	check("Delete removes it and closes the menu", main.shapes.size() == 4 and not main.ctx.is_open)
+	check("Delete removes it; the palette stays open (tap mode)", main.shapes.size() == 4 and main.ctx.is_open)
 	cq.shape_hit = null
 	main.open_tools(cq)
-	check("Y / B on empty space: Paste, Next clip, Undo", main.ctx.items.size() == 3 and main.ctx.item("paste") != null)
+	check("X / A on empty space: Paste, Next clip, Undo", main.ctx.items.size() == 3 and main.ctx.item("paste") != null)
 	main.run_tool("undo")
 	check("Undo brings it back", main.shapes.size() == 5)
 	var victim = main.shapes[4]
@@ -216,34 +256,77 @@ func run(m) -> void:
 	main.undo()
 	cq.shape_hit = null
 
-	# Buttons: Y / B toggle the clipboard menu, X / A toggle the objects menu, stick click the main menu.
+	# Face buttons: X / A = clipboard menu, Y / B = objects menu. Tap = palette that stays; hold = quick-pick.
+	main.close_tools()
 	var cu = main.ctrls[0]
 	cu.drag = null
-	var nb := {"high": false, "low": false, "trigger": false, "grip": false, "stick": false, "sx": 0.0, "sy": 0.0}
+	cu.shape_hit = null
+	cu.ui = null
+	main.face_button(cu, "low", true, false, 10.0)
+	main.face_button(cu, "low", false, true, 10.1)
+	check("Tap X: clipboard menu opens 20 cm in front of the controller", main.ctx.is_open and main.ctx_attach == cu and absf(main.ctx.global_position.distance_to(cu.node.global_position) - 0.2) < 0.01, str(main.ctx.global_position))
+	check("...and stays open after the tap (palette)", main.ctx.is_open and main.ctx_hold == null)
+	var ctx_pos: Vector3 = main.ctx.global_position
+	cu.node.position += Vector3(0.3, 0.0, 0.0)
+	main._process(0.0)
+	check("...and stays where it opened when the hand moves", main.ctx.global_position.is_equal_approx(ctx_pos))
+	cu.node.position = Vector3.ZERO
+	main.face_button(cu, "low", true, false, 11.0)
+	check("Tap X again closes it", not main.ctx.is_open)
+	main.face_button(cu, "high", true, false, 12.0)
+	main.face_button(cu, "high", false, true, 12.1)
+	check("Tap Y: objects menu + sidebar (Trace, Box, Custom, Save selected)", main.tray.is_open and main.tray_side.is_open and main.tray.items.size() == main.PALETTE.size() and main.tray_side.item("side:trace") != null and main.tray_side.item("side:box") != null and main.tray_side.item("side:custom") != null and main.tray_side.item("side:save") != null)
+	check("...sidebar sits left of the grid", main.tray.to_local(main.tray_side.global_position).x < -(main.tray.size.x + main.tray_side.size.x) / 2.0 + 0.001)
+	var n1: int = main.shapes.size()
+	var cg2 = main.ctrls[1]
+	cg2.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.5, "point": main.tray.global_position}
+	main.on_trigger_down(cg2, {"trigger": true})
+	check("Picking from the palette puts it in your hand; the menu stays open", main.shapes.size() == n1 + 1 and cg2.drag != null and main.tray.is_open)
+	cg2.ui = null
+	main.on_drag_release(cg2)
+	main.undo()
+	main.face_button(cu, "high", true, false, 13.0)
+	check("Tap Y again closes it (and its sidebar)", not main.tray.is_open and not main.tray_side.is_open)
+	main.face_button(cu, "high", true, false, 14.0)
+	cu.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.2, "point": main.tray.global_position}
+	var n2: int = main.shapes.size()
+	main.face_button(cu, "high", false, true, 14.6)
+	check("Hold Y, point with the same hand, let go: it's in your hand and the menu closes", main.shapes.size() == n2 + 1 and cu.drag != null and cu.drag.type == "free" and not main.tray.is_open)
+	cu.ui = null
+	main.on_drag_release(cu)
+	main.undo()
+	cu.shape_hit = {"shape": main.shapes[4], "point": main.shapes[4].node.position, "normal": Vector3.UP, "dist": 1.0}
+	main.face_button(cu, "low", true, false, 15.0)
+	cu.ui = {"panel": main.ctx, "id": "duplicate", "dist": 0.2, "point": main.ctx.global_position}
+	var n3: int = main.shapes.size()
+	main.face_button(cu, "low", false, true, 15.5)
+	check("Hold X on a shape, point at Duplicate, let go: duplicated and closed", main.shapes.size() == n3 + 1 and not main.ctx.is_open)
+	main.undo()
+	cu.ui = null
+	cu.shape_hit = null
+	main.face_button(cu, "low", true, false, 16.0)
+	main.face_button(cu, "low", false, true, 16.5)
+	check("Hold X and let go pointing at nothing: it just closes", not main.ctx.is_open and main.shapes.size() == n3)
+	var nb := {"high": false, "low": false, "trigger": false, "grip": false, "stick": false, "menu": false, "sx": 0.0, "sy": 0.0}
 	var press := func(k: String) -> void:
 		var b2: Dictionary = nb.duplicate()
 		b2[k] = true
 		main.process_input(cu, b2)
 		main.process_input(cu, nb.duplicate())
 	cu.btn = nb.duplicate()
-	press.call("high")
-	check("Y opens the clipboard menu on the left hand", main.ctx.is_open and main.ctx_attach == cu)
-	press.call("high")
-	check("Y again closes it", not main.ctx.is_open)
-	press.call("low")
-	check("X opens the objects menu on that hand", main.tray.is_open and main.tray_attach == cu and main.tray.items.size() == main.PALETTE.size())
-	check("...just above the hand", main.tray.global_position.distance_to(cu.node.global_position) < 0.6, str(main.tray.global_position))
-	press.call("low")
-	check("X again closes it", not main.tray.is_open)
 	press.call("stick")
-	check("Stick click opens the main menu stuck to that hand", main.menu.is_open and main.menu_attach == cu)
+	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, 7 measuring tools, Free draw, Reset position)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 13 and main.menu.item("tape") != null and main.menu.item("freedraw") != null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
 	cu.node.position += Vector3(0.3, 0.1, -0.2)
 	main._process(0.0)
-	check("...and it follows the hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.6)
+	check("...stuck to that hand", main.menu.global_position.distance_to(cu.node.global_position) < 0.6)
 	cu.node.position = Vector3.ZERO
 	cu.stick_down_at = -10.0
 	press.call("stick")
 	check("Stick click again closes it", not main.menu.is_open)
+	press.call("menu")
+	check("Left ≡: settings menu (16 buttons, no tools / clipboard)", main.menu.is_open and main.menu_kind == "settings" and main.menu.items.size() == 16 and main.menu.item("units") != null and main.menu.item("tape") == null and main.menu.item("copy") == null, str(main.menu.items.size()))
+	press.call("menu")
+	check("≡ again closes it", not main.menu.is_open)
 	cu.btn = {}
 
 	# Pin (Y / B menu); a pinned shape can't be grabbed, resized or dropped.
@@ -340,17 +423,7 @@ func run(m) -> void:
 
 	# Menu builds (main page + rooms page).
 	main.open_menu(main.ctrls[0], true)
-	check("Main menu: tools and settings only (25 buttons, no clipboard / undo)", main.menu.is_open and main.menu.items.size() == 25 and main.menu.item("copy") == null and main.menu.item("undo") == null and main.menu.item("delete") == null, str(main.menu.items.size()))
 	main.close_menu()
-	var n0: int = main.shapes.size()
-	var cg = main.ctrls[1]
-	main.open_tray(main.ctrls[0])
-	cg.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.5, "point": main.tray.global_position}
-	main.on_trigger_down(cg, {"trigger": true})
-	check("Trigger on an objects-menu item puts it in your hand and closes the menu", main.shapes.size() == n0 + 1 and cg.drag != null and cg.drag.type == "free" and not main.tray.is_open)
-	cg.ui = null
-	main.on_drag_release(cg)
-	main.undo()
 	main.open_menu(main.ctrls[0], true)
 	main.on_button("rooms")
 	main.rebuild_menu()
@@ -525,6 +598,153 @@ func run(m) -> void:
 	check("Rooms page has Place room here", main.menu.item("placehere") != null)
 	main.on_button("back")
 	main.close_menu()
+
+	# Player move: left stick slides you (the room moves the other way), right stick turns 15°; Reset position.
+	main.set_tool("playermove")
+	var home: Transform3D = main.content.transform
+	var pl = main.ctrls[0]
+	pl.drag = null
+	main.player_move(pl, {"sx": 0.0, "sy": 1.0}, 0.5)
+	var moved: Vector3 = main.content.transform.origin - home.origin
+	check("Player move: left stick slides you through the room (75 cm in ½ s at full tilt)", absf(moved.length() - 0.75) < 0.01 and absf(moved.y) < 0.001, str(moved))
+	var pr = main.ctrls[1]
+	pr.turn_latch = false
+	pr.drag = null
+	main.player_move(pr, {"sx": 1.0, "sy": 0.0}, 0.1)
+	main.player_move(pr, {"sx": 1.0, "sy": 0.0}, 0.1)
+	check("Right stick flick turns you 15° (once per flick)", absf(absf(rad_to_deg(main.yaw_of_quat(main.content.quaternion) - main.yaw_of_quat(home.basis.get_rotation_quaternion()))) - 15.0) < 0.01, str(rad_to_deg(main.yaw_of_quat(main.content.quaternion))))
+	main.on_button("resetpos")
+	check("Reset position puts the room back where it really is", main.content.transform.is_equal_approx(home))
+	main.set_tool("select")
+
+	# Edit: point at a face, trigger, pull it along its axis.
+	main.set_tool("edit")
+	var eb = main.make_shape("box", {"x": 0.4, "y": 0.3, "z": 0.2}, Vector3(5, 0.15, 5))
+	var ce = main.ctrls[1]
+	ce.ui = null
+	ce.drag = null
+	ce.handle_hit = null
+	ce.o = Vector3(5.6, 0.15, 5.0)
+	ce.d = Vector3.LEFT
+	ce.shape_hit = {"shape": eb, "point": Vector3(5.2, 0.15, 5.0), "normal": Vector3.RIGHT, "dist": 0.4}
+	main.on_trigger_down(ce, {"trigger": true})
+	check("Edit: trigger on a face grabs that face", ce.drag != null and ce.drag.type == "edit" and ce.drag.key == "x", str(ce.drag))
+	ce.o = Vector3(5.3, 1.0, 5.0)
+	ce.d = Vector3.DOWN
+	main.update_edit(ce, ce.drag)
+	check("...and outlines it in yellow", main.edit_hl.visible)
+	check("Pulling the +X face 10 cm: 50 cm long, the -X face stays put", absf(eb.dims.x - 0.5) < 0.001 and absf(eb.node.position.x - 0.25 - 4.8) < 0.001, "%s %s" % [eb.dims, eb.node.position])
+	check("...other sides unchanged", is_equal_approx(eb.dims.y, 0.3) and is_equal_approx(eb.dims.z, 0.2))
+	main.on_drag_release(ce)
+	ce.shape_hit = null
+	main.undo()
+	check("Undo puts the face back", absf(eb.dims.x - 0.4) < 0.001)
+	main.remove_shape(eb)
+	eb.node.queue_free()
+
+	# Box: tip on one corner, pull to the opposite corner.
+	main.set_tool("boxmake")
+	var cb = main.ctrls[1]
+	cb.ui = null
+	cb.shape_hit = null
+	cb.drag = null
+	var nb0: int = main.shapes.size()
+	cb.o = Vector3(6, 0, 6)
+	main.on_trigger_down(cb, {"trigger": true})
+	cb.o = Vector3(6.6, 0.4, 6.3)
+	main.tip_up(cb)
+	var bx = main.shapes[-1]
+	check("Box: corner to corner makes a 60 × 40 × 30 cm box on the floor", main.shapes.size() == nb0 + 1 and is_equal_approx(bx.dims.x, 0.6) and is_equal_approx(bx.dims.y, 0.4) and is_equal_approx(bx.dims.z, 0.3) and absf(bx.node.position.y - 0.2) < 0.001, str(bx.dims))
+	cb.o = Vector3(7, 0, 7)
+	main.on_trigger_down(cb, {"trigger": true})
+	main.tip_up(cb)
+	check("A quick click starts click-move-click", main.draft.get("click", false))
+	cb.o = Vector3(7.5, 0.5, 7.5)
+	main.on_trigger_down(cb, {"trigger": true})
+	check("...the second click finishes it", main.shapes.size() == nb0 + 2 and main.draft.is_empty())
+
+	# Trace: an L-shaped outline, then the height.
+	main.set_tool("trace")
+	var ntr: int = main.shapes.size()
+	for q in [Vector3(8, 0, 8), Vector3(9, 0, 8), Vector3(9, 0, 8.5), Vector3(8.5, 0, 8.5), Vector3(8.5, 0, 9), Vector3(8, 0, 9)]:
+		cb.o = q
+		main.on_trigger_down(cb, {"trigger": true})
+		main.tip_up(cb)
+	cb.o = Vector3(8.01, 0, 8.01)
+	main.on_trigger_down(cb, {"trigger": true})
+	check("Trace: clicking the first corner closes the outline", main.draft.get("phase", "") == "height")
+	cb.o = Vector3(8.7, 0.8, 8.3)
+	main.on_trigger_down(cb, {"trigger": true})
+	var trc = main.shapes[-1]
+	check("...a click sets the height: L-shaped trace 1 × 0.8 × 1 m", main.shapes.size() == ntr + 1 and is_equal_approx(trc.dims.x, 1.0) and is_equal_approx(trc.dims.y, 0.8) and is_equal_approx(trc.dims.z, 1.0), str(trc.dims))
+	check("Its volume is the L (0.6 m³), not its box (0.8 m³)", absf(main.shape_volume(trc) - 0.6) < 0.001, str(main.shape_volume(trc)))
+	check("...and the pointer hits its real shape", trc.col.shape is ConvexPolygonShape3D)
+	main.set_tool("trace")
+	cb.o = Vector3(12, 0, 12)
+	main.on_trigger_down(cb, {"trigger": true})
+	cb.stroke_t0 -= 1.0
+	for i in 10:
+		cb.o = Vector3(12 + 0.04 * i, 0, 12)
+		main.tip_hold(cb)
+	check("Holding trigger draws freehand (a point every 3 cm)", main.draft.pts.size() >= 9, str(main.draft.pts.size()))
+	main.tip_grip(cb)
+	check("Grip undoes the last point", main.draft.pts.size() >= 8)
+	main.set_tool("select")
+
+	# Free draw: six square faces sharing corners make a closed cube.
+	main.set_tool("freedraw")
+	var nfd: int = main.shapes.size()
+	var cube := [[[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], [[0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 0]],
+		[[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]], [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]],
+		[[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]], [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]]]
+	for f in cube:
+		for k in 5:
+			var cn: Array = f[k % 4]
+			cb.o = Vector3(10 + 0.5 * cn[0], 0.5 * cn[1], 10 + 0.5 * cn[2]) + Vector3(0.005, 0, 0)
+			main.on_trigger_down(cb, {"trigger": true})
+			main.tip_up(cb)
+	check("Free draw: 6 faces, 8 shared corners", main.draft.faces.size() == 6 and main.draft.verts.size() == 8, "%d faces, %d corners" % [main.draft.faces.size(), main.draft.verts.size()])
+	main.tip_grip(cb)
+	var fd = main.shapes[-1]
+	check("Grip finishes it: a closed 50 cm cube, 0.125 m³", main.shapes.size() == nfd + 1 and is_equal_approx(fd.dims.x, 0.5) and absf(main.shape_volume(fd) - 0.125) < 0.001, "%s %s" % [fd.dims, main.shape_volume(fd)])
+	for k in 4:
+		var cn2: Array = cube[0][k]
+		cb.o = Vector3(14 + 0.5 * cn2[0], 0.0, 14 + 0.5 * cn2[2])
+		main.on_trigger_down(cb, {"trigger": true})
+		main.tip_up(cb)
+	cb.o = Vector3(14, 0, 14)
+	main.on_trigger_down(cb, {"trigger": true})
+	main.tip_grip(cb)
+	check("A single face is an open surface (no volume)", main.shapes[-1].outline.vfrac < 0.0 and main.shape_volume(main.shapes[-1]) == 0.0)
+	main.set_tool("select")
+
+	# Custom objects: Save selected, pick it again, remove it.
+	main.select(trc)
+	main.custom_objs.clear()
+	main.open_tray(main.ctrls[0])
+	main.run_side(main.ctrls[0], "side:save")
+	check("Save selected adds it to Custom objects", main.custom_objs.size() == 1 and main.custom_objs[0].label == "Trace")
+	main.run_side(main.ctrls[0], "side:custom")
+	check("Custom... shows your saved objects", main.tray_page == "custom" and main.tray.item("cus:0") != null)
+	main.load_custom()
+	check("Custom objects are saved on the headset", main.custom_objs.size() == 1 and main.custom_objs[0].outline.has("poly"))
+	var cg3 = main.ctrls[1]
+	cg3.drag = null
+	cg3.ui = {"panel": main.tray, "id": "cus:0", "dist": 0.5, "point": main.tray.global_position}
+	var nc: int = main.shapes.size()
+	main.on_trigger_down(cg3, {"trigger": true})
+	check("Picking a custom object puts a copy in your hand, same size and shape", main.shapes.size() == nc + 1 and main.shapes[-1].dims == trc.dims and not main.shapes[-1].outline.get("poly", []).is_empty())
+	cg3.ui = null
+	main.on_drag_release(cg3)
+	main.run_side(main.ctrls[0], "side:remove")
+	cg3.ui = {"panel": main.tray, "id": "cus:0", "dist": 0.5, "point": main.tray.global_position}
+	main.on_trigger_down(cg3, {"trigger": true})
+	check("Remove: on deletes a custom object", main.custom_objs.is_empty())
+	cg3.ui = null
+	main.tray_page = "all"
+	main.custom_remove = false
+	main.close_tray()
+	main.select(null)
 
 	# Export.
 	var res: Dictionary = main.export_all()

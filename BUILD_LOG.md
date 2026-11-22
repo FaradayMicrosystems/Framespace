@@ -124,3 +124,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Release: a `v*` tag now builds the APK and publishes a full (non-prerelease, "latest") GitHub Release. Android version 0.21 (code 21, up from 5, so it installs over older builds and keeps rooms).
 - Tests: native self-test 125/125, run locally on Godot 4.6.2.
 - AI involvement: Claude did the conflict analysis, resolution, test rework and release pipeline in about 50 minutes.
+
+## 2026-11-22 (Brisbane): v0.22, palette menus, Tools / Settings split, drawing tools, 21 new objects
+
+- Aurora asked for: X/A and Y/B swapped (X/A = clipboard, Y/B = objects); tap a face button = menu 20 cm in front that stays like a painter's palette, hold = quick-pick on release; stick click = a Tools menu (measuring tools + Free draw), the old menu moved to the left ≡ button; Player move (left stick slide, right stick turn) for walking a big layout in a small office; Edit (pull a face along its axis); Trace, Box and Custom objects in an objects sidebar; and new objects: cartons, 10ft container, tandem trailer, 4.5 t Pantech, beds, wardrobe, kitchen bench, dryer (stackable), floating shelves at 5–30 cm plus a 50 cm spacer, and the 4 most common server racks (18/24/42/48 RU, 1200 deep).
+- Decisions: Free draw kept alongside Trace (Trace = upright extrusions; Free draw = any faceted shape, e.g. ramps). Player move turns in 15° snaps (comfort in passthrough). Rotate/Move, Scale, Edit and Player move sit together in the Tools menu. Traced / drawn shapes keep their real volume (an L-shaped trace isn't counted as its box) and use their convex shape for pointing and stacking. Object categories deferred at Aurora's request.
+- Tests: native self-test 161/161 (was 125), run locally on Godot 4.6.2; new checks cover tap vs hold menus, Tools / Settings menus, Player move, Edit, Box, Trace (L-shape volume), Free draw (closed cube = 0.125 m³), Custom objects, and stacking dryer on washer, shelves on a spacer, a pallet into the Pantech.
+- AI involvement: Claude designed and built all of the above in one session, about 2.5 hours from "go".
