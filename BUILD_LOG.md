@@ -185,3 +185,8 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Decisions (Aurora said go without answering two questions, so the proposed defaults): the 9 proposed categories; Scale tool cubes unchanged (per side); cot = folding camp stretcher.
 - Tests: native self-test 256/256 (was 245), run locally on Godot 4.6.2.
 - AI involvement: Claude built, tested, merged and released it in one session.
+
+## 2026-11-22 (Brisbane): v0.30, Power category (early release)
+
+- Aurora asked for all current EcoFlow and DJI power stations with their expansion batteries (stackable, one asset each), plus the Dune 300 W folding solar blanket unfolded (best-guess size: 5 x 550 mm panels, 2 cm gaps, 45 degrees). She approved releasing at 2/7.
+- Tests: native self-test 273/273 (was 256).
