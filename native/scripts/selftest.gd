@@ -402,7 +402,7 @@ func run(m) -> void:
 	press.call("stick")
 	check("Stick click again closes it", not main.menu.is_open)
 	press.call("menu")
-	check("Left ≡: settings menu (16 buttons, no tools / clipboard)", main.menu.is_open and main.menu_kind == "settings" and main.menu.items.size() == 16 and main.menu.item("units") != null and main.menu.item("tape") == null and main.menu.item("copy") == null, str(main.menu.items.size()))
+	check("Left ≡: settings menu (17 buttons incl. Occlusion, no tools / clipboard)", main.menu.is_open and main.menu_kind == "settings" and main.menu.items.size() == 17 and main.menu.item("occlude") != null and main.menu.item("units") != null and main.menu.item("tape") == null and main.menu.item("copy") == null, str(main.menu.items.size()))
 	press.call("menu")
 	check("≡ again closes it", not main.menu.is_open)
 	cu.btn = {}
@@ -838,6 +838,24 @@ func run(m) -> void:
 	main.close_tools()
 	h1.shape_hit = null
 	for sx in [th, far]:
+		main.remove_shape(sx)
+
+	# Occlusion: every object has an invisible depth body slightly inside its lines; wires draw after it.
+	var ob = main.make_shape("box", {"x": 1.0, "y": 0.5, "z": 0.5}, Vector3(50, 0.25, 50))
+	check("Occlusion: a plain box gets a depth-only body 4 mm inside its lines", ob.occ != null and ob.occ.mesh != null and ob.occ.visible and absf(ob.occ.mesh.get_aabb().size.x - 0.992) < 0.0005, str(ob.occ.mesh.get_aabb().size if ob.occ.mesh else null))
+	check("...drawn before the wireframes (they're hidden behind it)", ob.occ.material_override.render_priority < ob.wire_mat.render_priority and ob.wire_mat.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED)
+	var labels2: Array = main.PALETTE.map(func(p): return p.label)
+	var cpi = main.PALETTE[labels2.find("20ft container")]
+	var occ_c = main.make_shape("box", cpi.dims, Vector3(60, cpi.dims.y / 2.0, 60), Quaternion.IDENTITY, "C", cpi.outline)
+	check("...a walk-in container's body is its walls (you still see inside through the open doors)", occ_c.occ.mesh != null and occ_c.occ.mesh.get_faces().size() >= 6 * 36)
+	var vpi = main.PALETTE[labels2.find("Farizon V7E")]
+	var occ_v = main.make_shape("box", vpi.dims, Vector3(70, vpi.dims.y / 2.0, 70), Quaternion.IDENTITY, "V", vpi.outline)
+	check("...a van's body follows its side profile", occ_v.occ.mesh != null and occ_v.occ.mesh.get_aabb().size.y > 1.7 and occ_v.occ.mesh.get_aabb().size.y < 1.985)
+	main.on_button("occlude")
+	check("Settings > Occlusion off shows see-through wireframes again", not main.occlusion and not ob.occ.visible)
+	main.on_button("occlude")
+	check("...and back on", main.occlusion and ob.occ.visible)
+	for sx in [ob, occ_c, occ_v]:
 		main.remove_shape(sx)
 
 	# Custom objects: Save selected, pick it again, remove it.

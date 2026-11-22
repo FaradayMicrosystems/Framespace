@@ -159,3 +159,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Decisions: riders are found by what rests on the object's real top surface (or a hollow object's floor), recursively; they keep their offset while carried, slid, turned, and while the base drops into place; pinned objects never ride; one undo restores the whole stack. Riders are ignored when finding what the carried object stands on (a container doesn't stand on its own cargo).
 - Tests: native self-test 216/216 (was 209), run locally on Godot 4.6.2.
 - AI involvement: Claude built, tested, merged and released it in one session.
+
+## 2026-11-22 (Brisbane): v0.27, occlusion (hidden-line wireframes)
+
+- Aurora asked for occlusion while keeping wireframes: don't draw the parts of objects that are behind other objects.
+- Decisions: each object gets an invisible depth-only body 4 mm inside its own lines (so its own edges stay visible), drawn before all wireframes: the box itself for simple objects, the drawn parts for detailed ones (legs and gaps stay open), the walls for walk-in containers and garages, the side profile for vans and utes. Toggle in Settings, default on, saved.
+- Tests: native self-test 222/222 (was 216), run locally on Godot 4.6.2 (headless, so the depth shader itself is only checked on the headset).
+- AI involvement: Claude built, tested, merged and released it in one session.
