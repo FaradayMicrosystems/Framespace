@@ -53,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (59 objects, in categories)", main.PALETTE.size() == 59 and main.categories().size() == 9 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (75 objects, in categories)", main.PALETTE.size() == 75 and main.categories().size() == 10 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
@@ -67,6 +67,19 @@ func run(m) -> void:
 	var stk = main.PALETTE[labels.find("Chery Stockman")]
 	check("Chery Stockman: 5450 x 2010 x 1890 (5570 with tow bar), open tub, no tailgate", is_equal_approx(stk.dims.x, 5.57) and is_equal_approx(stk.dims.z, 2.01) and is_equal_approx(stk.dims.y, 1.89) and stk.outline.solids.size() == 7 and stk.outline.parts.size() > 80)
 	check("Farizon V7E (closed van) is gone; the open-cargo V7E stays", not labels.has("Farizon V7E") and labels.has("Farizon V7E open cargo"))
+	for nm3 in ["EcoFlow RIVER 3", "EcoFlow RIVER 3 Plus", "EcoFlow RIVER 3 Plus EB 286Wh", "EcoFlow RIVER 3 Plus EB 572Wh", "EcoFlow DELTA 3 Plus", "EcoFlow DELTA 3 EB 1kWh",
+			"EcoFlow DELTA 3 Max Plus", "EcoFlow DELTA 3 Max Plus EB", "EcoFlow DELTA Pro 3", "EcoFlow DELTA Pro 3 EB", "DJI Power 500", "DJI Power 1000 Mini", "DJI Power 1000 / V2",
+			"DJI Power 2000", "DJI Power Expansion Battery 2000", "Dune 300W solar blanket"]:
+		check("Power: " + nm3, labels.has(nm3) and main.PALETTE[labels.find(nm3)].cat == "Power")
+	var dp = main.PALETTE[labels.find("DJI Power 2000")]
+	var deb = main.PALETTE[labels.find("DJI Power Expansion Battery 2000")]
+	var st1 = main.make_shape("box", dp.dims, Vector3(140, dp.dims.y / 2.0, 140), Quaternion.IDENTITY, "P2000", dp.outline)
+	var st2 = main.make_shape("box", deb.dims, Vector3(146, 3.0, 146), Quaternion.IDENTITY, "EB", deb.outline)
+	st2.node.position = Vector3(140, 3.0, 140)
+	main.settle(st2)
+	check("An expansion battery stacks flat on its power station (DJI 2000)", absf(st2.node.position.y - deb.dims.y / 2.0 - dp.dims.y) < 0.003, str(st2.node.position))
+	main.remove_shape(st1)
+	main.remove_shape(st2)
 	for nm2 in ["Monitor 32 in", "Stretcher cot"]:
 		check("v0.29 object: " + nm2, labels.has(nm2))
 	var ym = main.PALETTE[labels.find("Yamaha XSR900 GP")]
