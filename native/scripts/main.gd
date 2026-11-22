@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.23"
+const BUILD := "0.24"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -284,6 +284,8 @@ const TAP_SEC := 0.25           # a trigger tap shorter than this (and not moved
 const HOLD_SEC := 0.3           # face button held this long = quick-pick (release picks + closes); shorter = palette
 const PLAYER_TURN_SPEED := 60.0  # Player move: degrees/s at full right stick left/right
 const PLAYER_LIFT_SPEED := 0.75  # Player move: m/s up/down at full right stick
+const TRAY_AHEAD := 0.7         # objects menu (Y / B) pops up 70 cm in front of the controller
+const SPAWN_MIN := 3.0          # objects picked from the menu appear at least 3 m away (nearest edge)
 const MENU_AHEAD := 0.2         # face-button menus pop up 20 cm in front of the controller
 
 
@@ -387,7 +389,6 @@ var menu_anchor := Vector3.ZERO
 var ctx_attach: Ctrl = null    # hand whose X / A button opened the clipboard menu
 var tray_attach: Ctrl = null   # hand whose Y / B button opened the objects menu
 var ctx_hold: Ctrl = null      # hand still holding X / A: releasing picks what it points at and closes
-var tray_follow := false       # tapped open: the objects menu rides on that wrist like a palette
 var tray_hold: Ctrl = null     # hand still holding Y / B: same, for the objects menu
 var menu_dirty := true
 var selftest := false
@@ -1600,8 +1601,8 @@ func _ahead_of(c: Ctrl) -> Vector3:
 func open_tray(c: Ctrl) -> void:
 	_build_tray()
 	tray_attach = c
-	tray_follow = false
-	tray.open_at(_ahead_of(c), camera.global_position)
+	var fwd := -c.node.global_basis.z.normalized()
+	tray.open_at(c.node.global_position + fwd * TRAY_AHEAD, camera.global_position)
 	tray_side.is_open = true
 	tray_side.visible = true
 	_layout_tray_side()
@@ -1649,26 +1650,6 @@ func _layout_tray_side() -> void:
 	tray_side.global_position = tray.global_position - right * (tray.size.x / 2.0 + 0.012 + tray_side.size.x / 2.0) + up * (tray.size.y - tray_side.size.y) / 2.0
 
 
-## Objects menu on the wrist: it sits just above the hand that opened it, out to that side,
-## turned to face you, and follows the hand. Look down, grab with the other hand.
-func layout_tray_wrist() -> void:
-	if not (tray.is_open and tray_follow and tray_attach != null):
-		return
-	var hand: Vector3 = tray_attach.node.global_position
-	var head := camera.global_position
-	var to_head := head - hand
-	to_head.y = 0
-	to_head = to_head.normalized() if to_head.length() > 0.01 else Vector3.BACK
-	var side := Vector3.UP.cross(to_head).normalized()      # your right, seen from the hand
-	var out := -1.0 if tray_attach.hand == "left" else 1.0
-	var off: Vector3 = side * out * (float(tray.size.x) / 2.0 - 0.05)
-	if out < 0.0:
-		off += side * out * (tray_side.size.x + 0.012)      # sidebar sits on the left: keep it clear of the hand
-	tray.global_position = hand + Vector3(0, 0.05 + tray.size.y / 2.0, 0) + off + to_head * 0.03
-	tray.face(head)
-	_layout_tray_side()
-
-
 ## Rebuild the objects menu where it is (page switch, new custom object...).
 func refresh_tray() -> void:
 	if not tray.is_open:
@@ -1677,7 +1658,6 @@ func refresh_tray() -> void:
 	_build_tray()
 	tray.global_transform = xf
 	_layout_tray_side()
-	layout_tray_wrist()
 
 
 func run_side(c: Ctrl, id: String) -> void:
@@ -1706,7 +1686,6 @@ func close_tray() -> void:
 	tray.close()
 	tray_side.close()
 	tray_attach = null
-	tray_follow = false
 	tray_hold = null
 
 
@@ -1962,8 +1941,25 @@ func clip_menu_items(s) -> Array:
 ## X / A: the clipboard menu, 20 cm in front of that controller. It stays where it opened. Acts on the
 ## object you pointed at when you pressed the button (or the one you select while it's open); on empty
 ## space it pastes where you pointed.
+## The smallest object the controller itself is inside (or null).
+func shape_at_hand(c: Ctrl, pad := 0.0):
+	var best = null
+	var best_v := INF
+	for sh: Shape in shapes:
+		var h := scale_of(sh.type, sh.dims) / 2.0 + Vector3.ONE * pad
+		var lp: Vector3 = sh.node.transform.affine_inverse() * c.o
+		if absf(lp.x) <= h.x and absf(lp.y) <= h.y and absf(lp.z) <= h.z:
+			var v := h.x * h.y * h.z
+			if v < best_v:
+				best_v = v
+				best = sh
+	return best
+
+
 func open_tools(c: Ctrl) -> void:
-	var s = c.shape_hit.shape if c.shape_hit != null else null
+	var s = shape_at_hand(c)
+	if s == null:
+		s = c.shape_hit.shape if c.shape_hit != null else null
 	ctx.target = s
 	ctx.point = c.target.point if c.target != null else c.o + c.d * 0.8
 	if s:
@@ -2351,9 +2347,9 @@ func face_button(c: Ctrl, k: String, is_down: bool, is_up: bool, now: float) -> 
 				ctx_hold = null
 			else:
 				tray_hold = null
-				tray_follow = true       # palette mode: it rides on this wrist
-				layout_tray_wrist()
 			return
+		if k == "high":
+			return       # Y / B held and let go: the menu stays up; trigger-grab an item to pick it (that closes it)
 		var on_pnl: bool = c.ui != null and (c.ui.panel == pnl or (k == "high" and c.ui.panel == tray_side))
 		var id: String = c.ui.id if on_pnl else ""
 		var it = c.ui.panel.item(id) if id != "" else null
@@ -2399,6 +2395,8 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 		return
 	if c.drag != null and c.drag.type == "move":
 		convert_to_free(c)          # grip + trigger: lift it
+		return
+	if c.drag == null and start_two_hand(c):
 		return
 	if mode in MEASURE_TOOLS:
 		var p: Vector3 = c.target.point if c.target != null else c.o + c.d * 0.8
@@ -2455,11 +2453,29 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 		select(null)
 
 
+## Where a picked object appears: straight out from the controller (level), its nearest edge 3 m away,
+## standing no lower than the floor. Still on your pointer: pull it in with the stick.
+func spawn_far(c: Ctrl, p: Dictionary) -> Vector3:
+	var sz := scale_of(p.type, p.dims)
+	var dir := Vector3(c.d.x, 0.0, c.d.z)
+	if dir.length() < 0.05:
+		dir = content.global_basis.inverse() * -camera.global_basis.z
+		dir.y = 0.0
+	dir = dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD
+	var reach := SPAWN_MIN + maxf(sz.x, sz.z) / 2.0
+	var pos := c.o + dir * reach
+	pos.y = maxf(c.o.y, sz.y / 2.0)
+	return content.to_global(pos)
+
+
 func grab_from_tray(c: Ctrl, id: String, release: String) -> void:
 	var s: Shape = null
-	var pt = c.ui.point if c.ui != null else null
+	var pt = null
 	if id.begins_with("obj:"):
-		s = spawn_object(int(id.substr(4)), c, pt)
+		var oi := int(id.substr(4))
+		if oi >= 0 and oi < PALETTE.size():
+			pt = spawn_far(c, PALETTE[oi])
+		s = spawn_object(oi, c, pt)
 	elif id.begins_with("cus:"):
 		var i := int(id.substr(4))
 		if i < 0 or i >= custom_objs.size():
@@ -2471,7 +2487,7 @@ func grab_from_tray(c: Ctrl, id: String, release: String) -> void:
 			set_status("Removed %s from Custom objects." % gone)
 			refresh_tray()
 			return
-		s = spawn_item(custom_objs[i], c, pt)
+		s = spawn_item(custom_objs[i], c, spawn_far(c, custom_objs[i]))
 	else:
 		return
 	if s and c.drag != null:
@@ -2554,6 +2570,11 @@ func on_drag_release(c: Ctrl) -> void:
 			settle(s)
 			set_status("%s placed" % s.name)
 		grid_patch.visible = false
+	elif dr.type == "two":
+		var ts: Shape = dr.shape
+		make_lbl.visible = false
+		set_status("%s size locked: %s" % [ts.name, dims_text(ts)])
+		haptic(c, 0.4, 0.04)
 	elif dr.type == "move":
 		settle(dr.shape, STEP_UP)
 		grid_patch.visible = false
@@ -2644,6 +2665,62 @@ func update_free(c: Ctrl, dr: Dictionary) -> void:
 	s.node.position = p
 	s.node.quaternion = Quaternion(Vector3.UP, yaw)
 	refresh_shape(s)
+
+
+## Second hand grabs (trigger) the object the other hand is carrying: pull the hands apart / together to
+## resize it along the axis you're pulling (smooth, no snapping), turn the hands around each other to turn it.
+## Let go with the second hand and the size locks in. One undo step.
+func start_two_hand(c: Ctrl) -> bool:
+	var other: Ctrl = ctrls[0] if c == ctrls[1] else ctrls[1]
+	var od = other.drag
+	if od == null or not (od.type == "free" or od.type == "move"):
+		return false
+	var s: Shape = od.shape
+	var on_it: bool = (c.shape_hit != null and c.shape_hit.shape == s) or shape_at_hand(c, 0.15) == s
+	if not on_it or s.pinned:
+		return false
+	var v: Vector3 = c.o - other.o
+	if v.length() < 0.05:
+		return false
+	var lv: Vector3 = s.node.quaternion.inverse() * v
+	var ax := "x"
+	if absf(lv.y) >= absf(lv.x) and absf(lv.y) >= absf(lv.z):
+		ax = "y"
+	elif absf(lv.z) >= absf(lv.x):
+		ax = "z"
+	var key := ax
+	if s.type != "box":
+		key = "h" if ax == "y" and s.dims.has("h") else "r"
+	push_history(_snap_undo(s))
+	c.drag = {"type": "two", "release": "trigger", "shape": s, "other": other, "len0": v.length(),
+		"key": key, "size0": float(s.dims[key]), "yaw_prev": atan2(v.x, v.z)}
+	haptic(c, 0.5, 0.04)
+	set_status("Resizing %s: pull apart / push together. Let go to lock it." % s.name)
+	return true
+
+
+func update_two_hand(c: Ctrl, dr: Dictionary) -> void:
+	var s: Shape = dr.shape
+	var other: Ctrl = dr.other
+	var od = other.drag
+	if od == null or od.shape != s:
+		on_drag_release(c)
+		return
+	var v: Vector3 = c.o - other.o
+	var f: float = v.length() / maxf(0.01, float(dr.len0))
+	var k: String = dr.key
+	s.dims[k] = maxf(MIN_SIZE, float(dr.size0) * f)
+	var yaw := atan2(v.x, v.z)
+	var dy := wrapf(yaw - float(dr.yaw_prev), -PI, PI)
+	dr.yaw_prev = yaw
+	if od.type == "free":
+		od.yaw0 += dy
+	else:
+		s.node.quaternion = Quaternion(Vector3.UP, dy) * s.node.quaternion
+	refresh_shape(s)
+	set_label(make_lbl, [s.name, dims_text(s)])
+	make_lbl.position = s.node.position + Vector3(0, scale_of(s.type, s.dims).y / 2.0 + 0.1, 0)
+	make_lbl.visible = true
 
 
 func scale_shape(s: Shape, f: float) -> void:
@@ -2938,7 +3015,8 @@ func update_make_preview() -> void:
 		c.tip.visible = mode in TIP_MODES and c.node.get_is_active()
 	if not (mode in TIP_MODES):
 		make_prev.visible = false
-		make_lbl.visible = false
+		if not ctrls.any(func(k): return k.drag != null and k.drag.type == "two"):
+			make_lbl.visible = false
 		return
 	var c: Ctrl = tip_ctrl if tip_ctrl != null else ctrls[1]
 	var p := tip_point(c)
@@ -3280,13 +3358,13 @@ func _process(delta: float) -> void:
 				"free": update_free(c, dr)
 				"handle": update_handle(c, dr)
 				"edit": update_edit(c, dr)
+				"two": update_two_hand(c, dr)
 	update_hovers()
 	update_edit_hover()
 	update_make_preview()
 	update_falling()
 	update_preview()
 	update_fit(delta)
-	layout_tray_wrist()
 	if menu.is_open:
 		if menu_dirty:
 			rebuild_menu()

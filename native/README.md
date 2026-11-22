@@ -33,8 +33,8 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 | **Left ≡ button** | **Settings** menu, stuck to the left hand: units, grid, room lines, scan, save, Rooms..., export, clear, Turn room, Accuracy test, Room info, Fit check, quit |
 | **X** or **A** | **Clipboard** menu. Pointing at a shape: Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Bigger 5%** / **Smaller 5%** / **Reset size** / **Undo**. On empty space: Paste (where you pointed) / Next clip / Undo |
 | **Y** or **B** | **Objects** menu from [`objects.csv`](../objects.csv), with a sidebar: **Trace**, **Box**, **Custom...**, **Save selected** |
-| **Tap** X / A / Y / B | X / A: the clipboard menu pops up 20 cm in front of that controller and **stays put**. Y / B: the objects menu **rides on that wrist** like a palette: look down, grab with the other hand. Picking from it doesn't close it (the clipboard menu follows whatever you select). Tap the same button again to close it |
-| **Hold** X / A / Y / B | Quick-pick: the same menu pops up; point at an item **with the same hand** and **let go of the button** to pick it. The menu closes. An object you quick-pick hangs on your pointer: click the trigger to put it down |
+| **Tap** X / A / Y / B | X / A: the clipboard menu pops up 20 cm in front of that controller and **stays put**. Y / B: the objects menu pops up **70 cm in front of that controller** and stays there; trigger-grab objects from it, tap again to close. Picking from it doesn't close it (the clipboard menu follows whatever you select). Tap the same button again to close it |
+| **Hold** X / A / Y / B | Quick-pick. X / A: point at an item **with the same hand** and **let go of the button** to pick it. Y / B: letting go picks nothing; the menu stays up until you **trigger-grab** one object, then it closes. The menu closes. An object you quick-pick hangs on your pointer: click the trigger to put it down |
 | **Rotate/Move:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
 | **Rotate/Move:** quick trigger **tap** on an object | Select it (nothing moves) |
 | **Grip** on an object | Slide it on the grid, staying on its floor (steps up onto floors up to 30 cm high, e.g. into a container) |
@@ -44,6 +44,12 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 | **Scale** tool | Trigger an object, then trigger-drag its yellow / orange cubes to resize one side / the radius |
 | **Edit** tool | Point at a face (it outlines in yellow), hold trigger and **pull**: that face moves along its axis, the opposite face stays put (1 mm steps). Round shapes: top/bottom = height, sides = radius |
 | **Player move** tool | **Left stick** slides you through the wireframe, **right stick** left/right turns you smoothly, up/down raises or lowers you smoothly (the room moves, your real office doesn't). Grabbing still works. Tools > **Reset position** puts the room back where it really is |
+
+**Two-hand resize:** carry an object with one hand, then grab it with the other (trigger). Pull your hands apart or together to stretch it along that direction (smooth, no snapping); turn your hands around each other to turn it. Let go with the second hand and the size locks in. Undo reverses the whole adjustment.
+
+**Objects from the menu** appear at least 3 m away (their nearest edge), still on your pointer; pull them in with the stick.
+
+**X / A with your hand inside an object** targets that object, not whatever the ray points at.
 
 **Drawing with the controller tip** (a yellow dot shows the tip; points snap to corners within 2.5 cm):
 - **Box** (objects sidebar): put the tip on one corner, hold trigger, pull to the opposite corner, let go. Or click, move, click. Grip cancels.

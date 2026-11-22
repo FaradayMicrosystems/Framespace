@@ -139,3 +139,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Added mid-build: 1 m / 1.5 m shelf spacers (50 cm removed), 22RU rack (42/48 removed), industrial garage shelving, and a 1.75 m anthro snow leopard wireframe replacing the Person cylinder.
 - Tests: native self-test 181/181 (was 161), run locally on Godot 4.6.2.
 - AI involvement: Claude built and tested all of it in one session.
+
+## 2026-11-22 (Brisbane): v0.24, objects menu at 70 cm, trigger-grab picking, two-hand resize, 3 m spawn, vehicles and buildings
+
+- Aurora queued these between 13:16 and 13:41 and said go at 13:41: objects menu 70 cm ahead and stationary (the wrist menu was wrong); Y/B release never picks, trigger-grab does; two-hand grab to stretch/turn with a smooth fine adjustment that locks on release; spawn at least 3 m away; X/A selects the object your hand is inside; Chery Stockman, Farizon H9E (her own truck), garages, solar carport, Bunnings carton run, standing desks, XSR900 GP, folding table, gaming chair; redo the bin, workbench and sofa; remove crate, pantry, wall cabinet and snow leopard.
+- Decisions: two-hand resize stretches along the object axis closest to the line between your hands (her "right size and dimension"), uniform turning around the vertical; H9E built as the 4.5 t cargo box (walk-in, like the Pantech it replaces); Bunnings sells light and heavy duty, so the run is light 26/72/107 L and heavy 52/104/150 L.
+- Tests: native self-test 202/202 (was 181), run locally on Godot 4.6.2.
+- AI involvement: Claude researched the specs (Chery, Farizon, Yamaha, Bunnings) and built and tested everything in one session.
