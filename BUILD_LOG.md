@@ -136,5 +136,6 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 
 - Aurora asked for: Free draw removed; Trace height fixed (not nearly enough travel); a way to switch Trace/Box off; the objects menu as a toggle on her wrist; Player move right stick = smooth turn + smooth up/down; AU pallet loaded, Person, Wheelchair turn, Office desk and Car (sedan) removed; IBC and 205 L drum made realistic; more kitchen pieces.
 - Decisions: Trace height now comes from where the controller's ray crosses the vertical above the outline's middle, so the height isn't limited by arm reach. Trace/Box sidebar buttons toggle (ON/off). Objects menu: a tap puts it on that wrist and it follows; hold still quick-picks in front of the controller (pointing at a wrist menu with the same hand isn't possible). Kitchen pieces sized to the 600 deep / 900 high bench line; the wall cabinet is hollow below so it overlaps a bench.
-- Tests: native self-test 179/179 (was 161), run locally on Godot 4.6.2.
+- Added mid-build: 1 m / 1.5 m shelf spacers (50 cm removed), 22RU rack (42/48 removed), industrial garage shelving, and a 1.75 m anthro snow leopard wireframe replacing the Person cylinder.
+- Tests: native self-test 181/181 (was 161), run locally on Godot 4.6.2.
 - AI involvement: Claude built and tested all of it in one session.

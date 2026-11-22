@@ -9,7 +9,8 @@
 - **Player move:** right stick left/right = smooth turn, up/down = smooth raise/lower. No snapping. Left stick still slides you.
 - **Free draw removed** from the Tools menu.
 
-## Objects (51 total)
-- **Removed:** AU pallet loaded, Person, Wheelchair turn, Office desk, Car (sedan).
+## Objects (53 total)
+- **Removed:** AU pallet loaded, the Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42 RU and 48 RU racks, 50 cm shelf spacer.
+- **New:** Snow leopard 1.75 m (anthro wireframe, person-sized reference), Garage shelving 1800 (industrial steel, 5 decks you can put things on), Rack 22RU 1200D (between the 18 and 24), Shelf spacer 1 m and 1.5 m.
 - **Rebuilt:** IBC 1000 L (steel cage, pallet base with forklift entries, HDPE tank, top cap, front valve) and 205 L drum (round wireframe with rims, chimes and two rolling hoops, lid bungs).
 - **New kitchen (fits the 600 / 900 bench line):** Kitchen sink bench 900, Kitchen oven bench 600 (cooktop on top), Dishwasher 600, Kitchen corner 900 (L-shape), Pantry 600 (2100 tall), Wall cabinet 600 (hangs at 1450–2170, hollow below so it slides over a bench), Island bench 1800, Bar stool.

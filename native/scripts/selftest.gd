@@ -51,8 +51,8 @@ func run(m) -> void:
 	check("Motorcycle is in the palette", labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (51 objects)", main.PALETTE.size() == 51, str(main.PALETTE.size()))
-	check("AU pallet loaded, Person, Wheelchair turn, Office desk and Car (sedan) are gone", not (labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
+	check("Palette loaded from objects.csv (53 objects)", main.PALETTE.size() == 53, str(main.PALETTE.size()))
+	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
 	var drm = main.PALETTE[labels.find("Drum 205 L")] if labels.has("Drum 205 L") else null
@@ -62,11 +62,15 @@ func run(m) -> void:
 	var wc = main.PALETTE[labels.find("Wall cabinet 600")] if labels.has("Wall cabinet 600") else null
 	check("Wall cabinet hangs at 1450 mm and is hollow below (slides over a bench)", wc != null and wc.outline.solids.size() == 1)
 	for nm in ["Carton large", "Carton small", "10ft container", "Tandem box trailer", "Pantech truck 4.5 t", "King bed", "Single bed", "Wardrobe 2-door", "Kitchen bench 600", "Dryer",
-			"Shelf 5 cm", "Shelf 30 cm", "Shelf spacer 50 cm", "Rack 18RU 1200D", "Rack 24RU 1200D", "Rack 42RU 1200D", "Rack 48RU 1200D"]:
+			"Shelf 5 cm", "Shelf 30 cm", "Shelf spacer 1 m", "Shelf spacer 1.5 m", "Rack 18RU 1200D", "Rack 22RU 1200D", "Rack 24RU 1200D", "Garage shelving 1800", "Snow leopard 1.75 m"]:
 		if not labels.has(nm):
 			check("New object " + nm, false)
-	var rk = main.PALETTE[labels.find("Rack 42RU 1200D")]
-	check("42RU rack: 600 x 1200 x 2067 mm with a detailed wireframe", is_equal_approx(rk.dims.x, 1.2) and is_equal_approx(rk.dims.z, 0.6) and is_equal_approx(rk.dims.y, 2.067) and rk.outline.parts.size() > 80)
+	var rk = main.PALETTE[labels.find("Rack 22RU 1200D")]
+	check("22RU rack: 600 x 1200 x 1178 mm with a detailed wireframe", is_equal_approx(rk.dims.x, 1.2) and is_equal_approx(rk.dims.z, 0.6) and is_equal_approx(rk.dims.y, 1.178) and rk.outline.parts.size() > 50, str(rk.dims))
+	var snl = main.PALETTE[labels.find("Snow leopard 1.75 m")]
+	check("Snow leopard is 1.75 m tall and a detailed wireframe", is_equal_approx(snl.dims.y, 1.75) and snl.outline.parts.size() > 100)
+	var gsh = main.PALETTE[labels.find("Garage shelving 1800")]
+	check("Garage shelving: 5 solid decks you can put things on", gsh.outline.solids.size() == 5)
 	# Stacking: dryer on the washer; shelves stack board-gap by board-gap; spacer panel holds things.
 	var wsh = main.PALETTE[labels.find("Washing machine")]
 	var dry = main.PALETTE[labels.find("Dryer")]
@@ -76,7 +80,7 @@ func run(m) -> void:
 	check("Dryer dropped on the washer stacks on top (bottom at 850 mm)", absf(ds.node.position.y - dry.dims.y / 2.0 - 0.85) < 0.003, str(ds.node.position))
 	var sh30 = main.PALETTE[labels.find("Shelf 30 cm")]
 	var sh20 = main.PALETTE[labels.find("Shelf 20 cm")]
-	var spc = main.PALETTE[labels.find("Shelf spacer 50 cm")]
+	var spc = main.PALETTE[labels.find("Shelf spacer 1 m")]
 	var a1 = main.make_shape("box", spc.dims, Vector3(22, spc.dims.y / 2.0, 22), Quaternion.IDENTITY, "Sp", spc.outline)
 	# (Created off to the side, then moved over: a new physics body only moves on the next physics frame.)
 	var a2 = main.make_shape("box", sh30.dims, Vector3(26, 3.0, 26), Quaternion.IDENTITY, "S30", sh30.outline)
@@ -85,11 +89,11 @@ func run(m) -> void:
 	var a3 = main.make_shape("box", sh20.dims, Vector3(27, 4.0, 27), Quaternion.IDENTITY, "S20", sh20.outline)
 	a3.node.position = Vector3(22, 4.0, 22)
 	main.settle(a3)
-	check("Spacer 50 + shelf 30 + shelf 20 stack: top board at 1.0 m", absf(a3.node.position.y + sh20.dims.y / 2.0 - 1.0) < 0.003, str(a3.node.position))
+	check("Spacer 1 m + shelf 30 + shelf 20 stack: top board at 1.5 m", absf(a3.node.position.y + sh20.dims.y / 2.0 - 1.5) < 0.003, str(a3.node.position))
 	var cart = main.make_shape("box", {"x": 0.3, "y": 0.2, "z": 0.2}, Vector3(28, 4.0, 28))
 	cart.node.position = Vector3(22, 4.0, 22)
 	main.settle(cart)
-	check("A box dropped on the top shelf sits on its board", absf(cart.node.position.y - 1.1) < 0.003, str(cart.node.position))
+	check("A box dropped on the top shelf sits on its board", absf(cart.node.position.y - 1.6) < 0.003, str(cart.node.position))
 	for sx in [ws, ds, a1, a2, a3, cart]:
 		main.remove_shape(sx)
 		sx.node.queue_free()
