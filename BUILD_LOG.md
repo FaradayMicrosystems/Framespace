@@ -170,3 +170,11 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 ## 2026-11-22 (Brisbane): v0.27.1, update test
 
 - Aurora asked for a no-op release to test updating the installed APK in place. Only the version (name 0.27.1, Android code 29) changed.
+
+## 2026-11-22 (Brisbane): v0.28, batch of 11 (first batched release)
+
+- Aurora set a standing rule: batch releases at 7+ changes. She queued 11 for v0.28 between 14:40 and 15:00, answered the open questions, and said go at 15:01.
+- Changes: V7E open cargo opened at the rear and sliding doors; line of sight for the pointer (copy of each object's occlusion body; real walls block too); spawn 0.5 m in front of the head (2 m for big objects); Grid in the Tools menu (10/5/1 cm); old measuring tools removed; Tape/Area/Volume on a cursor 10 cm off the tip with 45° snapping unless grip is held; Volume tool; Box draw; rename custom objects with an on-screen keyboard; objects menu 4 x 4 with stick scrolling, riding 25 cm in front of the controller.
+- Decisions: hollow objects occlude (and block the pointer) with their solid parts, including hidden cab boxes, instead of their side profile; cab boxes split so the space above a bonnet isn't solid.
+- Tests: native self-test 245/245 (was 222), run locally on Godot 4.6.2.
+- AI involvement: Claude built, tested, merged and released it in one session.

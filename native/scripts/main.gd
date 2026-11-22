@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.27.1"
+const BUILD := "0.28"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -21,6 +21,7 @@ const LAYER_ROOM := 2
 const LAYER_SHAPE := 4
 const LAYER_HANDLE := 8
 const LAYER_UI := 16
+const LAYER_SIGHT := 32       # what you can see of an object (its occlusion body): the pointer stops there
 
 const COLORS := {"box": Color("00e5ff"), "sphere": Color("7cff6b"), "cylinder": Color("ffb020"), "cone": Color("ff5ad1")}
 const NAMES := {"box": "Box", "sphere": "Sphere", "cylinder": "Cylinder", "cone": "Cone"}
@@ -245,17 +246,25 @@ func load_palette() -> void:
 # Objects live in the Y / B objects menu; cut, copy, paste, duplicate, delete, pin, size and undo in the X / A clipboard menu.
 const MENU_TOOLS := [
 	"select", "scale", "edit", "playermove",
-	"tape", "circle", "rect", "height",
-	"angle", "path", "area", "resetpos",
+	"tape", "area", "volume", "boxdraw",
+	"grid", "resetpos",
 ]
 const MENU_SETTINGS := [
-	"units", "grid", "roomvis", "scan",
+	"units", "roomvis", "scan",
 	"save", "rooms", "export", "clear",
 	"turnl5", "turnl1", "turnr1", "turnr5",
 	"accuracy", "roominfo", "fitcheck", "occlude",
 	"quit",
 ]
-const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake"]
+const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake", "boxdraw"]
+const CURSOR_MEASURE := 0.10    # Tape / Area / Volume: the point is 10 cm off the controller tip, free in 3D
+const CURSOR_BOXDRAW := 0.5     # Box draw: 50 cm off the tip
+const FLOOR_SNAP := 0.08        # Area / Volume / Box draw points within 8 cm above a surface snap onto it
+const GRID_STEPS := [0.10, 0.05, 0.01]
+const SPAWN_NEAR := 0.5         # objects from the menu: nearest edge 50 cm in front of you
+const SPAWN_BIG := 2.0          # ...2 m for big ones (over 1.5 m long or wide)
+const TRAY_COLS := 4
+const TRAY_ROWS := 4
 const TIP_MODES := ["trace", "boxmake"]   # draw with the tip of the controller
 const TIP_SNAP := 0.03          # tip points join an earlier point within 3 cm (closes loops, shares corners)
 const FREEHAND_STEP := 0.03     # holding trigger while drawing drops a point every 3 cm
@@ -270,13 +279,13 @@ const ACC_REFS := [
 const FIT_MARGIN := 0.02        # overlaps under 2 cm (scan noise, flush contact) don't count as "doesn't fit"
 const FIT_EVERY := 0.2          # seconds between fit checks
 const C_RED := Color("ff4d4d")
-const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area", "acctest"]
+const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area", "volume", "acctest"]
 const EDIT_TOOLS := ["scale", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin"]
 const MODE_NAMES := {"select": "Rotate/Move", "edit": "Edit", "playermove": "Player move",
 	"trace": "Trace", "boxmake": "Box", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
 	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
-	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test"}
+	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test", "volume": "Volume", "boxdraw": "Box draw"}
 const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
 const ROT_SPEED := 120.0        # degrees/s at full stick left/right while holding
 const PUSH_SPEED := 1.5         # m/s at full stick forward/back while holding
@@ -285,8 +294,8 @@ const TAP_SEC := 0.25           # a trigger tap shorter than this (and not moved
 const HOLD_SEC := 0.3           # face button held this long = quick-pick (release picks + closes); shorter = palette
 const PLAYER_TURN_SPEED := 60.0  # Player move: degrees/s at full right stick left/right
 const PLAYER_LIFT_SPEED := 0.75  # Player move: m/s up/down at full right stick
-const TRAY_AHEAD := 0.7         # objects menu (Y / B) pops up 70 cm in front of the controller
-const SPAWN_MIN := 3.0          # objects picked from the menu appear at least 3 m away (nearest edge)
+const TOOLS_AHEAD := 0.7        # Tools menu (stick click) pops up 70 cm in front of the controller
+const TRAY_AHEAD := 0.25         # objects menu (Y / B) pops up 70 cm in front of the controller
 const MENU_AHEAD := 0.2         # face-button menus pop up 20 cm in front of the controller
 
 
@@ -311,6 +320,7 @@ class Shape:
 	var fit_hits: Array = []         # names of walls / furniture / shapes it overlaps (Fit check)
 	var occ: MeshInstance3D          # invisible depth-only body: hides wireframe lines behind it (Occlusion)
 	var occ_key := ""
+	var sight: StaticBody3D           # LAYER_SIGHT copy of the occlusion body: blocks the pointer like it blocks your view
 
 
 class Measure:
@@ -353,7 +363,7 @@ class Ctrl:
 # ---------------------------------------------------------------- state
 var units := "metric"
 var mode := "select"           # select | a MEASURE_TOOLS entry | an EDIT_TOOLS entry
-var grid := 0.05               # metres; 0 = off
+var grid := 0.10               # metres; 0 = off
 var room_visible := true
 var status := "Pick a shape or a measuring tool."
 var shapes: Array = []
@@ -382,6 +392,11 @@ var edit_hl: MeshInstance3D    # Edit: outline of the face you're pointing at
 var tray_side: Node3D          # sidebar beside the objects menu: Trace, Box, Custom
 var tray_page := "all"         # all (objects.csv) | custom (your saved objects)
 var custom_objs: Array = []    # [{label, type, dims, outline}] saved to user://custom_objects.json
+var tray_scroll := 0           # objects menu: first visible row (4 x 4 window, stick up/down scrolls)
+var custom_rename := false     # Custom page: picking an object opens the keyboard to rename it
+var kbd: Node3D                # on-screen keyboard (rename custom objects)
+var kbd_text := ""
+var kbd_target := -1
 var custom_remove := false     # Custom page: picking an object deletes it
 var draft := {}                # Trace / Box in progress
 var make_prev: MeshInstance3D  # their live preview (content-local lines)
@@ -650,6 +665,9 @@ func _build_world() -> void:
 	tray_side = UIPanel.new()
 	tray_side.name = "TraySide"
 	add_child(tray_side)
+	kbd = UIPanel.new()
+	kbd.name = "Keyboard"
+	add_child(kbd)
 
 	make_prev = MeshInstance3D.new()
 	make_prev.material_override = _unlit(C_YELLOW, true)
@@ -917,6 +935,7 @@ func build_occ(s: Shape, sc: Vector3) -> void:
 	if s.type != "box":
 		s.occ.mesh = unit_fill[s.type]
 		s.occ.scale = (sc - Vector3.ONE * OCC_INSET * 2.0).max(Vector3.ONE * 0.001)
+		_update_sight(s)
 		return
 	var o := s.outline
 	var st := SurfaceTool.new()
@@ -924,6 +943,14 @@ func build_occ(s: Shape, sc: Vector3) -> void:
 	var n := 0
 	var ins := Vector3.ONE * OCC_INSET
 	var pts: Array = o.get("pts", [])
+	var solids: Array = o.get("solids", [])
+	if not solids.is_empty():
+		# Hollow (walk-in / open cargo): its solid parts are what you can't see through.
+		for sd in solids:
+			var hs := (Vector3(sd[3], sd[4], sd[5]) * sc - ins).max(Vector3.ONE * 0.0005)
+			_occ_box(st, Vector3(sd[0], sd[1], sd[2]) * sc, hs)
+			n += 1
+		pts = []
 	if pts.size() >= 3:
 		var poly := PackedVector2Array()
 		for p in pts:
@@ -948,6 +975,30 @@ func build_occ(s: Shape, sc: Vector3) -> void:
 		_occ_box(st, Vector3.ZERO, (sc / 2.0 - ins).max(Vector3.ONE * 0.0005))
 		n += 1
 	s.occ.mesh = st.commit() if n > 0 else null
+	_update_sight(s)
+
+
+## The pointer stops at whatever you can see: a collision copy of the occlusion body on LAYER_SIGHT.
+func _update_sight(s: Shape) -> void:
+	if s.sight == null:
+		s.sight = StaticBody3D.new()
+		s.sight.collision_layer = LAYER_SIGHT
+		s.sight.collision_mask = 0
+		s.sight.set_meta("shape", s)
+		s.sight.add_child(CollisionShape3D.new())
+		s.node.add_child(s.sight)
+	var cs := s.sight.get_child(0) as CollisionShape3D
+	if s.occ.mesh == null:
+		cs.shape = null
+		return
+	var faces := s.occ.mesh.get_faces()
+	if s.occ.scale != Vector3.ONE:
+		for i in faces.size():
+			faces[i] = faces[i] * s.occ.scale
+	var cps := ConcavePolygonShape3D.new()
+	cps.backface_collision = true
+	cps.set_faces(faces)
+	cs.shape = cps
 
 
 func refresh_shape(s: Shape) -> void:
@@ -1280,27 +1331,62 @@ const TOOL_POINTS := {"tape": 2, "circle": 3, "rect": 3, "angle": 3, "height": 1
 
 func tool_hint(t: String, n: int) -> String:
 	match t:
-		"tape": return "Tape: point at the first end and press trigger." if n == 0 else "Now point at the second end."
+		"tape": return "Tape: the yellow dot 10 cm off the tip is the point. Trigger at one end (hold and drag, or click), then the other. Lines snap to 45° unless you hold grip." if n == 0 else "Now the other end: let go / click. Hold grip for a free angle."
 		"circle": return "Circle: tap 3 points around a round edge." if n == 0 else "Point %d of 3 on the round edge." % (n + 1)
 		"rect": return ["Rect: tap one corner.", "Tap the next corner along the same edge.", "Tap anywhere on the opposite edge."][mini(n, 2)]
 		"height": return "Height: tap a point. Shows its height above the floor."
 		"angle": return ["Angle: tap a point on the first arm.", "Tap the corner (vertex).", "Tap a point on the second arm."][mini(n, 2)]
 		"path": return "Path: tap points along the route. Tap the last point again to finish." if n < 2 else "Path: keep tapping. Tap the last point again to finish."
-		"area": return "Area: tap the corners of the outline. Tap the first point again to close it." if n < 3 else "Area: keep tapping, or tap the first point to close."
+		"area": return "Area: trigger at each corner (dot 10 cm off the tip; snaps to the floor). Tap the first point again to close it." if n < 3 else "Area: keep tapping, or tap the first point to close."
+		"volume": return "Volume: trigger at each corner of the outline, tap the first one to close, then raise your hand for the height and trigger." if n < 3 else "Volume: keep tapping, or tap the first point to close."
 		"acctest":
 			var lbl: String = acc_ref.get("label", "reference")
 			return ("Accuracy: tap one end of the %s (true %.1f mm)." % [lbl, acc_ref.get("mm", 0.0)]) if n == 0 else "Now tap the other end of the %s." % lbl
 	return ""
 
 
+## Tape / Area / Volume / Box draw: the point rides 10 cm (Box draw 50 cm) off the controller tip, free in 3D.
+## Area / Volume / Box draw snap down onto a surface within 8 cm. Snaps to existing points within 3 cm.
+## Not holding grip: the new segment snaps to the nearest 45° from the last point (Tape / Area / Volume).
+func cursor_point(c: Ctrl, free_angle := false) -> Vector3:
+	var off := CURSOR_BOXDRAW if mode == "boxdraw" else CURSOR_MEASURE
+	var p: Vector3 = c.o + c.d * off
+	if mode in ["area", "volume", "boxdraw"]:
+		var sup := support_below(p.x, p.z, p.y, null)
+		if p.y - sup < FLOOR_SNAP:
+			p.y = sup
+	var sp = snap_point(p)
+	if sp != null and p.distance_to(sp) < TIP_SNAP:
+		return sp
+	if mode in ["tape", "area", "volume"] and pending.size() and not free_angle:
+		p = snap45(pending[-1], p, mode != "tape")
+	return p
+
+
+## Point b moved onto the nearest 45° direction from a (flat: stay at a's height).
+func snap45(a: Vector3, b: Vector3, flat: bool) -> Vector3:
+	var v := b - a
+	if flat:
+		v.y = 0.0
+	var l := v.length()
+	if l < 0.001:
+		return a
+	var step := PI / 4.0
+	var yaw := roundf(atan2(v.x, v.z) / step) * step
+	var h := Vector2(v.x, v.z).length()
+	var pitch := 0.0 if flat else roundf(atan2(v.y, h) / step) * step
+	var dir := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
+	return a + dir * l
+
+
 func add_pending_point(p: Vector3) -> void:
 	var finish := false
 	if mode == "path" and pending.size() >= 2 and p.distance_to(pending[-1]) < 0.01:
 		finish = true
-	elif mode == "area" and pending.size() >= 3 and p.distance_to(pending[0]) < SNAP_POINT:
+	elif mode in ["area", "volume"] and pending.size() >= 3 and p.distance_to(pending[0]) < SNAP_POINT:
 		finish = true
 	if not finish:
-		if mode in ["path", "area"] and pending.size() and p.distance_to(pending[-1]) < 0.01:
+		if mode in ["path", "area", "volume"] and pending.size() and p.distance_to(pending[-1]) < 0.01:
 			return     # double tap on the same spot too early: ignore
 		pending.append(p)
 		var dot := _dot(p)
@@ -1315,6 +1401,15 @@ func add_pending_point(p: Vector3) -> void:
 		var b: Vector3 = pending[1]
 		clear_pending()
 		record_trial(a, b)
+		return
+	if mode == "volume":
+		# Outline closed: now the height. Raise / lower your hand (the dot), trigger to set it.
+		var pts: Array = []
+		for q: Vector3 in pending:
+			pts.append(Vector3(q.x, pending[0].y, q.z))
+		clear_pending()
+		draft = {"kind": "trace", "pts": pts, "phase": "height", "vol": true}
+		set_status("Outline closed (%s). Raise or lower the dot for the height, then trigger." % AREA(_poly_area_xz(pts)))
 		return
 	var m := create_measure(measure_type(mode), pending)
 	clear_pending()
@@ -1545,6 +1640,8 @@ func button_text(id: String) -> String:
 		"angle": return "Angle 3-pt"
 		"path": return "Path"
 		"area": return "Area"
+		"volume": return "Volume"
+		"boxdraw": return "Box draw"
 		"settings": return "Settings..."
 		"reset": return "Reset size"
 		"scale": return "Scale"
@@ -1613,7 +1710,7 @@ func menu_items() -> Array:
 		]
 	for id in (MENU_TOOLS if menu_kind == "tools" else MENU_SETTINGS):
 		var col := Color.WHITE
-		if id in MEASURE_TOOLS:
+		if id in MEASURE_TOOLS or id == "boxdraw":
 			col = C_YELLOW
 		elif id in ["quit", "delete", "clear"]:
 			col = Color("ff6b6b")
@@ -1625,7 +1722,7 @@ func menu_items() -> Array:
 
 func tray_items() -> Array:
 	var out := []
-	for i in PALETTE.size():
+	for i in _tray_window(PALETTE.size()):
 		var p: Dictionary = PALETTE[i]
 		out.append({"id": "obj:%d" % i, "label": p.label, "sub": short_dims(p.type, p.dims), "color": COLORS[p.type]})
 	return out
@@ -1670,7 +1767,7 @@ func open_menu(c: Ctrl, fixed := false, kind := "tools") -> void:
 	if kind == "tools" and not fixed:
 		# Like the objects menu: 70 cm out from that controller, stationary. Point and pull the trigger to pick.
 		menu_attach = null
-		menu_anchor = c.node.global_position - c.node.global_basis.z.normalized() * TRAY_AHEAD
+		menu_anchor = c.node.global_position - c.node.global_basis.z.normalized() * TOOLS_AHEAD
 	elif fixed:
 		var fwd := -camera.global_basis.z
 		fwd.y = 0
@@ -1716,13 +1813,16 @@ func open_tray(c: Ctrl) -> void:
 
 
 func _build_tray() -> void:
+	var n := custom_objs.size() if tray_page == "custom" else PALETTE.size()
+	var its := custom_items() if tray_page == "custom" else tray_items()
+	var rng := ("%d–%d of %d  ·  stick up/down scrolls" % [tray_scroll * TRAY_COLS + 1, tray_scroll * TRAY_COLS + its.size(), n]) if n > 0 else ""
 	if tray_page == "custom":
-		var t := "CUSTOM OBJECTS  ·  " + ("REMOVE: pick one to delete it" if custom_remove else "trigger or grip one to grab it")
+		var t := "CUSTOM  ·  " + ("REMOVE: pick one" if custom_remove else ("RENAME: pick one" if custom_rename else "trigger one to place it"))
 		if custom_objs.is_empty():
-			t = "CUSTOM OBJECTS  ·  select something, then Save selected"
-		tray.build(t, [], custom_items(), 6, 0.07)
+			t = "CUSTOM  ·  select something, then Save selected"
+		tray.build(t, [[rng, Color(0.6, 0.65, 0.7)]] if rng != "" else [], its, TRAY_COLS, 0.085)
 	else:
-		tray.build("OBJECTS  ·  trigger or grip one to grab it", [], tray_items(), 6, 0.07)
+		tray.build("OBJECTS  ·  trigger one to place it", [[rng, Color(0.6, 0.65, 0.7)]], its, TRAY_COLS, 0.085)
 	tray_side.build("MAKE", [], side_items(), 1, 0.1)
 
 
@@ -1734,15 +1834,33 @@ func side_items() -> Array:
 		{"id": "side:save", "label": "Save selected", "sub": selected.name if selected else "select one first", "enabled": selected != null},
 	]
 	if tray_page == "custom":
+		out.append({"id": "side:rename", "label": "Rename: on" if custom_rename else "Rename: off", "color": C_CYAN, "active": custom_rename})
 		out.append({"id": "side:remove", "label": "Remove: on" if custom_remove else "Remove: off", "color": Color("ff6b6b"), "active": custom_remove})
 	return out
 
 
+## Indices shown in the 4 x 4 window at the current scroll row.
+func _tray_window(n: int) -> Array:
+	var rows := ceili(float(n) / TRAY_COLS)
+	tray_scroll = clampi(tray_scroll, 0, maxi(0, rows - TRAY_ROWS))
+	var a := tray_scroll * TRAY_COLS
+	return range(a, mini(n, a + TRAY_COLS * TRAY_ROWS))
+
+
+func scroll_tray(rows: int) -> void:
+	var n := custom_objs.size() if tray_page == "custom" else PALETTE.size()
+	var old := tray_scroll
+	tray_scroll += rows
+	_tray_window(n)
+	if tray_scroll != old:
+		refresh_tray()
+
+
 func custom_items() -> Array:
 	var out := []
-	for i in custom_objs.size():
+	for i in _tray_window(custom_objs.size()):
 		var p: Dictionary = custom_objs[i]
-		out.append({"id": "cus:%d" % i, "label": p.label, "sub": short_dims(p.type, p.dims), "color": Color("ff6b6b") if custom_remove else COLORS[p.type]})
+		out.append({"id": "cus:%d" % i, "label": p.label, "sub": short_dims(p.type, p.dims), "color": Color("ff6b6b") if custom_remove else (C_CYAN if custom_rename else COLORS[p.type])})
 	return out
 
 
@@ -1756,6 +1874,15 @@ func _layout_tray_side() -> void:
 	tray_side.global_position = tray.global_position - right * (tray.size.x / 2.0 + 0.012 + tray_side.size.x / 2.0) + up * (tray.size.y - tray_side.size.y) / 2.0
 
 
+## The objects menu rides 25 cm straight out in front of the controller that opened it, like a palette.
+func layout_tray() -> void:
+	if not tray.is_open or tray_attach == null:
+		return
+	tray.global_position = tray_attach.node.global_position - tray_attach.node.global_basis.z.normalized() * TRAY_AHEAD
+	tray.face(camera.global_position)
+	_layout_tray_side()
+
+
 ## Rebuild the objects menu where it is (page switch, new custom object...).
 func refresh_tray() -> void:
 	if not tray.is_open:
@@ -1764,6 +1891,7 @@ func refresh_tray() -> void:
 	_build_tray()
 	tray.global_transform = xf
 	_layout_tray_side()
+	layout_tray()
 
 
 func run_side(c: Ctrl, id: String) -> void:
@@ -1780,12 +1908,68 @@ func run_side(c: Ctrl, id: String) -> void:
 		"side:custom":
 			tray_page = "all" if tray_page == "custom" else "custom"
 			custom_remove = false
+			custom_rename = false
+			tray_scroll = 0
+		"side:rename":
+			custom_rename = not custom_rename
+			custom_remove = false
 		"side:save":
 			if selected:
 				save_custom(selected)
 		"side:remove":
 			custom_remove = not custom_remove
+			custom_rename = false
 	refresh_tray()
+
+
+const KBD_ROWS := ["1234567890", "QWERTYUIOP", "ASDFGHJKL-", "ZXCVBNM.()"]
+
+
+func open_keyboard(i: int) -> void:
+	kbd_target = i
+	kbd_text = String(custom_objs[i].label)
+	_build_kbd()
+	var head := camera.global_position
+	var fwd := -camera.global_basis.z
+	fwd.y = 0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.FORWARD
+	kbd.open_at(head + fwd * 0.5 + Vector3(0, -0.25, 0), head)
+	set_status("Rename: point and trigger the keys, OK to save.")
+
+
+func _build_kbd() -> void:
+	var items := []
+	for row in KBD_ROWS:
+		for ch in row:
+			items.append({"id": "k:" + ch, "label": ch})
+	items.append_array([{"id": "k:space", "label": "Space"}, {"id": "k:back", "label": "⌫"}, {"id": "k:clear", "label": "Clear", "color": Color("ff6b6b")},
+		{"id": "k:cancel", "label": "Cancel"}, {"id": "k:ok", "label": "OK", "color": C_CYAN}])
+	kbd.build("RENAME", [[kbd_text + "_", Color.WHITE]], items, 10, 0.05)
+
+
+func keyboard_key(id: String) -> void:
+	var k := id.substr(2)
+	match k:
+		"space": kbd_text += " "
+		"back": kbd_text = kbd_text.substr(0, maxi(0, kbd_text.length() - 1))
+		"clear": kbd_text = ""
+		"cancel":
+			kbd.close()
+			set_status("Rename cancelled.")
+			return
+		"ok":
+			var t := kbd_text.strip_edges().replace(",", " ")
+			if t != "" and kbd_target >= 0 and kbd_target < custom_objs.size():
+				custom_objs[kbd_target].label = t
+				save_custom_file()
+				set_status("Renamed to %s." % t)
+			kbd.close()
+			refresh_tray()
+			return
+		_:
+			if kbd_text.length() < 32:
+				kbd_text += k
+	kbd.set_header(0, kbd_text + "_")
 
 
 func close_tray() -> void:
@@ -1899,13 +2083,12 @@ func on_button(id: String, c: Ctrl = null) -> void:
 			set_status("Cleared (pinned objects stay). Undo brings everything back." if shapes.size() > 0 else "Cleared. Undo brings everything back.")
 			persist()
 		"grid":
-			var opts := [0.05, 0.1, 0.01, 0.0]
-			var i := 0
-			for k in opts.size():
-				if is_equal_approx(opts[k], grid):
+			var i := -1
+			for k in GRID_STEPS.size():
+				if is_equal_approx(GRID_STEPS[k], grid):
 					i = k
-			grid = opts[(i + 1) % opts.size()]
-			set_status(("Grid %d cm" % roundi(grid * 100)) if grid > 0 else "Grid off")
+			grid = GRID_STEPS[(i + 1) % GRID_STEPS.size()]
+			set_status("Grid %d cm" % roundi(grid * 100))
 			persist()
 		"save":
 			save_room_now()
@@ -2023,6 +2206,7 @@ func set_tool(t: String, announce := true) -> void:
 		"select": "Rotate/Move: trigger picks up (twist your wrist to turn it), grip slides. While holding: stick left/right turns, forward/back pushes/pulls.",
 		"scale": "Scale: trigger an object to select it, then drag its yellow cubes.",
 		"trace": "Trace: tip on a corner, trigger. Click each corner (or hold trigger and draw). Click the first point to close, then POINT the controller up or down to set the height and click. Grip = undo last point. Y / B > Trace again turns it off.",
+		"boxdraw": "Box draw: the dot 50 cm off the tip snaps to the floor. Trigger at one corner, move to the opposite corner, squeeze grip and raise your hand for the height, let go to lock it, trigger to drop the box.",
 		"boxmake": "Box: tip on one corner, hold trigger, pull to the opposite corner, let go. (Or click, move, click.) Grip cancels. Y / B > Box again turns it off.",
 		"edit": "Edit: point at a face, hold trigger and pull. The face moves along its axis; the opposite face stays put.",
 		"playermove": "Player move: left stick slides you through the room. Right stick: left/right turns you, up/down raises or lowers you (smooth). Tools > Reset position puts it back.",
@@ -2305,7 +2489,12 @@ func update_pointer(c: Ctrl, space: PhysicsDirectSpaceState3D) -> void:
 	var ex: Array[RID] = []
 	if c.drag != null and c.drag.has("shape"):
 		ex.append(c.drag.shape.body.get_rid())
-	var hs := _ray(space, ow, far, LAYER_SHAPE, ex)
+		if c.drag.shape.sight != null:
+			ex.append(c.drag.shape.sight.get_rid())
+	# Line of sight: the first thing you can see along the ray (an object's visible body, or a real wall) wins.
+	var hs := _ray(space, ow, far, LAYER_SHAPE | LAYER_SIGHT, ex)
+	if not hs.is_empty() and real != null and real.dist < ow.distance_to(hs.position) - 0.01:
+		hs = {}
 	var hh := _ray(space, ow, far, LAYER_HANDLE)
 	var sd := ow.distance_to(hs.position) if not hs.is_empty() else INF
 	if not hh.is_empty() and ow.distance_to(hh.position) < sd + 0.05:
@@ -2338,7 +2527,7 @@ func update_pointer(c: Ctrl, space: PhysicsDirectSpaceState3D) -> void:
 
 
 func update_hovers() -> void:
-	var hov := {menu: "", tray: "", ctx: "", tray_side: ""}
+	var hov := {menu: "", tray: "", ctx: "", tray_side: "", kbd: ""}
 	for c in ctrls:
 		if c.ui != null and hov.has(c.ui.panel):
 			hov[c.ui.panel] = c.ui.id
@@ -2405,6 +2594,16 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 			open_menu(c, false, "settings")
 	if mode == "playermove" and c.drag == null:
 		player_move(c, b, dt)
+	if mode == "boxdraw":
+		box_draw_frame(c, b)
+	if c.ui != null and c.ui.panel == tray and c.drag == null:
+		var ssy: float = b.get("sy", 0.0)
+		if absf(ssy) < 0.3:
+			c.latch_y = false
+		elif not c.latch_y and absf(ssy) > 0.7:
+			c.latch_y = true
+			scroll_tray(-1 if ssy > 0 else 1)
+			haptic(c, 0.2, 0.015)
 
 	# Face buttons. X / A: clipboard menu. Y / B: objects menu. The menu pops up 20 cm in front of the controller.
 	#   Tap: it stays where it is, like a painter's palette. Picking doesn't close it; tap again to close.
@@ -2416,6 +2615,12 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 		on_trigger_down(c, b)
 	if down.call("grip"):
 		on_grip_down(c, b)
+	if up.call("trigger") and mode == "tape" and c.stroke:
+		c.stroke = false
+		var t0p: Vector3 = c.get_meta("tape_p0", Vector3.INF)
+		var tp2 := cursor_point(c, b.get("grip", false))
+		if pending.size() == 1 and now - c.stroke_t0 > 0.3 and tp2.distance_to(t0p) > 0.03:
+			add_pending_point(tp2)        # held and dragged: let go = the other end
 	if up.call("trigger"):
 		c.press_shape = null
 		if mode in TIP_MODES:
@@ -2497,7 +2702,7 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 				haptic(c, 0.4, 0.03)
 				on_button(id, c)
 				# Picking a tool other than Move/Scale gets the menu out of your way.
-				if (menu_kind == "tools" or id in MEASURE_TOOLS or id in EDIT_TOOLS or id in MODE_TOOLS) and menu.is_open:
+				if id != "grid" and (menu_kind == "tools" or id in MEASURE_TOOLS or id in EDIT_TOOLS or id in MODE_TOOLS) and menu.is_open:
 					close_menu()
 		elif pnl == tray:
 			grab_from_tray(c, id, "trigger")
@@ -2506,6 +2711,10 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 			if it3 != null and it3.get("enabled", true):
 				haptic(c, 0.4, 0.03)
 				run_side(c, id)
+		elif pnl == kbd:
+			if kbd.item(id) != null:
+				haptic(c, 0.3, 0.02)
+				keyboard_key(id)
 		elif pnl == ctx:
 			var it2 = ctx.item(id)
 			if it2 != null and it2.get("enabled", true):
@@ -2517,12 +2726,28 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 		return
 	if c.drag == null and start_two_hand(c):
 		return
+	if mode == "volume" and draft.get("vol", false):
+		haptic(c, 0.5, 0.04)
+		finish_trace(cursor_point(c).y)
+		return
+	if mode in ["tape", "area", "volume"]:
+		haptic(c)
+		var tp := cursor_point(c, b.get("grip", false))
+		if mode == "tape":
+			c.stroke = true
+			c.stroke_t0 = Time.get_ticks_msec() / 1000.0
+			c.set_meta("tape_p0", tp)
+		add_pending_point(tp)
+		return
 	if mode in MEASURE_TOOLS:
 		var p: Vector3 = c.target.point if c.target != null else c.o + c.d * 0.8
 		if c.target == null:
 			set_status("No surface there: used a point 80 cm along the ray.")
 		haptic(c)
 		add_pending_point(p)
+		return
+	if mode == "boxdraw":
+		box_draw_trigger(c, b)
 		return
 	if mode == "paste":
 		var pp: Vector3 = c.target.point if c.target != null else c.o + c.d * 0.8
@@ -2574,16 +2799,18 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 
 ## Where a picked object appears: straight out from the controller (level), its nearest edge 3 m away,
 ## standing no lower than the floor. Still on your pointer: pull it in with the stick.
-func spawn_far(c: Ctrl, p: Dictionary) -> Vector3:
+## Where a picked object appears: straight in front of your head (whichever way you face), its nearest edge
+## 50 cm away (2 m for big ones over 1.5 m), then it drops onto the floor or whatever is below.
+func spawn_front(p: Dictionary) -> Vector3:
 	var sz := scale_of(p.type, p.dims)
-	var dir := Vector3(c.d.x, 0.0, c.d.z)
-	if dir.length() < 0.05:
-		dir = content.global_basis.inverse() * -camera.global_basis.z
-		dir.y = 0.0
+	var head := content.to_local(camera.global_position)
+	var dir := content.global_basis.inverse() * -camera.global_basis.z
+	dir.y = 0.0
 	dir = dir.normalized() if dir.length() > 0.01 else Vector3.FORWARD
-	var reach := SPAWN_MIN + maxf(sz.x, sz.z) / 2.0
-	var pos := c.o + dir * reach
-	pos.y = maxf(c.o.y, sz.y / 2.0)
+	var near := SPAWN_BIG if maxf(sz.x, sz.z) > 1.5 else SPAWN_NEAR
+	var half_depth := absf(dir.x) * sz.x / 2.0 + absf(dir.z) * sz.z / 2.0
+	var pos := head + dir * (near + half_depth)
+	pos.y = maxf(0.0, head.y - 0.3)
 	return content.to_global(pos)
 
 
@@ -2593,11 +2820,16 @@ func grab_from_tray(c: Ctrl, id: String, release: String) -> void:
 	if id.begins_with("obj:"):
 		var oi := int(id.substr(4))
 		if oi >= 0 and oi < PALETTE.size():
-			pt = spawn_far(c, PALETTE[oi])
-		s = spawn_object(oi, c, pt)
+			pt = spawn_front(PALETTE[oi])
+		s = spawn_object(oi, null, pt)
+		if s:
+			haptic(c, 0.5, 0.04)
 	elif id.begins_with("cus:"):
 		var i := int(id.substr(4))
 		if i < 0 or i >= custom_objs.size():
+			return
+		if custom_rename:
+			open_keyboard(i)
 			return
 		if custom_remove:
 			var gone: String = custom_objs[i].label
@@ -2606,7 +2838,9 @@ func grab_from_tray(c: Ctrl, id: String, release: String) -> void:
 			set_status("Removed %s from Custom objects." % gone)
 			refresh_tray()
 			return
-		s = spawn_item(custom_objs[i], c, spawn_far(c, custom_objs[i]))
+		s = spawn_item(custom_objs[i], null, spawn_front(custom_objs[i]))
+		if s:
+			haptic(c, 0.5, 0.04)
 	else:
 		return
 	if s and c.drag != null:
@@ -2623,6 +2857,8 @@ func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 	if mode in TIP_MODES and c.ui == null:
 		tip_grip(c)
 		return
+	if mode == "boxdraw" and c.ui == null:
+		return            # grip = height (handled every frame)
 	if c.drag != null and c.drag.type == "handle":
 		# Grip during a resize: stop resizing (size stays where it is) and slide it instead.
 		var hs: Shape = c.drag.shape
@@ -3078,6 +3314,87 @@ func _add_made(s: Shape, what: String) -> void:
 	set_status("%s: %s. %s" % [s.name, dims_text(s), what])
 
 
+# ---------------------------------------------------------------- Box draw (Tools menu)
+# A dot 50 cm off the tip (snaps onto the floor / a surface below). Trigger: first corner. Move: the floor
+# rectangle follows (square to the grid). Squeeze grip: the height follows your hand; let go: it locks.
+# Trigger again: the box drops into the world (trigger before any grip: switches to the height).
+func box_draw_trigger(c: Ctrl, _b: Dictionary) -> void:
+	tip_ctrl = c
+	last_ctrl = c
+	haptic(c, 0.4, 0.03)
+	var p := cursor_point(c)
+	if draft.get("kind", "") != "bd":
+		draft = {"kind": "bd", "a": Vector3(snap_grid(p.x), p.y, snap_grid(p.z)), "b": p, "h": 0.0, "phase": "foot"}
+		set_status("Box draw: move to the opposite corner. Squeeze grip for the height, trigger to drop it.")
+		return
+	if draft.phase == "foot" and draft.h < MIN_SIZE:
+		draft.phase = "height"
+		draft["y0"] = p.y
+		set_status("Box draw: raise your hand for the height, trigger to drop it.")
+		return
+	finish_box_draw()
+
+
+func box_draw_frame(c: Ctrl, b: Dictionary) -> void:
+	if draft.get("kind", "") != "bd" or c != tip_ctrl:
+		return
+	var p := cursor_point(c)
+	var grip: bool = b.get("grip", false)
+	if grip and draft.phase != "height":
+		draft.phase = "height"
+		draft["y0"] = c.o.y + c.d.y * CURSOR_BOXDRAW - float(draft.h)
+		haptic(c, 0.3, 0.02)
+	elif not grip and draft.phase == "height" and draft.has("gripped"):
+		draft.phase = "locked"
+		haptic(c, 0.4, 0.03)
+	if grip:
+		draft["gripped"] = true
+	match draft.phase:
+		"foot":
+			draft.b = Vector3(snap_grid(p.x), draft.a.y, snap_grid(p.z))
+		"height":
+			var hy: float = c.o.y + c.d.y * CURSOR_BOXDRAW
+			draft.h = maxf(0.0, hy - float(draft.y0)) if draft.has("gripped") else maxf(0.0, hy - draft.a.y)
+
+
+func box_draw_preview() -> void:
+	if draft.get("kind", "") != "bd":
+		make_prev.visible = false
+		make_lbl.visible = false
+		return
+	var a: Vector3 = draft.a
+	var bb: Vector3 = draft.b
+	var h: float = draft.h
+	var mn := Vector3(minf(a.x, bb.x), a.y, minf(a.z, bb.z))
+	var mx := Vector3(maxf(a.x, bb.x), a.y + h, maxf(a.z, bb.z))
+	var v := PackedVector3Array()
+	var ctr := (mn + mx) / 2.0
+	var hh := (mx - mn) / 2.0
+	for e in _BOX_EDGES:
+		v.append_array([ctr + hh * e[0], ctr + hh * e[1]])
+	make_prev.mesh = _lines_mesh(v)
+	make_prev.visible = true
+	make_lbl.visible = true
+	make_lbl.position = Vector3(ctr.x, mx.y + 0.08, ctr.z)
+	set_label(make_lbl, ["Box draw" + (" (height locked)" if draft.phase == "locked" else ""),
+		"W %s × D %s × H %s" % [L(mx.x - mn.x), L(mx.z - mn.z), L(h)], "Vol " + VOL((mx.x - mn.x) * (mx.z - mn.z) * h)])
+
+
+func finish_box_draw() -> void:
+	var a: Vector3 = draft.a
+	var bb: Vector3 = draft.b
+	var h: float = draft.h
+	draft = {}
+	var w := absf(bb.x - a.x)
+	var d := absf(bb.z - a.z)
+	if w < MIN_SIZE or d < MIN_SIZE or h < MIN_SIZE:
+		set_status("Box draw cancelled (it needs a width, a depth and a height).")
+		return
+	var dims := {"x": roundf(w * 1000.0) / 1000.0, "y": roundf(h * 1000.0) / 1000.0, "z": roundf(d * 1000.0) / 1000.0}
+	var s := make_shape("box", dims, Vector3((a.x + bb.x) / 2.0, a.y + dims.y / 2.0, (a.z + bb.z) / 2.0), Quaternion.IDENTITY, _next_name("Box"))
+	_add_made(s, "Vol %s. Draw the next one." % VOL(dims.x * dims.y * dims.z))
+
+
 func finish_box(b: Vector3) -> void:
 	var a: Vector3 = draft.a
 	draft = {}
@@ -3149,7 +3466,7 @@ func finish_trace(top_y: float) -> void:
 		hull.append([u, -0.5, t])
 		hull.append([u, 0.5, t])
 	var o := {"poly": poly, "hull": hull, "vfrac": _poly_area_xz(clean) / (w * dd)}
-	var s := make_shape("box", {"x": w, "y": h, "z": dd}, Vector3(cen.x, y0 + h / 2.0, cen.y), Quaternion.IDENTITY, _next_name("Trace"), o)
+	var s := make_shape("box", {"x": w, "y": h, "z": dd}, Vector3(cen.x, y0 + h / 2.0, cen.y), Quaternion.IDENTITY, _next_name("Volume" if mode == "volume" else "Trace"), o)
 	_add_made(s, "Y / B > Save selected keeps it as a Custom object.")
 
 
@@ -3209,7 +3526,30 @@ static func mesh_volume(v: Array, faces: Array) -> float:
 
 func update_make_preview() -> void:
 	for c in ctrls:
-		c.tip.visible = mode in TIP_MODES and c.node.get_is_active()
+		var off := CURSOR_BOXDRAW if mode == "boxdraw" else (CURSOR_MEASURE if mode in ["tape", "area", "volume"] else 0.0)
+		c.tip.position = Vector3(0, 0, -off)
+		c.tip.visible = (mode in TIP_MODES or off > 0.0) and c.node.get_is_active()
+	if mode == "boxdraw":
+		box_draw_preview()
+		return
+	if mode == "volume" and draft.get("vol", false):
+		var vc: Ctrl = last_ctrl if last_ctrl != null else ctrls[1]
+		var vpts: Array = draft.pts
+		var by: float = vpts[0].y
+		var ty: float = cursor_point(vc).y
+		var vv := PackedVector3Array()
+		for i in vpts.size():
+			var a2: Vector3 = vpts[i]
+			var b2: Vector3 = vpts[(i + 1) % vpts.size()]
+			for y in [by, ty]:
+				vv.append_array([Vector3(a2.x, y, a2.z), Vector3(b2.x, y, b2.z)])
+			vv.append_array([Vector3(a2.x, by, a2.z), Vector3(a2.x, ty, a2.z)])
+		make_prev.mesh = _lines_mesh(vv)
+		make_prev.visible = true
+		make_lbl.visible = true
+		make_lbl.position = cursor_point(vc) + Vector3(0, 0.06, 0)
+		set_label(make_lbl, ["Volume: trigger sets the height", "H %s · Vol %s" % [L(absf(ty - by)), VOL(_poly_area_xz(vpts) * absf(ty - by))]])
+		return
 	if not (mode in TIP_MODES):
 		make_prev.visible = false
 		if not ctrls.any(func(k): return k.drag != null and k.drag.type == "two"):
@@ -3478,11 +3818,12 @@ func update_handle(c: Ctrl, dr: Dictionary) -> void:
 
 func update_preview() -> void:
 	var c := last_ctrl
-	if c == null or c.target == null or not (mode in MEASURE_TOOLS) or (pending.is_empty() and mode != "height"):
+	var cursor_mode: bool = mode in ["tape", "area", "volume"]
+	if c == null or (c.target == null and not cursor_mode) or not (mode in MEASURE_TOOLS) or (pending.is_empty() and mode != "height"):
 		preview.visible = false
 		preview_label.visible = false
 		return
-	var p: Vector3 = c.target.point
+	var p: Vector3 = cursor_point(c, c.btn.get("grip", false)) if cursor_mode else c.target.point
 	var pts: Array = pending.duplicate()
 	pts.append(p)
 	var lines: Array = []
@@ -3526,7 +3867,7 @@ func update_preview() -> void:
 				at = (pending[0] + p) / 2.0
 		"path":
 			lines = ["total " + L(path_len(pts)), "this leg " + L(pending[-1].distance_to(p))]
-		"area":
+		"area", "volume":
 			if pts.size() >= 3:
 				draw.append(pts[0])
 				lines = ["area " + AREA(poly_area(pts)), "perim " + L(path_len(pts, true))]
@@ -3562,6 +3903,7 @@ func _process(delta: float) -> void:
 	update_falling()
 	update_preview()
 	update_fit(delta)
+	layout_tray()
 	if menu.is_open:
 		if menu_dirty:
 			rebuild_menu()
