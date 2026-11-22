@@ -131,3 +131,5 @@ If Android blocks the Download folder, the files go to the app's own storage ins
 **v0.28 tools:** Tape / Area / Volume use a yellow dot 10 cm off the controller tip (Tape stays in mid-air; Area and Volume snap to the floor); segments snap to 45° unless you hold grip. Box draw: dot 50 cm off the tip, trigger corner, move, grip + raise for height, let go to lock, trigger to drop. Grid (Tools menu): 10 / 5 / 1 cm.
 
 **Objects menu (v0.28):** 4 × 4, stick up / down scrolls while pointing at it, rides 25 cm in front of the controller. Picked objects drop 50 cm in front of you (2 m for big ones). Custom... > Rename: on opens an on-screen keyboard.
+
+**v0.29:** objects menu categories (sidebar); Box draw is in the objects sidebar; tap Y / B = menu rides on that controller (use the other hand), hold Y / B = menu stays put (same hand points, stick scrolls); X / A > Rename; two-hand resize keeps proportions; grid defaults to 1 cm.

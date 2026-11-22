@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.28"
+const BUILD := "0.29"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -196,8 +196,12 @@ func outline_mesh(o: Dictionary) -> ArrayMesh:
 static func parse_objects(text: String) -> Array:
 	var out := []
 	var header := PackedStringArray()
+	var cat := "Objects"
 	for raw: String in text.split("\n"):
 		var line := raw.strip_edges()
+		if line.begins_with("#="):
+			cat = line.substr(2).strip_edges()
+			continue
 		if line == "" or line.begins_with("#"):
 			continue
 		var cells := line.split(",")
@@ -226,7 +230,7 @@ static func parse_objects(text: String) -> Array:
 		if not ok:
 			push_warning("objects.csv: skipped line " + line)
 			continue
-		var item := {"label": row.name, "type": type, "dims": dims, "note": row.get("note", "")}
+		var item := {"label": row.name, "type": type, "dims": dims, "note": row.get("note", ""), "cat": cat}
 		if type == "box" and (String(row.get("outline", "")) != "" or String(row.get("parts", "")) != ""):
 			var o := parse_outline(row.get("outline", ""), row.get("wheels", ""), row.get("inner", ""), dims.x * 1000.0, dims.y * 1000.0, dims.z * 1000.0, row.get("parts", ""))
 			if not o.is_empty():
@@ -246,8 +250,8 @@ func load_palette() -> void:
 # Objects live in the Y / B objects menu; cut, copy, paste, duplicate, delete, pin, size and undo in the X / A clipboard menu.
 const MENU_TOOLS := [
 	"select", "scale", "edit", "playermove",
-	"tape", "area", "volume", "boxdraw",
-	"grid", "resetpos",
+	"tape", "area", "volume", "grid",
+	"resetpos",
 ]
 const MENU_SETTINGS := [
 	"units", "roomvis", "scan",
@@ -260,7 +264,7 @@ const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake"
 const CURSOR_MEASURE := 0.10    # Tape / Area / Volume: the point is 10 cm off the controller tip, free in 3D
 const CURSOR_BOXDRAW := 0.5     # Box draw: 50 cm off the tip
 const FLOOR_SNAP := 0.08        # Area / Volume / Box draw points within 8 cm above a surface snap onto it
-const GRID_STEPS := [0.10, 0.05, 0.01]
+const GRID_STEPS := [0.01, 0.10, 0.05]
 const SPAWN_NEAR := 0.5         # objects from the menu: nearest edge 50 cm in front of you
 const SPAWN_BIG := 2.0          # ...2 m for big ones (over 1.5 m long or wide)
 const TRAY_COLS := 4
@@ -295,6 +299,7 @@ const HOLD_SEC := 0.3           # face button held this long = quick-pick (relea
 const PLAYER_TURN_SPEED := 60.0  # Player move: degrees/s at full right stick left/right
 const PLAYER_LIFT_SPEED := 0.75  # Player move: m/s up/down at full right stick
 const TOOLS_AHEAD := 0.7        # Tools menu (stick click) pops up 70 cm in front of the controller
+const TRAY_HOLD_AHEAD := 0.45   # held Y / B: the menu stays put 45 cm out; point at it with the same hand
 const TRAY_AHEAD := 0.25         # objects menu (Y / B) pops up 70 cm in front of the controller
 const MENU_AHEAD := 0.2         # face-button menus pop up 20 cm in front of the controller
 
@@ -363,7 +368,7 @@ class Ctrl:
 # ---------------------------------------------------------------- state
 var units := "metric"
 var mode := "select"           # select | a MEASURE_TOOLS entry | an EDIT_TOOLS entry
-var grid := 0.10               # metres; 0 = off
+var grid := 0.01               # metres; 0 = off
 var room_visible := true
 var status := "Pick a shape or a measuring tool."
 var shapes: Array = []
@@ -392,11 +397,13 @@ var edit_hl: MeshInstance3D    # Edit: outline of the face you're pointing at
 var tray_side: Node3D          # sidebar beside the objects menu: Trace, Box, Custom
 var tray_page := "all"         # all (objects.csv) | custom (your saved objects)
 var custom_objs: Array = []    # [{label, type, dims, outline}] saved to user://custom_objects.json
+var tray_cat := ""             # objects menu category ("" = first one)
 var tray_scroll := 0           # objects menu: first visible row (4 x 4 window, stick up/down scrolls)
 var custom_rename := false     # Custom page: picking an object opens the keyboard to rename it
 var kbd: Node3D                # on-screen keyboard (rename custom objects)
 var kbd_text := ""
 var kbd_target := -1
+var kbd_shape = null           # renaming an object in the room (X / A > Rename)
 var custom_remove := false     # Custom page: picking an object deletes it
 var draft := {}                # Trace / Box in progress
 var make_prev: MeshInstance3D  # their live preview (content-local lines)
@@ -407,6 +414,7 @@ var menu_anchor := Vector3.ZERO
 var ctx_attach: Ctrl = null    # hand whose X / A button opened the clipboard menu
 var tray_attach: Ctrl = null   # hand whose Y / B button opened the objects menu
 var ctx_hold: Ctrl = null      # hand still holding X / A: releasing picks what it points at and closes
+var tray_follow := false       # tapped open: rides 25 cm in front of that controller; only the other hand can use it
 var tray_hold: Ctrl = null     # hand still holding Y / B: same, for the objects menu
 var menu_dirty := true
 var selftest := false
@@ -1720,9 +1728,32 @@ func menu_items() -> Array:
 	return out
 
 
+func categories() -> Array:
+	var out := []
+	for p in PALETTE:
+		var c0: String = p.get("cat", "Objects")
+		if not (c0 in out):
+			out.append(c0)
+	return out
+
+
+## Palette indices in the current category.
+func cat_indices() -> Array:
+	var cats := categories()
+	if tray_cat == "" or not (tray_cat in cats):
+		tray_cat = cats[0] if cats.size() else ""
+	var out := []
+	for i in PALETTE.size():
+		if PALETTE[i].get("cat", "Objects") == tray_cat:
+			out.append(i)
+	return out
+
+
 func tray_items() -> Array:
 	var out := []
-	for i in _tray_window(PALETTE.size()):
+	var idx := cat_indices()
+	for j in _tray_window(idx.size()):
+		var i: int = idx[j]
 		var p: Dictionary = PALETTE[i]
 		out.append({"id": "obj:%d" % i, "label": p.label, "sub": short_dims(p.type, p.dims), "color": COLORS[p.type]})
 	return out
@@ -1804,8 +1835,9 @@ func _ahead_of(c: Ctrl) -> Vector3:
 func open_tray(c: Ctrl) -> void:
 	_build_tray()
 	tray_attach = c
+	tray_follow = false
 	var fwd := -c.node.global_basis.z.normalized()
-	tray.open_at(c.node.global_position + fwd * TRAY_AHEAD, camera.global_position)
+	tray.open_at(c.node.global_position + fwd * TRAY_HOLD_AHEAD, camera.global_position)
 	tray_side.is_open = true
 	tray_side.visible = true
 	_layout_tray_side()
@@ -1813,7 +1845,7 @@ func open_tray(c: Ctrl) -> void:
 
 
 func _build_tray() -> void:
-	var n := custom_objs.size() if tray_page == "custom" else PALETTE.size()
+	var n := custom_objs.size() if tray_page == "custom" else cat_indices().size()
 	var its := custom_items() if tray_page == "custom" else tray_items()
 	var rng := ("%d–%d of %d  ·  stick up/down scrolls" % [tray_scroll * TRAY_COLS + 1, tray_scroll * TRAY_COLS + its.size(), n]) if n > 0 else ""
 	if tray_page == "custom":
@@ -1822,17 +1854,19 @@ func _build_tray() -> void:
 			t = "CUSTOM  ·  select something, then Save selected"
 		tray.build(t, [[rng, Color(0.6, 0.65, 0.7)]] if rng != "" else [], its, TRAY_COLS, 0.085)
 	else:
-		tray.build("OBJECTS  ·  trigger one to place it", [[rng, Color(0.6, 0.65, 0.7)]], its, TRAY_COLS, 0.085)
-	tray_side.build("MAKE", [], side_items(), 1, 0.1)
+		tray.build(tray_cat.to_upper() + "  ·  trigger one to place it", [[rng, Color(0.6, 0.65, 0.7)]], its, TRAY_COLS, 0.085)
+	tray_side.build("MAKE  ·  CATEGORIES", [], side_items(), 2, 0.09)
 
 
 func side_items() -> Array:
 	var out := [
 		{"id": "side:trace", "label": "Trace: ON" if mode == "trace" else "Trace: off", "sub": "tap to turn off" if mode == "trace" else "outline + height", "color": C_YELLOW, "active": mode == "trace"},
-		{"id": "side:box", "label": "Box: ON" if mode == "boxmake" else "Box: off", "sub": "tap to turn off" if mode == "boxmake" else "corner to corner", "color": C_YELLOW, "active": mode == "boxmake"},
-		{"id": "side:custom", "label": "< All objects" if tray_page == "custom" else "Custom...", "sub": "%d saved" % custom_objs.size(), "active": tray_page == "custom"},
-		{"id": "side:save", "label": "Save selected", "sub": selected.name if selected else "select one first", "enabled": selected != null},
+		{"id": "side:box", "label": "Box draw: ON" if mode == "boxdraw" else "Box draw: off", "sub": "tap to turn off" if mode == "boxdraw" else "floor, grip = height", "color": C_YELLOW, "active": mode == "boxdraw"},
 	]
+	for cn in categories():
+		out.append({"id": "cat:" + cn, "label": cn, "active": tray_page != "custom" and cn == tray_cat, "color": C_CYAN})
+	out.append({"id": "side:custom", "label": "Custom...", "sub": "%d saved" % custom_objs.size(), "active": tray_page == "custom"})
+	out.append({"id": "side:save", "label": "Save selected", "sub": selected.name if selected else "select one first", "enabled": selected != null})
 	if tray_page == "custom":
 		out.append({"id": "side:rename", "label": "Rename: on" if custom_rename else "Rename: off", "color": C_CYAN, "active": custom_rename})
 		out.append({"id": "side:remove", "label": "Remove: on" if custom_remove else "Remove: off", "color": Color("ff6b6b"), "active": custom_remove})
@@ -1848,7 +1882,7 @@ func _tray_window(n: int) -> Array:
 
 
 func scroll_tray(rows: int) -> void:
-	var n := custom_objs.size() if tray_page == "custom" else PALETTE.size()
+	var n := custom_objs.size() if tray_page == "custom" else cat_indices().size()
 	var old := tray_scroll
 	tray_scroll += rows
 	_tray_window(n)
@@ -1876,7 +1910,7 @@ func _layout_tray_side() -> void:
 
 ## The objects menu rides 25 cm straight out in front of the controller that opened it, like a palette.
 func layout_tray() -> void:
-	if not tray.is_open or tray_attach == null:
+	if not tray.is_open or tray_attach == null or not tray_follow:
 		return
 	tray.global_position = tray_attach.node.global_position - tray_attach.node.global_basis.z.normalized() * TRAY_AHEAD
 	tray.face(camera.global_position)
@@ -1895,9 +1929,17 @@ func refresh_tray() -> void:
 
 
 func run_side(c: Ctrl, id: String) -> void:
+	if id.begins_with("cat:"):
+		tray_cat = id.substr(4)
+		tray_page = "all"
+		custom_remove = false
+		custom_rename = false
+		tray_scroll = 0
+		refresh_tray()
+		return
 	match id:
 		"side:trace", "side:box":
-			var want := "trace" if id == "side:trace" else "boxmake"
+			var want := "trace" if id == "side:trace" else "boxdraw"
 			if mode == want:
 				set_tool("select", false)       # toggle off: back to Rotate/Move
 				set_status("%s off. Back to Rotate/Move." % MODE_NAMES[want])
@@ -1906,7 +1948,7 @@ func run_side(c: Ctrl, id: String) -> void:
 				close_tray()
 				return
 		"side:custom":
-			tray_page = "all" if tray_page == "custom" else "custom"
+			tray_page = "custom"
 			custom_remove = false
 			custom_rename = false
 			tray_scroll = 0
@@ -1925,9 +1967,10 @@ func run_side(c: Ctrl, id: String) -> void:
 const KBD_ROWS := ["1234567890", "QWERTYUIOP", "ASDFGHJKL-", "ZXCVBNM.()"]
 
 
-func open_keyboard(i: int) -> void:
+func open_keyboard(i: int, sh = null) -> void:
 	kbd_target = i
-	kbd_text = String(custom_objs[i].label)
+	kbd_shape = sh
+	kbd_text = String(sh.name) if sh != null else String(custom_objs[i].label)
 	_build_kbd()
 	var head := camera.global_position
 	var fwd := -camera.global_basis.z
@@ -1959,10 +2002,21 @@ func keyboard_key(id: String) -> void:
 			return
 		"ok":
 			var t := kbd_text.strip_edges().replace(",", " ")
-			if t != "" and kbd_target >= 0 and kbd_target < custom_objs.size():
+			if t != "" and kbd_shape != null and kbd_shape in shapes:
+				var rs: Shape = kbd_shape
+				var old := rs.name
+				rs.name = t
+				refresh_shape(rs)
+				push_history(func():
+					rs.name = old
+					refresh_shape(rs))
+				persist()
+				set_status("Renamed to %s." % t)
+			elif t != "" and kbd_target >= 0 and kbd_target < custom_objs.size():
 				custom_objs[kbd_target].label = t
 				save_custom_file()
 				set_status("Renamed to %s." % t)
+			kbd_shape = null
 			kbd.close()
 			refresh_tray()
 			return
@@ -1976,6 +2030,7 @@ func close_tray() -> void:
 	tray.close()
 	tray_side.close()
 	tray_attach = null
+	tray_follow = false
 	tray_hold = null
 
 
@@ -2231,7 +2286,7 @@ func clip_menu_items(s) -> Array:
 	return [{"id": "cut", "label": "Cut", "enabled": free}, {"id": "copy", "label": "Copy", "enabled": free},
 		{"id": "delete", "label": "Delete", "color": Color("ff6b6b"), "enabled": free}, {"id": "duplicate", "label": "Duplicate", "enabled": free},
 		{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW}, {"id": "drop", "label": "Drop", "enabled": not s.pinned},
-		{"id": "bigger", "label": "Bigger 5%", "enabled": not s.pinned}, {"id": "smaller", "label": "Smaller 5%", "enabled": not s.pinned},
+		{"id": "rename", "label": "Rename", "color": C_CYAN, "enabled": not s.pinned},
 		{"id": "reset", "label": "Reset size", "enabled": not s.pinned}, {"id": "undo", "label": "Undo", "enabled": can_undo}]
 
 
@@ -2297,7 +2352,7 @@ func run_tool(id: String) -> void:
 	var p: Vector3 = ctx.point
 	if s != null and not (s in shapes):
 		s = null
-	if s != null and s.pinned and id in ["cut", "copy", "delete", "duplicate", "drop", "bigger", "smaller", "reset"]:
+	if s != null and s.pinned and id in ["cut", "copy", "delete", "duplicate", "drop", "bigger", "smaller", "reset", "rename"]:
 		refuse_pinned(null, s)
 		menu_dirty = true
 		return
@@ -2336,6 +2391,11 @@ func run_tool(id: String) -> void:
 		"reset":
 			if s and not s.pinned:
 				reset_size(s)
+		"rename":
+			if s:
+				close_tools()
+				open_keyboard(-1, s)
+				return
 		"undo": undo()
 		"paste": paste_at(p)
 		"nextclip":
@@ -2465,7 +2525,8 @@ func update_pointer(c: Ctrl, space: PhysicsDirectSpaceState3D) -> void:
 			break
 		var col: Object = h.collider
 		var pnl = col.get_meta("panel") if col.has_meta("panel") else null
-		if pnl == null or not pnl.is_open or (pnl == menu and menu_attach == c):
+		if pnl == null or not pnl.is_open or (pnl == menu and menu_attach == c) \
+				or ((pnl == tray or pnl == tray_side) and tray_follow and tray_attach == c):
 			ex_ui.append(h.rid)
 			continue
 		c.ui = {"panel": pnl, "id": String(col.get_meta("item")), "dist": ow.distance_to(h.position), "point": h.position}
@@ -2671,6 +2732,8 @@ func face_button(c: Ctrl, k: String, is_down: bool, is_up: bool, now: float) -> 
 				ctx_hold = null
 			else:
 				tray_hold = null
+				tray_follow = true
+				layout_tray()
 			return
 		if k == "high":
 			return       # Y / B held and let go: the menu stays up; trigger-grab an item to pick it (that closes it)
@@ -3125,9 +3188,9 @@ func start_two_hand(c: Ctrl) -> bool:
 		key = "h" if ax == "y" and s.dims.has("h") else "r"
 	push_history(_snap_undo(s))
 	c.drag = {"type": "two", "release": "trigger", "shape": s, "other": other, "len0": v.length(),
-		"key": key, "size0": float(s.dims[key]), "yaw_prev": atan2(v.x, v.z)}
+		"key": key, "size0": float(s.dims[key]), "dims0": s.dims.duplicate(), "yaw_prev": atan2(v.x, v.z)}
 	haptic(c, 0.5, 0.04)
-	set_status("Resizing %s: pull apart / push together. Let go to lock it." % s.name)
+	set_status("Resizing %s (proportions locked): pull apart / push together. Let go to lock it." % s.name)
 	return true
 
 
@@ -3140,8 +3203,14 @@ func update_two_hand(c: Ctrl, dr: Dictionary) -> void:
 		return
 	var v: Vector3 = c.o - other.o
 	var f: float = v.length() / maxf(0.01, float(dr.len0))
-	var k: String = dr.key
-	s.dims[k] = maxf(MIN_SIZE, float(dr.size0) * f)
+	# Whole object scales evenly: proportions stay locked.
+	var d0: Dictionary = dr.dims0
+	var fmin := 0.0
+	for k0 in d0:
+		fmin = maxf(fmin, MIN_SIZE / maxf(0.0001, float(d0[k0])))
+	f = maxf(f, fmin)
+	for k1 in d0:
+		s.dims[k1] = float(d0[k1]) * f
 	var yaw := atan2(v.x, v.z)
 	var dy := wrapf(yaw - float(dr.yaw_prev), -PI, PI)
 	dr.yaw_prev = yaw

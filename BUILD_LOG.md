@@ -178,3 +178,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Decisions: hollow objects occlude (and block the pointer) with their solid parts, including hidden cab boxes, instead of their side profile; cab boxes split so the space above a bonnet isn't solid.
 - Tests: native self-test 245/245 (was 222), run locally on Godot 4.6.2.
 - AI involvement: Claude built, tested, merged and released it in one session.
+
+## 2026-11-22 (Brisbane): v0.29, batch of 15
+
+- Queued 15:30-15:49, go at 15:49: redo Stockman (no tailgate) and XSR900 GP; remove closed V7E; object categories; X/A Rename; drop Bigger/Smaller; two-hand resize proportional; 32 in monitor; Box draw into the objects sidebar; tap vs hold objects menu (tap = on the controller, other hand only; hold = stationary, same hand); detailed server racks; stretcher cot; 1 cm default grid.
+- Decisions (Aurora said go without answering two questions, so the proposed defaults): the 9 proposed categories; Scale tool cubes unchanged (per side); cot = folding camp stretcher.
+- Tests: native self-test 256/256 (was 245), run locally on Godot 4.6.2.
+- AI involvement: Claude built, tested, merged and released it in one session.
