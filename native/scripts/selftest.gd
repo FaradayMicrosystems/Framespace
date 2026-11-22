@@ -26,6 +26,8 @@ func run(m) -> void:
 
 	# Fresh room on first start.
 	check("A room exists on start", main.room.get("id", "") != "", str(main.room))
+	check("Default grid is 1 cm", is_equal_approx(main.grid, 0.01), str(main.grid))
+	main.grid = 0.05     # the older checks below were written on a 5 cm grid
 
 	# Shapes from the menu.
 	# Spawn each where a (fake) controller points, 50 cm apart on the floor.
@@ -51,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (58 objects)", main.PALETTE.size() == 58, str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (59 objects, in categories)", main.PALETTE.size() == 59 and main.categories().size() == 9 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
@@ -63,7 +65,14 @@ func run(m) -> void:
 		check("v0.24 object: " + nm, labels.has(nm))
 	check("Removed: Crate, Pantry, Wall cabinet, Snow leopard, Island bench, Bar stool, Dual-cab ute, Pantech, old cartons", not (labels.has("Crate") or labels.has("Pantry 600") or labels.has("Wall cabinet 600") or labels.has("Snow leopard 1.75 m") or labels.has("Island bench 1800") or labels.has("Bar stool") or labels.has("Dual-cab ute") or labels.has("Pantech truck 4.5 t") or labels.has("Carton large") or labels.has("Carton small")))
 	var stk = main.PALETTE[labels.find("Chery Stockman")]
-	check("Chery Stockman: 5450 x 2010 x 1890 with a walk-in tub", is_equal_approx(stk.dims.x, 5.45) and is_equal_approx(stk.dims.z, 2.01) and is_equal_approx(stk.dims.y, 1.89) and stk.outline.solids.size() == 8)
+	check("Chery Stockman: 5450 x 2010 x 1890 (5570 with tow bar), open tub, no tailgate", is_equal_approx(stk.dims.x, 5.57) and is_equal_approx(stk.dims.z, 2.01) and is_equal_approx(stk.dims.y, 1.89) and stk.outline.solids.size() == 7 and stk.outline.parts.size() > 80)
+	check("Farizon V7E (closed van) is gone; the open-cargo V7E stays", not labels.has("Farizon V7E") and labels.has("Farizon V7E open cargo"))
+	for nm2 in ["Monitor 32 in", "Stretcher cot"]:
+		check("v0.29 object: " + nm2, labels.has(nm2))
+	var ym = main.PALETTE[labels.find("Yamaha XSR900 GP")]
+	check("XSR900 GP is a detailed wireframe", ym.outline.parts.size() > 400, str(ym.outline.parts.size()))
+	var rk22 = main.PALETTE[labels.find("Rack 22RU 1200D")]
+	check("Racks are detailed (doors, rails, equipment, PDU, castors)", rk22.outline.parts.size() > 150, str(rk22.outline.parts.size()))
 	var sd = main.PALETTE[labels.find("Standing desk 117 cm")]
 	check("Standing desk set to 1170 mm", is_equal_approx(sd.dims.y, 1.17))
 	var g2 = main.PALETTE[labels.find("Garage 2-car")]
@@ -280,7 +289,7 @@ func run(m) -> void:
 	var cq = main.ctrls[1]
 	cq.shape_hit = {"shape": main.shapes[4], "point": main.shapes[4].node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.open_tools(cq)
-	check("X / A on a shape: 10 buttons incl. Cut, Pin, Bigger, Undo", main.ctx.is_open and main.ctx.items.size() == 10 and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("bigger") != null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
+	check("X / A on a shape: 9 buttons incl. Cut, Pin, Rename, Undo (no Bigger / Smaller)", main.ctx.is_open and main.ctx.items.size() == 9 and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("rename") != null and main.ctx.item("bigger") == null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
 	check("...20 cm in front of that controller", main.ctx_attach == cq and absf(main.ctx.global_position.distance_to(cq.node.global_position) - 0.2) < 0.01, str(main.ctx.global_position))
 	main.run_tool("delete")
 	check("Delete removes it; the palette stays open (tap mode)", main.shapes.size() == 4 and main.ctx.is_open)
@@ -326,7 +335,7 @@ func run(m) -> void:
 	check("Tap X again closes it", not main.ctx.is_open)
 	main.face_button(cu, "high", true, false, 12.0)
 	main.face_button(cu, "high", false, true, 12.1)
-	check("Tap Y: objects menu, 4 x 4, + sidebar (Trace, Box, Custom, Save selected)", main.tray.is_open and main.tray_side.is_open and main.tray.items.size() == 16 and main.tray_side.item("side:trace") != null and main.tray_side.item("side:box") != null and main.tray_side.item("side:custom") != null and main.tray_side.item("side:save") != null)
+	check("Tap Y: objects menu (first category, up to 4 x 4) + sidebar (Trace, Box draw, categories, Custom, Save selected)", main.tray.is_open and main.tray_side.is_open and main.tray.items.size() == mini(16, main.cat_indices().size()) and main.tray_side.item("cat:Vehicles") != null and main.tray_side.item("side:trace") != null and main.tray_side.item("side:box") != null and main.tray_side.item("side:custom") != null and main.tray_side.item("side:save") != null)
 	check("...sidebar sits left of the grid", main.tray.to_local(main.tray_side.global_position).x < -(main.tray.size.x + main.tray_side.size.x) / 2.0 + 0.001)
 	check("...it opens 25 cm in front of that controller", absf(main.tray.global_position.distance_to(cu.node.global_position) - 0.25) < 0.01, str(main.tray.global_position))
 	cu.node.position += Vector3(0.3, -0.2, 0.1)
@@ -334,10 +343,23 @@ func run(m) -> void:
 	check("...and rides along when the hand moves (palette)", absf(main.tray.global_position.distance_to(cu.node.global_position) - 0.25) < 0.01, str(main.tray.global_position - cu.node.global_position))
 	cu.node.position = Vector3.ZERO
 	main._process(0.0)
+	var cats_saved := []
+	for pp in main.PALETTE:
+		cats_saved.append(pp.cat)
+		pp.cat = "All"
+	main.tray_cat = "All"
+	main.refresh_tray()
 	main.scroll_tray(1)
 	check("Stick down on the objects menu scrolls a row (4 objects)", main.tray.items[0].id == "obj:4", str(main.tray.items[0].id))
 	main.scroll_tray(-5)
 	check("...and back up to the top (no further)", main.tray.items[0].id == "obj:0")
+	for k3 in main.PALETTE.size():
+		main.PALETTE[k3].cat = cats_saved[k3]
+	main.tray_cat = ""
+	main.run_side(cu, "cat:Vehicles")
+	check("Category buttons switch the grid (Vehicles)", main.tray_cat == "Vehicles" and main.tray.items.size() == 7 and main.tray.items.all(func(it): return main.PALETTE[int(it.id.substr(4))].cat == "Vehicles"))
+	main.run_side(cu, "cat:Pallets & boxes")
+	check("Tapped open, the hand carrying the menu can't use it (only the other hand)", main.tray_follow and main.tray_attach == cu)
 	var n1: int = main.shapes.size()
 	var cg2 = main.ctrls[1]
 	cg2.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.5, "point": main.tray.global_position}
@@ -391,7 +413,7 @@ func run(m) -> void:
 		main.process_input(cu, nb.duplicate())
 	cu.btn = nb.duplicate()
 	press.call("stick")
-	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, Tape, Area, Volume, Box draw, Grid, Reset position)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 10 and main.menu.item("tape") != null and main.menu.item("volume") != null and main.menu.item("boxdraw") != null and main.menu.item("grid") != null and main.menu.item("circle") == null and main.menu.item("angle") == null and main.menu.item("path") == null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
+	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, Tape, Area, Volume, Grid, Reset position; Box draw moved to the objects menu)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 9 and main.menu.item("tape") != null and main.menu.item("volume") != null and main.menu.item("boxdraw") == null and main.menu.item("grid") != null and main.menu.item("circle") == null and main.menu.item("angle") == null and main.menu.item("path") == null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
 	check("...it pops up 70 cm in front of that controller", absf(main.menu.global_position.distance_to(cu.node.global_position) - 0.7) < 0.01, str(main.menu.global_position))
 	var mp0: Vector3 = main.menu.global_position
 	cu.node.position += Vector3(0.3, 0.1, -0.2)
@@ -834,7 +856,7 @@ func run(m) -> void:
 	check("Second hand on the carried object starts a two-hand resize", h2.drag != null and h2.drag.type == "two" and h2.drag.key == "x")
 	h2.o = Vector3(40.6, 0.3, 40)
 	main.update_two_hand(h2, h2.drag)
-	check("...pulling apart stretches it smoothly along that axis (0.8 -> 1.0 m apart: 1.0 -> 1.25 m long)", absf(th.dims.x - 1.25) < 0.001 and is_equal_approx(th.dims.z, 0.5), str(th.dims))
+	check("...pulling apart scales the whole thing evenly, proportions locked (0.8 -> 1.0 m apart: x1.25)", absf(th.dims.x - 1.25) < 0.001 and absf(th.dims.z - 0.625) < 0.001 and absf(th.dims.y - 0.625) < 0.001, str(th.dims))
 	main.on_drag_release(h2)
 	check("...let go: the size locks in", h2.drag == null and absf(th.dims.x - 1.25) < 0.001)
 	main.on_drag_release(h1)
@@ -859,9 +881,9 @@ func run(m) -> void:
 	var cpi = main.PALETTE[labels2.find("20ft container")]
 	var occ_c = main.make_shape("box", cpi.dims, Vector3(60, cpi.dims.y / 2.0, 60), Quaternion.IDENTITY, "C", cpi.outline)
 	check("...a walk-in container's body is its walls (you still see inside through the open doors)", occ_c.occ.mesh != null and occ_c.occ.mesh.get_faces().size() >= 6 * 36)
-	var vpi = main.PALETTE[labels2.find("Farizon V7E")]
+	var vpi = main.PALETTE[labels2.find("Farizon F3E tray")]
 	var occ_v = main.make_shape("box", vpi.dims, Vector3(70, vpi.dims.y / 2.0, 70), Quaternion.IDENTITY, "V", vpi.outline)
-	check("...a van's body follows its side profile", occ_v.occ.mesh != null and occ_v.occ.mesh.get_aabb().size.y > 1.7 and occ_v.occ.mesh.get_aabb().size.y < 1.985)
+	check("...a trayback's body is its cab and tray", occ_v.occ.mesh != null and occ_v.occ.mesh.get_aabb().size.y > 1.7)
 	main.on_button("occlude")
 	check("Settings > Occlusion off shows see-through wireframes again", not main.occlusion and not ob.occ.visible)
 	main.on_button("occlude")
@@ -875,9 +897,8 @@ func run(m) -> void:
 	var vv = main.make_shape("box", vo.dims, P, Quaternion.IDENTITY, "VO", vo.outline)
 	var cin = main.make_shape("box", {"x": 0.3, "y": 0.3, "z": 0.3}, Vector3(P.x - 1.2, 0.66, P.z), Quaternion.IDENTITY, "In rear")
 	var cdoor = main.make_shape("box", {"x": 0.3, "y": 0.3, "z": 0.3}, Vector3(P.x - 0.28, 0.66, P.z), Quaternion.IDENTITY, "In door")
-	var vc = main.PALETTE[labels2.find("Farizon V7E")]
-	var Q := Vector3(90, vc.dims.y / 2.0, 100)
-	var vcl = main.make_shape("box", vc.dims, Q, Quaternion.IDENTITY, "VC", vc.outline)
+	var Q := Vector3(90, 1.0, 100)
+	var vcl = main.make_shape("box", {"x": 5.0, "y": 2.0, "z": 1.8}, Q, Quaternion.IDENTITY, "VC")
 	var cbeh = main.make_shape("box", {"x": 0.3, "y": 0.3, "z": 0.3}, Vector3(Q.x - 1.2, 0.66, Q.z), Quaternion.IDENTITY, "In closed")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
@@ -998,6 +1019,18 @@ func run(m) -> void:
 	main.load_custom()
 	check("...OK renames it (and it's saved)", not main.kbd.is_open and main.custom_objs[0].label == "SHED 2", main.custom_objs[0].label)
 	main.run_side(main.ctrls[0], "side:rename")
+	# X / A > Rename an object in the room.
+	var rn = main.make_shape("box", {"x": 0.4, "y": 0.4, "z": 0.4}, Vector3(130, 0.2, 130), Quaternion.IDENTITY, "Box 77")
+	main.ctx.target = rn
+	main.run_tool("rename")
+	check("X / A > Rename opens the keyboard with its name", main.kbd.is_open and main.kbd_text == "Box 77")
+	for kid in ["k:clear", "k:D", "k:E", "k:S", "k:K"]:
+		main.keyboard_key(kid)
+	main.keyboard_key("k:ok")
+	check("...OK renames the object", rn.name == "DESK" and not main.kbd.is_open, rn.name)
+	main.undo()
+	check("...Undo puts the old name back", rn.name == "Box 77")
+	main.remove_shape(rn)
 	main.run_side(main.ctrls[0], "side:remove")
 	cg3.ui = {"panel": main.tray, "id": "cus:0", "dist": 0.5, "point": main.tray.global_position}
 	main.on_trigger_down(cg3, {"trigger": true})
