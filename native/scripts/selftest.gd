@@ -48,27 +48,32 @@ func run(m) -> void:
 		labels.append(p.label)
 	check("Palette has walk-in 20ft / 40ft containers (no high cube)", labels.has("20ft container") and labels.has("40ft container") and not labels.has("40ft high cube"))
 	check("Basic shapes and unused objects are gone", not (labels.has("Cube") or labels.has("Sphere") or labels.has("Rack bay") or labels.has("Brick") or labels.has("Door")))
-	check("Motorcycle is in the palette", labels.has("Motorcycle"))
+	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (53 objects)", main.PALETTE.size() == 53, str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (58 objects)", main.PALETTE.size() == 58, str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
 	var drm = main.PALETTE[labels.find("Drum 205 L")] if labels.has("Drum 205 L") else null
 	check("205 L drum is 584 x 880 with rims and rolling hoops", drm != null and is_equal_approx(drm.dims.x, 0.584) and is_equal_approx(drm.dims.y, 0.88) and drm.outline.parts.size() > 100)
-	for nm in ["Kitchen sink bench 900", "Kitchen oven bench 600", "Dishwasher 600", "Kitchen corner 900", "Pantry 600", "Wall cabinet 600", "Island bench 1800", "Bar stool"]:
-		check("Kitchen: " + nm, labels.has(nm))
-	var wc = main.PALETTE[labels.find("Wall cabinet 600")] if labels.has("Wall cabinet 600") else null
-	check("Wall cabinet hangs at 1450 mm and is hollow below (slides over a bench)", wc != null and wc.outline.solids.size() == 1)
-	for nm in ["Carton large", "Carton small", "10ft container", "Tandem box trailer", "Pantech truck 4.5 t", "King bed", "Single bed", "Wardrobe 2-door", "Kitchen bench 600", "Dryer",
-			"Shelf 5 cm", "Shelf 30 cm", "Shelf spacer 1 m", "Shelf spacer 1.5 m", "Rack 18RU 1200D", "Rack 22RU 1200D", "Rack 24RU 1200D", "Garage shelving 1800", "Snow leopard 1.75 m"]:
+	for nm in ["Kitchen sink bench 900", "Kitchen oven bench 600", "Dishwasher 600", "Kitchen corner 900", "Folding table 1800", "Gaming chair",
+			"Standing desk 117 cm", "Standing desk 80 cm", "Chery Stockman", "Farizon H9E 4.5 t", "Garage 1-car", "Garage 2-car", "Carport 2-car solar",
+			"Workbench (rolling)", "Carton light S 26L", "Carton light M 72L", "Carton light L 107L", "Carton heavy S 52L", "Carton heavy M 104L", "Carton heavy L 150L"]:
+		check("v0.24 object: " + nm, labels.has(nm))
+	check("Removed: Crate, Pantry, Wall cabinet, Snow leopard, Island bench, Bar stool, Dual-cab ute, Pantech, old cartons", not (labels.has("Crate") or labels.has("Pantry 600") or labels.has("Wall cabinet 600") or labels.has("Snow leopard 1.75 m") or labels.has("Island bench 1800") or labels.has("Bar stool") or labels.has("Dual-cab ute") or labels.has("Pantech truck 4.5 t") or labels.has("Carton large") or labels.has("Carton small")))
+	var stk = main.PALETTE[labels.find("Chery Stockman")]
+	check("Chery Stockman: 5450 x 2010 x 1890 with a walk-in tub", is_equal_approx(stk.dims.x, 5.45) and is_equal_approx(stk.dims.z, 2.01) and is_equal_approx(stk.dims.y, 1.89) and stk.outline.solids.size() == 7)
+	var sd = main.PALETTE[labels.find("Standing desk 117 cm")]
+	check("Standing desk set to 1170 mm", is_equal_approx(sd.dims.y, 1.17))
+	var g2 = main.PALETTE[labels.find("Garage 2-car")]
+	check("2-car garage is 6 x 6 m and hollow (walk in, park)", is_equal_approx(g2.dims.x, 6.0) and is_equal_approx(g2.dims.z, 6.0) and g2.outline.solids.size() > 4)
+	for nm in ["10ft container", "Tandem box trailer", "King bed", "Single bed", "Wardrobe 2-door", "Kitchen bench 600", "Dryer",
+			"Shelf 5 cm", "Shelf 30 cm", "Shelf spacer 1 m", "Shelf spacer 1.5 m", "Rack 18RU 1200D", "Rack 22RU 1200D", "Rack 24RU 1200D", "Garage shelving 1800"]:
 		if not labels.has(nm):
 			check("New object " + nm, false)
 	var rk = main.PALETTE[labels.find("Rack 22RU 1200D")]
 	check("22RU rack: 600 x 1200 x 1178 mm with a detailed wireframe", is_equal_approx(rk.dims.x, 1.2) and is_equal_approx(rk.dims.z, 0.6) and is_equal_approx(rk.dims.y, 1.178) and rk.outline.parts.size() > 50, str(rk.dims))
-	var snl = main.PALETTE[labels.find("Snow leopard 1.75 m")]
-	check("Snow leopard is 1.75 m tall and a detailed wireframe", is_equal_approx(snl.dims.y, 1.75) and snl.outline.parts.size() > 100)
 	var gsh = main.PALETTE[labels.find("Garage shelving 1800")]
 	check("Garage shelving: 5 solid decks you can put things on", gsh.outline.solids.size() == 5)
 	# Stacking: dryer on the washer; shelves stack board-gap by board-gap; spacer panel holds things.
@@ -97,11 +102,11 @@ func run(m) -> void:
 	for sx in [ws, ds, a1, a2, a3, cart]:
 		main.remove_shape(sx)
 		sx.node.queue_free()
-	var pt = main.PALETTE[labels.find("Pantech truck 4.5 t")]
+	var pt = main.PALETTE[labels.find("Farizon H9E 4.5 t")]
 	var pts = main.make_shape("box", pt.dims, Vector3(30, pt.dims.y / 2.0, 30), Quaternion.IDENTITY, "Pt", pt.outline)
-	var pal_in = main.make_shape("box", {"x": 1.165, "y": 0.15, "z": 1.165}, Vector3(31.5, 2.5, 30))
+	var pal_in = main.make_shape("box", {"x": 1.165, "y": 0.15, "z": 1.165}, Vector3(31.0, 2.5, 30))
 	main.settle(pal_in)
-	check("A pallet dropped into the Pantech lands on its 1 m floor", absf(pal_in.node.position.y - 1.075) < 0.003, str(pal_in.node.position))
+	check("A pallet dropped into the H9E lands on its 1050 mm box floor", absf(pal_in.node.position.y - 1.125) < 0.003, str(pal_in.node.position))
 	for sx in [pts, pal_in]:
 		main.remove_shape(sx)
 		sx.node.queue_free()
@@ -290,19 +295,23 @@ func run(m) -> void:
 	main.face_button(cu, "high", false, true, 12.1)
 	check("Tap Y: objects menu + sidebar (Trace, Box, Custom, Save selected)", main.tray.is_open and main.tray_side.is_open and main.tray.items.size() == main.PALETTE.size() and main.tray_side.item("side:trace") != null and main.tray_side.item("side:box") != null and main.tray_side.item("side:custom") != null and main.tray_side.item("side:save") != null)
 	check("...sidebar sits left of the grid", main.tray.to_local(main.tray_side.global_position).x < -(main.tray.size.x + main.tray_side.size.x) / 2.0 + 0.001)
-	check("...tapped open, it rides on that wrist (above the hand)", main.tray_follow and main.tray.global_position.y > cu.node.global_position.y + 0.05)
+	check("...it opens 70 cm in front of that controller", absf(main.tray.global_position.distance_to(cu.node.global_position) - 0.7) < 0.01, str(main.tray.global_position))
 	var tray_p0: Vector3 = main.tray.global_position
 	cu.node.position += Vector3(0.3, -0.2, 0.1)
 	main._process(0.0)
-	var tray_rel: Vector3 = main.tray.global_position - cu.node.global_position
-	check("...and follows the hand when it moves", not main.tray.global_position.is_equal_approx(tray_p0) and tray_rel.y > 0.05 and tray_rel.length() < 0.6, str(tray_rel))
+	check("...and stays put when the hand moves", main.tray.global_position.is_equal_approx(tray_p0))
 	cu.node.position = Vector3.ZERO
 	main._process(0.0)
 	var n1: int = main.shapes.size()
 	var cg2 = main.ctrls[1]
 	cg2.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.5, "point": main.tray.global_position}
+	cg2.o = Vector3.ZERO
+	cg2.d = Vector3.FORWARD
 	main.on_trigger_down(cg2, {"trigger": true})
 	check("Picking from the palette puts it in your hand; the menu stays open", main.shapes.size() == n1 + 1 and cg2.drag != null and main.tray.is_open)
+	var sp = main.shapes[-1]
+	var near_edge: float = Vector2(sp.node.position.x, sp.node.position.z).length() - maxf(sp.dims.x, sp.dims.z) / 2.0
+	check("...it appears 3 m away (nearest edge), not inside you", near_edge > 2.99, str(near_edge))
 	cg2.ui = null
 	main.on_drag_release(cg2)
 	main.undo()
@@ -312,7 +321,9 @@ func run(m) -> void:
 	cu.ui = {"panel": main.tray, "id": "obj:0", "dist": 0.2, "point": main.tray.global_position}
 	var n2: int = main.shapes.size()
 	main.face_button(cu, "high", false, true, 14.6)
-	check("Hold Y, point with the same hand, let go: it's in your hand and the menu closes", main.shapes.size() == n2 + 1 and cu.drag != null and cu.drag.type == "free" and not main.tray.is_open)
+	check("Hold Y and let go: nothing is picked, the menu stays up", main.shapes.size() == n2 and main.tray.is_open)
+	main.on_trigger_down(cu, {"trigger": true})
+	check("...trigger-grab an item: it's in your hand and the menu closes", main.shapes.size() == n2 + 1 and cu.drag != null and cu.drag.type == "free" and not main.tray.is_open)
 	cu.ui = null
 	main.on_drag_release(cu)
 	main.undo()
@@ -732,6 +743,41 @@ func run(m) -> void:
 	main.run_side(main.ctrls[0], "side:box")
 	check("Box toggles off the same way", main.mode == "select")
 	main.close_tray()
+
+	# Two-hand resize: carry with one hand, grab it with the other (trigger), pull apart: it stretches along that axis.
+	main.set_tool("select")
+	var th = main.make_shape("box", {"x": 1.0, "y": 0.5, "z": 0.5}, Vector3(40, 0.25, 40))
+	var h1 = main.ctrls[0]
+	var h2 = main.ctrls[1]
+	for hc in [h1, h2]:
+		hc.drag = null
+		hc.ui = null
+		hc.shape_hit = null
+	h1.o = Vector3(39.6, 0.3, 40)
+	h1.d = Vector3.RIGHT
+	main.start_free(h1, th, true)
+	h2.o = Vector3(40.4, 0.3, 40)
+	h2.d = Vector3.LEFT
+	main.on_trigger_down(h2, {"trigger": true})
+	check("Second hand on the carried object starts a two-hand resize", h2.drag != null and h2.drag.type == "two" and h2.drag.key == "x")
+	h2.o = Vector3(40.6, 0.3, 40)
+	main.update_two_hand(h2, h2.drag)
+	check("...pulling apart stretches it smoothly along that axis (0.8 -> 1.0 m apart: 1.0 -> 1.25 m long)", absf(th.dims.x - 1.25) < 0.001 and is_equal_approx(th.dims.z, 0.5), str(th.dims))
+	main.on_drag_release(h2)
+	check("...let go: the size locks in", h2.drag == null and absf(th.dims.x - 1.25) < 0.001)
+	main.on_drag_release(h1)
+	main.undo()
+	check("...one undo puts the size back", absf(th.dims.x - 1.0) < 0.001, str(th.dims))
+	# X / A with your hand inside an object picks that object, not what the ray points at.
+	var far = main.make_shape("box", {"x": 0.5, "y": 0.5, "z": 0.5}, Vector3(45, 0.25, 40))
+	h1.o = Vector3(40.1, 0.3, 40)
+	h1.shape_hit = {"shape": far, "point": far.node.position, "normal": Vector3.UP, "dist": 5.0}
+	main.open_tools(h1)
+	check("X / A with your hand inside an object targets that object", main.ctx.target == th)
+	main.close_tools()
+	h1.shape_hit = null
+	for sx in [th, far]:
+		main.remove_shape(sx)
 
 	# Custom objects: Save selected, pick it again, remove it.
 	main.select(trc)
