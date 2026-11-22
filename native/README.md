@@ -28,12 +28,12 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 
 | Do this | Get this |
 |---|---|
-| **Click a thumbstick** | **Tools** menu, stuck to that hand: Rotate/Move, Scale, Edit, Player move, the measuring tools, Free draw and Reset position. Point and trigger with the other hand. Click again to close |
+| **Click a thumbstick** | **Tools** menu, stuck to that hand: Rotate/Move, Scale, Edit, Player move, the measuring tools and Reset position. Point and trigger with the other hand. Click again to close |
 | **Click both thumbsticks** | Tools menu, fixed in front of you |
 | **Left ≡ button** | **Settings** menu, stuck to the left hand: units, grid, room lines, scan, save, Rooms..., export, clear, Turn room, Accuracy test, Room info, Fit check, quit |
 | **X** or **A** | **Clipboard** menu. Pointing at a shape: Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Bigger 5%** / **Smaller 5%** / **Reset size** / **Undo**. On empty space: Paste (where you pointed) / Next clip / Undo |
 | **Y** or **B** | **Objects** menu from [`objects.csv`](../objects.csv), with a sidebar: **Trace**, **Box**, **Custom...**, **Save selected** |
-| **Tap** X / A / Y / B | The menu pops up 20 cm in front of that controller and **stays put**, like a painter's palette. Picking from it doesn't close it (the clipboard menu follows whatever you select). Tap the same button again to close it |
+| **Tap** X / A / Y / B | X / A: the clipboard menu pops up 20 cm in front of that controller and **stays put**. Y / B: the objects menu **rides on that wrist** like a palette: look down, grab with the other hand. Picking from it doesn't close it (the clipboard menu follows whatever you select). Tap the same button again to close it |
 | **Hold** X / A / Y / B | Quick-pick: the same menu pops up; point at an item **with the same hand** and **let go of the button** to pick it. The menu closes. An object you quick-pick hangs on your pointer: click the trigger to put it down |
 | **Rotate/Move:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
 | **Rotate/Move:** quick trigger **tap** on an object | Select it (nothing moves) |
@@ -43,12 +43,12 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 | Stick **forward / back** while holding | Push it away / pull it in, continuously |
 | **Scale** tool | Trigger an object, then trigger-drag its yellow / orange cubes to resize one side / the radius |
 | **Edit** tool | Point at a face (it outlines in yellow), hold trigger and **pull**: that face moves along its axis, the opposite face stays put (1 mm steps). Round shapes: top/bottom = height, sides = radius |
-| **Player move** tool | **Left stick** slides you through the wireframe, **right stick** turns you 15° per flick (the room moves, your real office doesn't). Grabbing still works. Tools > **Reset position** puts the room back where it really is |
+| **Player move** tool | **Left stick** slides you through the wireframe, **right stick** left/right turns you smoothly, up/down raises or lowers you smoothly (the room moves, your real office doesn't). Grabbing still works. Tools > **Reset position** puts the room back where it really is |
 
 **Drawing with the controller tip** (a yellow dot shows the tip; points snap to corners within 2.5 cm):
 - **Box** (objects sidebar): put the tip on one corner, hold trigger, pull to the opposite corner, let go. Or click, move, click. Grip cancels.
-- **Trace** (objects sidebar): click each corner of the outline (or hold trigger and draw freehand), click the first corner again to close it, then raise or lower the tip and click for the height. You get a solid shape with the traced outline; its volume is the real shape's, not its box. Grip undoes the last point.
-- **Free draw** (Tools menu): click corners (or hold and draw) and click a loop's first corner to close it into a face. Corners within 3 cm are shared, so faces join up. Grip undoes the last point; grip with no open loop finishes the shape. A closed shape gets its real volume; an open one is a surface.
+- **Trace** (objects sidebar): click each corner of the outline (or hold trigger and draw freehand), click the first corner again to close it, then **point** the controller up or down to set the height (the ray, not your reach, sets it) and click. You get a solid shape with the traced outline; its volume is the real shape's, not its box. Grip undoes the last point.
+- **Trace / Box are toggles:** the sidebar button says ON while it's active; tap it again to turn it off and go back to Rotate/Move.
 
 **Custom objects:** select any object (a trace, a box, a resized pallet...), open the objects menu (Y / B) and press **Save selected**. **Custom...** shows your saved objects; pick one to place a copy. **Remove: on** deletes them. They're kept on the headset between sessions.
 

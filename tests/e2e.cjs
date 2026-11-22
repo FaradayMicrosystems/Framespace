@@ -162,7 +162,7 @@ fs.mkdirSync(path.join(__dirname, '..', 'test-results'), { recursive: true });
   check('Releasing X closes the palette', !(await page.evaluate(() => window.__framespace.palette.open)));
   const pal = await page.evaluate(() => window.__framespace.PALETTE.map(p => [p.label, p.dims]));
   const pallet = pal.find(p => p[0] === 'AU pallet');
-  check('Palette loads objects.csv (48 objects incl. AU pallet 1165 mm)', pal.length === 48 && pallet && near(pallet[1].x, 1.165) && near(pallet[1].z, 1.165), `${pal.length} objects`);
+  check('Palette loads objects.csv (51 objects incl. AU pallet 1165 mm)', pal.length === 51 && pallet && near(pallet[1].x, 1.165) && near(pallet[1].z, 1.165), `${pal.length} objects`);
   const van = await page.evaluate(() => window.__framespace.PALETTE.find(p => p.label === 'Farizon V7E'));
   check('Farizon V7E has a van outline and 2 wheels', van && van.outline.pts.length === 10 && van.outline.wheels.length === 2 && near(van.dims.x, 4.995));
   const open = await page.evaluate(() => window.__framespace.PALETTE.find(p => p.label === 'Farizon V7E open cargo'));
