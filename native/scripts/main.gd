@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.30"
+const BUILD := "0.31"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -235,6 +235,16 @@ static func parse_objects(text: String) -> Array:
 			var o := parse_outline(row.get("outline", ""), row.get("wheels", ""), row.get("inner", ""), dims.x * 1000.0, dims.y * 1000.0, dims.z * 1000.0, row.get("parts", ""))
 			if not o.is_empty():
 				item["outline"] = o
+		# mount: wall (sticks flat to a wall at any height) | ceiling (flush under the ceiling) |
+		# wallfloor (back flush to a wall, stands on the floor) | is-wall (a wall panel things mount onto)
+		var mt := String(row.get("mount", "")).to_lower()
+		if type == "box" and mt in ["wall", "ceiling", "wallfloor", "is-wall"]:
+			if not item.has("outline"):
+				item["outline"] = {}
+			if mt == "is-wall":
+				item.outline["wall"] = true
+			else:
+				item.outline["mount"] = mt
 		out.append(item)
 	return out
 
@@ -260,7 +270,7 @@ const MENU_SETTINGS := [
 	"accuracy", "roominfo", "fitcheck", "occlude",
 	"quit",
 ]
-const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake", "boxdraw"]
+const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake", "boxdraw", "walldraw"]
 const CURSOR_MEASURE := 0.10    # Tape / Area / Volume: the point is 10 cm off the controller tip, free in 3D
 const CURSOR_BOXDRAW := 0.5     # Box draw: 50 cm off the tip
 const FLOOR_SNAP := 0.08        # Area / Volume / Box draw points within 8 cm above a surface snap onto it
@@ -289,7 +299,7 @@ const MODE_NAMES := {"select": "Rotate/Move", "edit": "Edit", "playermove": "Pla
 	"trace": "Trace", "boxmake": "Box", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
 	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
-	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test", "volume": "Volume", "boxdraw": "Box draw"}
+	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test", "volume": "Volume", "boxdraw": "Box draw", "walldraw": "Wall draw"}
 const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
 const ROT_SPEED := 120.0        # degrees/s at full stick left/right while holding
 const PUSH_SPEED := 1.5         # m/s at full stick forward/back while holding
@@ -856,12 +866,11 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	s.node.position = pos
 	s.node.quaternion = rot
 	s.wire = MeshInstance3D.new()
-	if type == "box" and outline is Dictionary and (not outline.get("pts", []).is_empty() or not outline.get("parts", []).is_empty()
-			or not outline.get("poly", []).is_empty() or not outline.get("mesh", {}).is_empty()):
-		s.outline = outline
-		s.wire.mesh = outline_mesh(outline)
-	else:
-		s.wire.mesh = unit_wire[type]
+	var geo: bool = type == "box" and outline is Dictionary and (not outline.get("pts", []).is_empty() or not outline.get("parts", []).is_empty()
+			or not outline.get("poly", []).is_empty() or not outline.get("mesh", {}).is_empty())
+	if type == "box" and outline is Dictionary and not outline.is_empty():
+		s.outline = outline      # may be flags only (mount / wall): drawn as a plain box
+	s.wire.mesh = outline_mesh(outline) if geo else unit_wire[type]
 	s.wire_mat = _unlit(s.color)
 	# Drawn after the occluders (transparent pass, higher priority) so lines behind any object are hidden.
 	s.wire_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -883,7 +892,7 @@ func make_shape(type: String, dims: Dictionary, pos: Vector3, rot := Quaternion.
 	s.body.set_meta("shape", s)
 	s.col = CollisionShape3D.new()
 	s.body.add_child(s.col)
-	s.label = make_label(s.color, 4)   # 4th line: Fit check warning
+	s.label = make_label(s.color, 5)   # 4th: drill guide (mounted things), last: Fit check warning
 	s.node.add_child(s.occ)
 	s.node.add_child(s.wire)
 	s.node.add_child(s.fill)
@@ -1069,11 +1078,15 @@ func refresh_shape(s: Shape) -> void:
 			s.col.shape = cv
 	s.label.position = Vector3(0, sc.y / 2.0 + 0.09, 0)
 	var lines := shape_lines(s.type, ("%s (pinned)" % s.name) if s.pinned else s.name, s.dims, s.outline)
+	if mount_of(s) != "":
+		lines.append(mount_text(s))
+	var fit_i := -1
 	if s.fit_hits.size():
+		fit_i = lines.size()
 		lines.append("DOESN'T FIT: hits " + ", ".join(s.fit_hits))
 	set_label(s.label, lines)
-	if s.label.get_child_count() > 3:
-		(s.label.get_child(3) as Label3D).modulate = C_RED
+	for li in range(3, s.label.get_child_count()):
+		(s.label.get_child(li) as Label3D).modulate = C_RED if li == fit_i else C_YELLOW
 	for h in s.handles:
 		var hd: Dictionary = h.get_meta("hd")
 		var e: float = s.dims.r if hd.mode == "radius" else extent(s, hd.key) / 2.0
@@ -1357,9 +1370,9 @@ func tool_hint(t: String, n: int) -> String:
 ## Area / Volume / Box draw snap down onto a surface within 8 cm. Snaps to existing points within 3 cm.
 ## Not holding grip: the new segment snaps to the nearest 45° from the last point (Tape / Area / Volume).
 func cursor_point(c: Ctrl, free_angle := false) -> Vector3:
-	var off := CURSOR_BOXDRAW if mode == "boxdraw" else CURSOR_MEASURE
+	var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw"] else CURSOR_MEASURE
 	var p: Vector3 = c.o + c.d * off
-	if mode in ["area", "volume", "boxdraw"]:
+	if mode in ["area", "volume", "boxdraw", "walldraw"]:
 		var sup := support_below(p.x, p.z, p.y, null)
 		if p.y - sup < FLOOR_SNAP:
 			p.y = sup
@@ -1586,9 +1599,21 @@ func _shape_top_at(s: Shape, x: float, z: float, max_y := INF):
 ## Square the shape to the grid (yaw in 45° steps, X/Z on grid points) and let it fall onto what is below.
 ## step: how far above the shape's bottom a surface can be and still be stepped onto (sliding into a container).
 func settle(s: Shape, step := 0.02) -> void:
-	s.node.quaternion = snap_yaw_quat(s.node.quaternion)
-	s.node.position.x = snap_grid(s.node.position.x)
-	s.node.position.z = snap_grid(s.node.position.z)
+	falling = falling.filter(func(f): return f.shape != s)
+	var mt := mount_of(s)
+	if (mt == "wall" or mt == "ceiling") and try_mount(s):
+		refresh_shape(s)
+		return
+	var on_wall := false
+	if mt == "wallfloor":
+		var w := find_wall(s, s.node.position, s.dims.z / 2.0 + MOUNT_REACH, s.node.quaternion * Vector3(0, 0, -1))
+		if not w.is_empty():
+			place_on_wall(s, s.node.position, w)
+			on_wall = true
+	if not on_wall:
+		s.node.quaternion = snap_yaw_quat(s.node.quaternion)
+		s.node.position.x = snap_grid(s.node.position.x)
+		s.node.position.z = snap_grid(s.node.position.z)
 	refresh_shape(s)
 	var hh := half_height(s)
 	var bottom := s.node.position.y - hh
@@ -1862,6 +1887,7 @@ func side_items() -> Array:
 	var out := [
 		{"id": "side:trace", "label": "Trace: ON" if mode == "trace" else "Trace: off", "sub": "tap to turn off" if mode == "trace" else "outline + height", "color": C_YELLOW, "active": mode == "trace"},
 		{"id": "side:box", "label": "Box draw: ON" if mode == "boxdraw" else "Box draw: off", "sub": "tap to turn off" if mode == "boxdraw" else "floor, grip = height", "color": C_YELLOW, "active": mode == "boxdraw"},
+		{"id": "side:wall", "label": "Wall draw: ON" if mode == "walldraw" else "Wall draw: off", "sub": "tap to turn off" if mode == "walldraw" else "click corners · %s high" % L(wall_height), "color": C_YELLOW, "active": mode == "walldraw"},
 	]
 	for cn in categories():
 		out.append({"id": "cat:" + cn, "label": cn, "active": tray_page != "custom" and cn == tray_cat, "color": C_CYAN})
@@ -1938,8 +1964,8 @@ func run_side(c: Ctrl, id: String) -> void:
 		refresh_tray()
 		return
 	match id:
-		"side:trace", "side:box":
-			var want := "trace" if id == "side:trace" else "boxdraw"
+		"side:trace", "side:box", "side:wall":
+			var want: String = {"side:trace": "trace", "side:box": "boxdraw", "side:wall": "walldraw"}[id]
 			if mode == want:
 				set_tool("select", false)       # toggle off: back to Rotate/Move
 				set_status("%s off. Back to Rotate/Move." % MODE_NAMES[want])
@@ -2236,7 +2262,14 @@ func spawn_item(p: Dictionary, c: Ctrl = null, point_w = null) -> Shape:
 		haptic(c, 0.5, 0.04)
 		set_status("Placing %s" % s.name)
 	else:
-		s.node.position.y += half_height(s)
+		var tg = last_ctrl.target if last_ctrl != null else null
+		var mt := mount_of(s)
+		if tg != null and mt == "wall" and absf(tg.normal.y) < 0.35:
+			s.node.position += Vector3(tg.normal.x, 0, tg.normal.z).normalized() * (s.dims.z / 2.0 + 0.04)   # pointing at a wall: on the wall
+		elif tg != null and mt == "ceiling" and tg.normal.y < -0.5:
+			s.node.position.y -= half_height(s) + 0.04
+		else:
+			s.node.position.y += half_height(s)
 		settle(s)
 		set_status("Added %s." % s.name)
 	persist()
@@ -2261,6 +2294,7 @@ func set_tool(t: String, announce := true) -> void:
 		"select": "Rotate/Move: trigger picks up (twist your wrist to turn it), grip slides. While holding: stick left/right turns, forward/back pushes/pulls.",
 		"scale": "Scale: trigger an object to select it, then drag its yellow cubes.",
 		"trace": "Trace: tip on a corner, trigger. Click each corner (or hold trigger and draw). Click the first point to close, then POINT the controller up or down to set the height and click. Grip = undo last point. Y / B > Trace again turns it off.",
+		"walldraw": "Wall draw: the dot 50 cm off the tip snaps to the floor. Trigger at each corner (a wall goes up between clicks), click the first corner to close the room. Grip = undo the last wall. Stick up/down = wall height (now %s). Y / B > Wall draw again turns it off." % L(wall_height),
 		"boxdraw": "Box draw: the dot 50 cm off the tip snaps to the floor. Trigger at one corner, move to the opposite corner, squeeze grip and raise your hand for the height, let go to lock it, trigger to drop the box.",
 		"boxmake": "Box: tip on one corner, hold trigger, pull to the opposite corner, let go. (Or click, move, click.) Grip cancels. Y / B > Box again turns it off.",
 		"edit": "Edit: point at a face, hold trigger and pull. The face moves along its axis; the opposite face stays put.",
@@ -2657,6 +2691,8 @@ func process_input(c: Ctrl, b: Dictionary) -> void:
 		player_move(c, b, dt)
 	if mode == "boxdraw":
 		box_draw_frame(c, b)
+	if mode == "walldraw" and c.drag == null and c.ui == null:
+		wall_draw_frame(c, b)
 	if c.ui != null and c.ui.panel == tray and c.drag == null:
 		var ssy: float = b.get("sy", 0.0)
 		if absf(ssy) < 0.3:
@@ -2812,6 +2848,9 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 	if mode == "boxdraw":
 		box_draw_trigger(c, b)
 		return
+	if mode == "walldraw":
+		wall_draw_trigger(c)
+		return
 	if mode == "paste":
 		var pp: Vector3 = c.target.point if c.target != null else c.o + c.d * 0.8
 		haptic(c, 0.4, 0.03)
@@ -2922,6 +2961,9 @@ func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 		return
 	if mode == "boxdraw" and c.ui == null:
 		return            # grip = height (handled every frame)
+	if mode == "walldraw" and c.ui == null:
+		wall_undo_point()
+		return
 	if c.drag != null and c.drag.type == "handle":
 		# Grip during a resize: stop resizing (size stays where it is) and slide it instead.
 		var hs: Shape = c.drag.shape
@@ -3022,6 +3064,12 @@ func riders_of(s: Shape) -> Array:
 		for r: Shape in shapes:
 			if r == s or r in out or r.pinned:
 				continue
+			# Things mounted on a wall / container / drawn wall move with it (not with each other).
+			if mount_of(base) in ["", "wallfloor"] and mount_of(r) in ["wall", "ceiling"] \
+					and _touches(base, r):
+				out.append(r)
+				todo.append(r)
+				continue
 			var b: float = r.node.position.y - half_height(r)
 			if b < base.node.position.y - half_height(base) + 0.005:
 				continue
@@ -3030,6 +3078,186 @@ func riders_of(s: Shape) -> Array:
 				out.append(r)
 				todo.append(r)
 	return out
+
+
+## r (a wall / ceiling thing) is mounted on base: its middle is within its own depth of base's box
+## (or inside it, e.g. a container wall or roof).
+func _touches(base: Shape, r: Shape) -> bool:
+	var he := scale_of(base.type, base.dims) / 2.0
+	var lp: Vector3 = base.node.transform.affine_inverse() * r.node.position
+	var q := lp.clamp(-he, he)
+	return lp.distance_to(q) <= maxf(r.dims.get("z", 0.0) / 2.0, half_height(r)) + 0.03
+
+
+func mount_of(s: Shape) -> String:
+	return String(s.outline.get("mount", "")) if s.type == "box" else ""
+
+
+const MOUNT_REACH := 0.12      # a wall / ceiling thing sticks when it's within 12 cm; pull it further to unstick
+const _WALL_DIRS := 8
+
+
+func _mount_ray(from: Vector3, to: Vector3, s: Shape) -> Dictionary:
+	if not is_inside_tree():
+		return {}
+	var space := get_world_3d().direct_space_state
+	var ex: Array[RID] = [s.body.get_rid()]
+	for it in riding_now:
+		ex.append(it[0].body.get_rid())
+	var fw := content.to_global(from)
+	var tw := content.to_global(to)
+	for i in 6:
+		var q := PhysicsRayQueryParameters3D.create(fw, tw, LAYER_ROOM | LAYER_SHAPE, ex)
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			return {}
+		var col = hit.collider
+		var hs = col.get_meta("shape") if col != null and col.has_meta("shape") else null
+		if hs != null and mount_of(hs) in ["wall", "ceiling"]:
+			ex.append(hit.rid)       # don't mount onto another mounted thing
+			continue
+		return {"point": content.to_local(hit.position), "normal": (content.global_basis.inverse() * hit.normal).normalized(), "shape": hs}
+	return {}
+
+
+## Nearest wall (any upright surface: Space Setup walls, the room mesh, drawn walls, container sides)
+## within reach of p, horizontally. prefer = the direction tried first (where you're pointing / its back).
+func find_wall(s: Shape, p: Vector3, reach: float, prefer := Vector3.ZERO) -> Dictionary:
+	var dirs := []
+	if prefer.length() > 0.01:
+		dirs.append(Vector3(prefer.x, 0, prefer.z).normalized())
+	for i in _WALL_DIRS:
+		var a := TAU * i / _WALL_DIRS
+		dirs.append(Vector3(sin(a), 0, cos(a)))
+	var best := {}
+	var best_d := INF
+	for d: Vector3 in dirs:
+		var h := _mount_ray(p, p + d * reach, s)
+		if h.is_empty() or absf(h.normal.y) > 0.35:
+			continue
+		var dist: float = (h.point - p).length()
+		if dist < best_d - 0.005:
+			best_d = dist
+			best = h
+	return best
+
+
+## Flat against the wall at the height it's held: back (its local -Z, width_mm side) on the wall.
+func place_on_wall(s: Shape, p: Vector3, w: Dictionary) -> void:
+	var n: Vector3 = w.normal
+	n.y = 0
+	n = n.normalized()
+	var d := (p - Vector3(w.point)).dot(n)
+	var c: Vector3 = p - n * d + n * (s.dims.z / 2.0 + 0.002)
+	if mount_of(s) == "wall":
+		var floor_y := support_below(c.x, c.z, c.y - half_height(s), s)
+		c.y = maxf(snap_grid(c.y), floor_y + half_height(s))
+	s.node.quaternion = Quaternion(Vector3.UP, atan2(n.x, n.z))
+	s.node.position = c
+
+
+## Height of the ceiling (underside) above p within reach of the object's top, or null.
+## Space Setup ceiling, room mesh, a container roof; without one, the top of drawn walls / wall panels nearby.
+func find_ceiling(s: Shape, p: Vector3, reach: float):
+	var top := p.y + half_height(s)
+	var h := _mount_ray(p, Vector3(p.x, top + reach, p.z), s)
+	if not h.is_empty() and h.normal.y < -0.5:
+		return float(h.point.y)
+	var best = null
+	for w: Shape in shapes:
+		if not w.outline.get("wall", false):
+			continue
+		var wt: float = w.node.position.y + half_height(w)
+		if Vector2(w.node.position.x - p.x, w.node.position.z - p.z).length() < 8.0 and wt - top > -0.05 and wt - top < reach:
+			best = wt if best == null else minf(best, wt)
+	return best
+
+
+func try_mount(s: Shape) -> bool:
+	match mount_of(s):
+		"wall":
+			var w := find_wall(s, s.node.position, s.dims.z / 2.0 + MOUNT_REACH, s.node.quaternion * Vector3(0, 0, -1))
+			if w.is_empty():
+				return false
+			place_on_wall(s, s.node.position, w)
+			return true
+		"ceiling":
+			var cy = find_ceiling(s, s.node.position, MOUNT_REACH)
+			if cy == null:
+				return false
+			s.node.quaternion = snap_yaw_quat(s.node.quaternion)
+			s.node.position.y = float(cy) - half_height(s) - 0.002
+			return true
+	return false
+
+
+func _mounted_frame(s: Shape, dr: Dictionary) -> void:
+	dr.snapped = true
+	if not dr.has("mounted"):
+		dr["mounted"] = true
+		if last_ctrl:
+			haptic(last_ctrl, 0.35, 0.03)
+	grid_patch.visible = false
+	refresh_shape(s)
+	carry_riders(s, dr.get("riders", []))
+	riding_now = []
+
+
+## Is s stuck on a wall / under a ceiling right now? (for the drill-guide label)
+func _mount_state(s: Shape) -> Dictionary:
+	var mt := mount_of(s)
+	var back := s.node.quaternion * Vector3(0, 0, -1)
+	if mt == "wall" or mt == "wallfloor":
+		var h := _mount_ray(s.node.position, s.node.position + back * (s.dims.z / 2.0 + 0.02), s)
+		if not h.is_empty() and absf(h.normal.y) < 0.35:
+			return {"kind": "wall", "n": Vector3(h.normal.x, 0, h.normal.z).normalized()}
+	elif mt == "ceiling":
+		var top := s.node.position + Vector3.UP * (half_height(s) + 0.02)
+		var h2 := _mount_ray(s.node.position, top, s)
+		if not h2.is_empty() and h2.normal.y < -0.5:
+			return {"kind": "ceiling", "y": float(h2.point.y)}
+	return {}
+
+
+func _wall_dist(s: Shape, from: Vector3, d: Vector3) -> float:
+	var h := _mount_ray(from, from + d * 30.0, s)
+	if h.is_empty() or absf(h.normal.y) > 0.35:
+		return -1.0
+	return (Vector3(h.point) - from).length()
+
+
+## Drill guide: where it sits, measured from the floor and from the nearest walls.
+func mount_text(s: Shape) -> String:
+	var st := _mount_state(s)
+	var p := s.node.position
+	var hh := half_height(s)
+	var gw := content.to_global(p)
+	gw.y = 0.0
+	var fy := content.to_local(gw).y
+	var bottom := p.y - hh - fy
+	if st.is_empty():
+		return "Wall mount: hold it against a wall" if mount_of(s) != "ceiling" else "Ceiling mount: lift it to the ceiling"
+	if st.kind == "wall":
+		if mount_of(s) == "wallfloor":
+			return "Back on the wall"
+		var n: Vector3 = st.n
+		var t := Vector3(-n.z, 0, n.x)
+		var o := p + n * 0.05      # just off the wall face, so the side rays find the corners
+		var l := _wall_dist(s, o, -t)
+		var r := _wall_dist(s, o, t)
+		var side := ""
+		if l >= 0.0 or r >= 0.0:
+			side = " · ← %s | %s →" % [L(l) if l >= 0.0 else "–", L(r) if r >= 0.0 else "–"]
+		return "Centre %s · bottom %s above floor%s" % [L(p.y - fy), L(bottom), side]
+	var dx := []
+	for d in [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK]:
+		dx.append(_wall_dist(s, p, d))
+	var nx: float = minf(dx[0] if dx[0] >= 0.0 else INF, dx[1] if dx[1] >= 0.0 else INF)
+	var nz: float = minf(dx[2] if dx[2] >= 0.0 else INF, dx[3] if dx[3] >= 0.0 else INF)
+	var walls := ""
+	if nx < INF or nz < INF:
+		walls = " · walls %s / %s" % [L(nx) if nx < INF else "–", L(nz) if nz < INF else "–"]
+	return "Clearance %s to floor%s" % [L(bottom), walls]
 
 
 func attach_riders(dr: Dictionary, s: Shape) -> void:
@@ -3101,6 +3329,10 @@ func update_move(c: Ctrl, dr: Dictionary) -> void:
 	var z := snap_grid(p.z)
 	var y: float = support_below(x, z, dr.base_y - hh + STEP_UP, s) + hh
 	s.node.position = Vector3(x, y, z)
+	if mount_of(s) == "wallfloor":
+		var w := find_wall(s, s.node.position, s.dims.z / 2.0 + MOUNT_REACH, Vector3(c.d.x, 0, c.d.z))
+		if not w.is_empty():
+			place_on_wall(s, s.node.position, w)
 	refresh_shape(s)
 	carry_riders(s, dr.get("riders", []))
 	riding_now = []
@@ -3145,6 +3377,24 @@ func update_free(c: Ctrl, dr: Dictionary) -> void:
 	var s: Shape = dr.shape
 	var p: Vector3 = c.o + c.d * dr.dist + dr.off
 	var yaw: float = dr.yaw0 + wrist_twist(c, dr.q0)
+	var mt := mount_of(s)
+	var flat_d := Vector3(c.d.x, 0, c.d.z)
+	# Wall / ceiling things stick flat to a wall (at the height you hold them) or flush under the ceiling.
+	if mt == "wall":
+		var w := find_wall(s, p, s.dims.z / 2.0 + MOUNT_REACH, flat_d)
+		if not w.is_empty():
+			place_on_wall(s, p, w)
+			_mounted_frame(s, dr)
+			return
+	elif mt == "ceiling":
+		var cy = find_ceiling(s, p, MOUNT_REACH)
+		if cy != null:
+			var stp := deg_to_rad(YAW_STEP_DEG)
+			s.node.quaternion = Quaternion(Vector3.UP, roundf(yaw / stp) * stp)
+			s.node.position = Vector3(snap_grid(p.x), float(cy) - half_height(s) - 0.002, snap_grid(p.z))
+			_mounted_frame(s, dr)
+			return
+	dr.erase("mounted")
 	var hh := half_height(s)
 	var sup := support_below(p.x, p.z, p.y, s)
 	dr.snapped = p.y - hh - sup < SNAP_TOUCH
@@ -3157,6 +3407,10 @@ func update_free(c: Ctrl, dr: Dictionary) -> void:
 		grid_patch.visible = false
 	s.node.position = p
 	s.node.quaternion = Quaternion(Vector3.UP, yaw)
+	if mt == "wallfloor" and dr.snapped:
+		var w2 := find_wall(s, p, s.dims.z / 2.0 + MOUNT_REACH, flat_d)
+		if not w2.is_empty():
+			place_on_wall(s, p, w2)
 	refresh_shape(s)
 	carry_riders(s, dr.get("riders", []))
 	riding_now = []
@@ -3464,6 +3718,106 @@ func finish_box_draw() -> void:
 	_add_made(s, "Vol %s. Draw the next one." % VOL(dims.x * dims.y * dims.z))
 
 
+# ---------------------------------------------------------------- Wall draw (objects-menu sidebar)
+# Click corners on the floor; a wall (WALL_THICK thick, wall_height high) goes up along each segment.
+# Click the first corner again to close the room. Grip removes the last wall. Stick up/down: height ±10 cm.
+const WALL_THICK := 0.11       # AU stud wall: 90 mm stud + 2 x 10 mm plasterboard
+const WALL_CLOSE := 0.15
+var wall_height := 2.4         # most common Australian ceiling height
+
+
+func wall_draw_trigger(c: Ctrl) -> void:
+	tip_ctrl = c
+	last_ctrl = c
+	haptic(c, 0.4, 0.03)
+	var p := cursor_point(c)
+	p = Vector3(snap_grid(p.x), p.y, snap_grid(p.z))
+	if draft.get("kind", "") != "wall":
+		draft = {"kind": "wall", "pts": [p], "segs": []}
+		set_status("Wall draw: click the next corner. %s high." % L(wall_height))
+		return
+	var pts: Array = draft.pts
+	var first: Vector3 = pts[0]
+	var closing: bool = pts.size() >= 3 and _flat(p).distance_to(_flat(first)) < WALL_CLOSE
+	if closing:
+		p = first
+	var a: Vector3 = pts[-1]
+	if _flat(p).distance_to(_flat(a)) < 0.05:
+		return
+	var s := make_wall(a, p)
+	draft.segs.append(s)
+	push_history(func(): remove_shape(s))
+	if closing:
+		draft = {}
+		set_status("Room closed: %d walls. Click to start another." % pts.size())
+	else:
+		pts.append(p)
+		set_status("%s: %s long. Next corner, or click the first one to close." % [s.name, L(s.dims.x)])
+	persist()
+
+
+func make_wall(a: Vector3, b: Vector3) -> Shape:
+	var v := b - a
+	v.y = 0
+	var dims := {"x": roundf(v.length() * 1000.0) / 1000.0, "y": wall_height, "z": WALL_THICK}
+	var mid := (a + b) / 2.0
+	mid.y = minf(a.y, b.y) + wall_height / 2.0
+	return make_shape("box", dims, mid, Quaternion(Vector3.UP, atan2(-v.z, v.x)), _next_name("Wall"), {"wall": true})
+
+
+func wall_undo_point() -> void:
+	if draft.get("kind", "") != "wall":
+		set_status("Wall draw: trigger on the floor for the first corner.")
+		return
+	var segs: Array = draft.segs
+	if segs.is_empty():
+		draft = {}
+		set_status("Wall draw: start point removed.")
+		return
+	var s: Shape = segs.pop_back()
+	remove_shape(s)
+	draft.pts.pop_back()
+	if history.size():
+		history.pop_back()
+	set_status("Removed %s." % s.name)
+	persist()
+
+
+func wall_draw_frame(c: Ctrl, b: Dictionary) -> void:
+	var sy: float = b.get("sy", 0.0)
+	if absf(sy) < 0.3:
+		c.set_meta("wall_latch", false)
+	elif not c.get_meta("wall_latch", false) and absf(sy) > 0.7:
+		c.set_meta("wall_latch", true)
+		wall_height = clampf(wall_height + (0.1 if sy > 0 else -0.1), 0.3, 6.0)
+		haptic(c, 0.2, 0.015)
+		set_status("Wall height %s (next walls)." % L(wall_height))
+		menu_dirty = true
+
+
+func wall_draw_preview() -> void:
+	var vc: Ctrl = tip_ctrl if tip_ctrl != null else (last_ctrl if last_ctrl != null else ctrls[1])
+	var p := cursor_point(vc)
+	var v := PackedVector3Array()
+	var h := wall_height
+	if draft.get("kind", "") == "wall":
+		var a: Vector3 = draft.pts[-1]
+		var first: Vector3 = draft.pts[0]
+		if draft.pts.size() >= 3 and _flat(p).distance_to(_flat(first)) < WALL_CLOSE:
+			p = first
+		v.append_array([a, p, a + Vector3.UP * h, p + Vector3.UP * h, a, a + Vector3.UP * h, p, p + Vector3.UP * h])
+		make_lbl.position = (a + p) / 2.0 + Vector3.UP * (h + 0.1)
+		set_label(make_lbl, ["Wall draw", "%s long · %s high" % [L(_flat(p).distance_to(_flat(a))), L(h)],
+			"Click the first corner to close" if p == first else "Grip = undo last wall"])
+	else:
+		v.append_array([p, p + Vector3.UP * h])
+		make_lbl.position = p + Vector3.UP * (h + 0.1)
+		set_label(make_lbl, ["Wall draw", "%s high · stick up/down" % L(h), "Trigger = first corner"])
+	make_prev.mesh = _lines_mesh(v)
+	make_prev.visible = true
+	make_lbl.visible = true
+
+
 func finish_box(b: Vector3) -> void:
 	var a: Vector3 = draft.a
 	draft = {}
@@ -3595,11 +3949,14 @@ static func mesh_volume(v: Array, faces: Array) -> float:
 
 func update_make_preview() -> void:
 	for c in ctrls:
-		var off := CURSOR_BOXDRAW if mode == "boxdraw" else (CURSOR_MEASURE if mode in ["tape", "area", "volume"] else 0.0)
+		var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw"] else (CURSOR_MEASURE if mode in ["tape", "area", "volume"] else 0.0)
 		c.tip.position = Vector3(0, 0, -off)
 		c.tip.visible = (mode in TIP_MODES or off > 0.0) and c.node.get_is_active()
 	if mode == "boxdraw":
 		box_draw_preview()
+		return
+	if mode == "walldraw":
+		wall_draw_preview()
 		return
 	if mode == "volume" and draft.get("vol", false):
 		var vc: Ctrl = last_ctrl if last_ctrl != null else ctrls[1]
@@ -4062,6 +4419,8 @@ func fit_hits_for(s: Shape, space: PhysicsDirectSpaceState3D) -> Array:
 			var o = col.get_meta("shape")
 			if not shapes.has(o):
 				continue
+			if s.outline.get("wall", false) and o.outline.get("wall", false):
+				continue        # walls meeting at a corner are fine
 			nm = o.name
 		else:
 			var a = col.get_parent()

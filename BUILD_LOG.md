@@ -190,3 +190,11 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 
 - Aurora asked for all current EcoFlow and DJI power stations with their expansion batteries (stackable, one asset each), plus the Dune 300 W folding solar blanket unfolded (best-guess size: 5 x 550 mm panels, 2 cm gaps, 45 degrees). She approved releasing at 2/7.
 - Tests: native self-test 273/273 (was 256).
+
+## 2026-11-24 (Brisbane): v0.31, walls + wall / ceiling mount, batch of 23
+
+- Planned and queued 2026-11-22 17:10 to 2026-11-24 05:23 (Aurora's list grew from walls + wall monitors into a workshop focus: she is planning to build and ship mobile workshops to sites). Go at 05:25.
+- Built: Wall draw tool; wall / ceiling / wallfloor mounting with drill-guide labels; mounted things ride with walls and containers; 72 new objects (wall mount, ceiling mount, workshop, 3D printers, home and portable batteries, Polaris ATV and Ranger, 15 portable structures, wall panels, bunk bed); shelving consolidated; V7E open cargo wireframe cleaned up. Real dimensions from maker spec sheets for the branded items (Polaris owner's manuals, EcoFlow, Anker, Sungrow, BYD, Sigenergy, Elegoo, Formlabs).
+- Decisions: Jackery, Bluetti stacks and Alpha ESS left out (dimensions not confirmed); Anker as a power station + expansion battery to line up; kitchen / beds / sofa kept (Aurora).
+- Tests: native self-test 305/305 (was 273), run locally on Godot 4.6.2.
+- AI involvement: Claude planned, researched, built, tested, merged and released it in one session.
