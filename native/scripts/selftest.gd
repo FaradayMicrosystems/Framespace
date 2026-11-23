@@ -53,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (75 objects, in categories)", main.PALETTE.size() == 75 and main.categories().size() == 10 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (139 objects, in 13 categories)", main.PALETTE.size() == 139 and main.categories().size() == 13 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
@@ -91,13 +91,13 @@ func run(m) -> void:
 	var g2 = main.PALETTE[labels.find("Garage 2-car")]
 	check("2-car garage is 6 x 6 m and hollow (walk in, park)", is_equal_approx(g2.dims.x, 6.0) and is_equal_approx(g2.dims.z, 6.0) and g2.outline.solids.size() > 4)
 	for nm in ["10ft container", "Tandem box trailer", "King bed", "Single bed", "Wardrobe 2-door", "Kitchen bench 600", "Dryer",
-			"Shelf 5 cm", "Shelf 30 cm", "Shelf spacer 1 m", "Shelf spacer 1.5 m", "Rack 18RU 1200D", "Rack 22RU 1200D", "Rack 24RU 1200D", "Garage shelving 1800"]:
+			"Rack 18RU 1200D", "Rack 22RU 1200D", "Rack 24RU 1200D", "Steel shelving 1800"]:
 		if not labels.has(nm):
 			check("New object " + nm, false)
 	var rk = main.PALETTE[labels.find("Rack 22RU 1200D")]
 	check("22RU rack: 600 x 1200 x 1178 mm with a detailed wireframe", is_equal_approx(rk.dims.x, 1.2) and is_equal_approx(rk.dims.z, 0.6) and is_equal_approx(rk.dims.y, 1.178) and rk.outline.parts.size() > 50, str(rk.dims))
-	var gsh = main.PALETTE[labels.find("Garage shelving 1800")]
-	check("Garage shelving: 5 solid decks you can put things on", gsh.outline.solids.size() == 5)
+	var gsh = main.PALETTE[labels.find("Steel shelving 1800")]
+	check("Steel shelving: 5 solid decks; stands on the floor with its back to a wall", gsh.outline.solids.size() == 5 and gsh.outline.get("mount", "") == "wallfloor")
 	# Stacking: dryer on the washer; shelves stack board-gap by board-gap; spacer panel holds things.
 	var wsh = main.PALETTE[labels.find("Washing machine")]
 	var dry = main.PALETTE[labels.find("Dryer")]
@@ -105,23 +105,107 @@ func run(m) -> void:
 	var ds = main.make_shape(dry.type, dry.dims, Vector3(20, 3.0, 20), Quaternion.IDENTITY, "D", dry.get("outline"))
 	main.settle(ds)
 	check("Dryer dropped on the washer stacks on top (bottom at 850 mm)", absf(ds.node.position.y - dry.dims.y / 2.0 - 0.85) < 0.003, str(ds.node.position))
-	var sh30 = main.PALETTE[labels.find("Shelf 30 cm")]
-	var sh20 = main.PALETTE[labels.find("Shelf 20 cm")]
-	var spc = main.PALETTE[labels.find("Shelf spacer 1 m")]
-	var a1 = main.make_shape("box", spc.dims, Vector3(22, spc.dims.y / 2.0, 22), Quaternion.IDENTITY, "Sp", spc.outline)
-	# (Created off to the side, then moved over: a new physics body only moves on the next physics frame.)
-	var a2 = main.make_shape("box", sh30.dims, Vector3(26, 3.0, 26), Quaternion.IDENTITY, "S30", sh30.outline)
-	a2.node.position = Vector3(22, 3.0, 22)
-	main.settle(a2)
-	var a3 = main.make_shape("box", sh20.dims, Vector3(27, 4.0, 27), Quaternion.IDENTITY, "S20", sh20.outline)
-	a3.node.position = Vector3(22, 4.0, 22)
-	main.settle(a3)
-	check("Spacer 1 m + shelf 30 + shelf 20 stack: top board at 1.5 m", absf(a3.node.position.y + sh20.dims.y / 2.0 - 1.5) < 0.003, str(a3.node.position))
-	var cart = main.make_shape("box", {"x": 0.3, "y": 0.2, "z": 0.2}, Vector3(28, 4.0, 28))
-	cart.node.position = Vector3(22, 4.0, 22)
-	main.settle(cart)
-	check("A box dropped on the top shelf sits on its board", absf(cart.node.position.y - 1.6) < 0.003, str(cart.node.position))
-	for sx in [ws, ds, a1, a2, a3, cart]:
+	# v0.31: wall mount, ceiling mount, walls, workshop / power / vehicle / structure objects.
+	for nm in ["Floating shelf 900", "Monitor 32 in (wall)", "LED high bay 150 W (UFO)", "Wall panel 2 m", "Elegoo OrangeStorm Giga",
+			"Formlabs Fuse 1+ 30W", "Polaris Sportsman 570 ATV", "Polaris Ranger 570 Mid-Size", "Bunk bed (single over single)",
+			"Tesla Powerwall 3 (13.5 kWh)", "EcoFlow DELTA Pro Ultra 12.3 kWh", "Pop-up gazebo 3 x 3 m", "Fabric warehouse 10 x 20 m", "Split-system AC indoor unit 7 kW"]:
+		check("v0.31 object: " + nm, labels.has(nm))
+	check("Shelving: one floating shelf, no stacking shelves or spacers", not (labels.has("Shelf 5 cm") or labels.has("Shelf 30 cm") or labels.has("Shelf spacer 1 m") or labels.has("Shelf spacer 1.5 m") or labels.has("Garage shelving 1800")))
+	var cats: Array = main.categories()
+	check("Categories: Wall mount, Ceiling mount, Walls, Portable structures (Shelving & storage is gone)", cats.has("Wall mount") and cats.has("Ceiling mount") and cats.has("Walls") and cats.has("Portable structures") and not cats.has("Shelving & storage"), str(cats))
+	var nps := 0
+	for pp in main.PALETTE:
+		if pp.cat == "Portable structures":
+			nps += 1
+	check("15 portable structures", nps == 15, str(nps))
+	var vo31 = main.PALETTE[labels.find("Farizon V7E open cargo")]
+	check("V7E open cargo cleaned up (no roof ribs / floor slats)", vo31.outline.parts.size() < 20, str(vo31.outline.parts.size()))
+	# Wall mount: a floating shelf held near a wall panel sticks to it at that height.
+	var wpp = main.PALETTE[labels.find("Wall panel 2 m")]
+	var wps = main.make_shape("box", wpp.dims, Vector3(60, wpp.dims.y / 2.0, 60), Quaternion.IDENTITY, "WP", wpp.outline)
+	var fsp = main.PALETTE[labels.find("Floating shelf 900")]
+	var fs = main.make_shape("box", fsp.dims, Vector3(60.2, 1.5, 60.15), Quaternion.IDENTITY, "FS", fsp.outline)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	main.settle(fs)
+	check("Floating shelf held near a wall sticks flat to it at that height", absf(fs.node.position.z - 60.182) < 0.004 and absf(fs.node.position.y - 1.5) < 0.006, str(fs.node.position))
+	check("...facing out from the wall", absf((fs.node.quaternion * Vector3(0, 0, 1)).z - 1.0) < 0.01, str(fs.node.quaternion))
+	check("...drill guide label: height above the floor", main.mount_text(fs).begins_with("Centre"), main.mount_text(fs))
+	await get_tree().physics_frame
+	var ct31 = main.make_shape("box", {"x": 0.3, "y": 0.2, "z": 0.2}, Vector3(64, 3.0, 64))
+	ct31.node.position = Vector3(60.2, 2.5, 60.2)
+	main.settle(ct31)
+	check("A carton dropped on the mounted shelf sits on it", absf(ct31.node.position.y - 1.6125) < 0.004, str(ct31.node.position))
+	var wrs: Array = main.riders_of(wps)
+	check("Move the wall and the shelf (and the carton on it) go with it", wrs.has(fs) and wrs.has(ct31), str(wrs.size()))
+	# Carrying: hold it near the wall and it snaps flat; pull it 40 cm away and it lets go.
+	var hc31 = main.ctrls[0]
+	var fs3 = main.make_shape("box", fsp.dims, Vector3(59.5, 1.2, 61.0), Quaternion.IDENTITY, "FS3", fsp.outline)
+	await get_tree().physics_frame
+	hc31.o = Vector3(59.5, 1.2, 62.0)
+	hc31.d = Vector3(0, 0, -1)
+	main.start_free(hc31, fs3, false)
+	hc31.o = Vector3(59.5, 1.2, 61.24)
+	main.update_free(hc31, hc31.drag)
+	check("Carried shelf near the wall snaps flat against it", absf(fs3.node.position.z - 60.182) < 0.004 and hc31.drag.get("mounted", false), str(fs3.node.position))
+	hc31.o = Vector3(59.5, 1.2, 61.6)
+	main.update_free(hc31, hc31.drag)
+	check("...pulled away it comes off the wall", fs3.node.position.z > 60.4 and not hc31.drag.has("mounted"), str(fs3.node.position))
+	hc31.o = Vector3(59.5, 1.2, 61.24)
+	main.update_free(hc31, hc31.drag)
+	main.on_drag_release(hc31)
+	check("...let go against the wall and it stays there", absf(fs3.node.position.z - 60.182) < 0.004 and absf(fs3.node.position.y - 1.2) < 0.006, str(fs3.node.position))
+	main.remove_shape(fs3)
+	fs3.node.queue_free()
+	var side_ids := []
+	for it in main.side_items():
+		side_ids.append(it.id)
+	check("Objects menu sidebar has Wall draw", side_ids.has("side:wall"))
+	var fs2 = main.make_shape("box", fsp.dims, Vector3(66, 1.5, 66), Quaternion.IDENTITY, "FS2", fsp.outline)
+	await get_tree().physics_frame
+	main.settle(fs2)
+	check("Away from any wall a wall-mount thing drops to the floor", absf(fs2.node.position.y - fsp.dims.y / 2.0) < 0.003, str(fs2.node.position))
+	# Ceiling mount: a high bay lifted near a container roof flips up flush under it and rides with the container.
+	var c20p = main.PALETTE[labels.find("20ft container")]
+	var c20s = main.make_shape("box", c20p.dims, Vector3(70, c20p.dims.y / 2.0, 70), Quaternion.IDENTITY, "C20", c20p.outline)
+	var hbp = main.PALETTE[labels.find("LED high bay 150 W (UFO)")]
+	var hb = main.make_shape("box", hbp.dims, Vector3(70, 2.3, 70), Quaternion.IDENTITY, "HB", hbp.outline)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	main.settle(hb)
+	check("High bay lifted near the container roof sticks flush under it", absf(hb.node.position.y + hbp.dims.y / 2.0 - 2.541) < 0.004, str(hb.node.position))
+	check("...and moves with the container", main.riders_of(c20s).has(hb))
+	check("...clearance label", main.mount_text(hb).begins_with("Clearance"), main.mount_text(hb))
+	# Wall draw: click 4 corners and back to the first: a closed room of 4 walls.
+	var nw0 := 0
+	for sx in main.shapes:
+		if sx.outline.get("wall", false):
+			nw0 += 1
+	main.set_tool("walldraw")
+	var wc = main.ctrls[1]
+	wc.d = Vector3.DOWN
+	for wp2 in [Vector3(80, 0.5, 80), Vector3(83, 0.5, 80), Vector3(83, 0.5, 84), Vector3(80, 0.5, 84), Vector3(80, 0.5, 80.02)]:
+		wc.o = wp2
+		main.wall_draw_trigger(wc)
+	var walls := []
+	for sx in main.shapes:
+		if sx.outline.get("wall", false) and sx != wps:
+			walls.append(sx)
+	check("Wall draw: 4 clicks + the first again = 4 walls, room closed", walls.size() == nw0 + 3 and main.draft.is_empty(), "%d %s" % [walls.size(), str(main.draft)])
+	var w1 = walls[-4] if walls.size() >= 4 else null
+	check("...2.4 m high, 110 mm thick, 3 m long, standing on the floor", w1 != null and is_equal_approx(w1.dims.y, 2.4) and is_equal_approx(w1.dims.z, 0.11) and absf(w1.dims.x - 3.0) < 0.002 and absf(w1.node.position.y - 1.2) < 0.002, str(w1.dims) if w1 else "")
+	wc.o = Vector3(90, 0.5, 90)
+	main.wall_draw_trigger(wc)
+	wc.o = Vector3(92, 0.5, 90)
+	main.wall_draw_trigger(wc)
+	var n_before: int = main.shapes.size()
+	main.wall_undo_point()
+	check("...grip removes the last wall", main.shapes.size() == n_before - 1)
+	main.set_tool("select", false)
+	for sx in [wps, fs, ct31, fs2, c20s, hb] + walls.slice(walls.size() - 4):
+		main.remove_shape(sx)
+		sx.node.queue_free()
+	for sx in [ws, ds]:
 		main.remove_shape(sx)
 		sx.node.queue_free()
 	var pt = main.PALETTE[labels.find("Farizon H9E 4.5 t")]
@@ -370,7 +454,7 @@ func run(m) -> void:
 		main.PALETTE[k3].cat = cats_saved[k3]
 	main.tray_cat = ""
 	main.run_side(cu, "cat:Vehicles")
-	check("Category buttons switch the grid (Vehicles)", main.tray_cat == "Vehicles" and main.tray.items.size() == 7 and main.tray.items.all(func(it): return main.PALETTE[int(it.id.substr(4))].cat == "Vehicles"))
+	check("Category buttons switch the grid (Vehicles)", main.tray_cat == "Vehicles" and main.tray.items.size() == 9 and main.tray.items.all(func(it): return main.PALETTE[int(it.id.substr(4))].cat == "Vehicles"))
 	main.run_side(cu, "cat:Pallets & boxes")
 	check("Tapped open, the hand carrying the menu can't use it (only the other hand)", main.tray_follow and main.tray_attach == cu)
 	var n1: int = main.shapes.size()
