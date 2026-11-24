@@ -53,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (139 objects, in 13 categories)", main.PALETTE.size() == 139 and main.categories().size() == 13 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (163 objects, in 13 categories)", main.PALETTE.size() == 163 and main.categories().size() == 13 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
@@ -67,17 +67,16 @@ func run(m) -> void:
 	var stk = main.PALETTE[labels.find("Chery Stockman")]
 	check("Chery Stockman: 5450 x 2010 x 1890 (5570 with tow bar), open tub, no tailgate", is_equal_approx(stk.dims.x, 5.57) and is_equal_approx(stk.dims.z, 2.01) and is_equal_approx(stk.dims.y, 1.89) and stk.outline.solids.size() == 7 and stk.outline.parts.size() > 80)
 	check("Farizon V7E (closed van) is gone; the open-cargo V7E stays", not labels.has("Farizon V7E") and labels.has("Farizon V7E open cargo"))
-	for nm3 in ["EcoFlow RIVER 3", "EcoFlow RIVER 3 Plus", "EcoFlow RIVER 3 Plus EB 286Wh", "EcoFlow RIVER 3 Plus EB 572Wh", "EcoFlow DELTA 3 Plus", "EcoFlow DELTA 3 EB 1kWh",
-			"EcoFlow DELTA 3 Max Plus", "EcoFlow DELTA 3 Max Plus EB", "EcoFlow DELTA Pro 3", "EcoFlow DELTA Pro 3 EB", "DJI Power 500", "DJI Power 1000 Mini", "DJI Power 1000 / V2",
-			"DJI Power 2000", "DJI Power Expansion Battery 2000", "Dune 300W solar blanket"]:
+	for nm3 in ["EcoFlow DELTA Pro 3", "EcoFlow DELTA Pro 3 EB", "Anker SOLIX F3800 Plus (3.84 kWh)", "Anker SOLIX BP3800 (3.84 kWh)"]:
 		check("Power: " + nm3, labels.has(nm3) and main.PALETTE[labels.find(nm3)].cat == "Power")
-	var dp = main.PALETTE[labels.find("DJI Power 2000")]
-	var deb = main.PALETTE[labels.find("DJI Power Expansion Battery 2000")]
+	check("v0.32: small camping batteries are gone (RIVER 3, DELTA 3, DJI Power, solar blanket)", not (labels.has("EcoFlow RIVER 3") or labels.has("EcoFlow DELTA 3 Plus") or labels.has("DJI Power 2000") or labels.has("DJI Power 500") or labels.has("Dune 300W solar blanket")))
+	var dp = main.PALETTE[labels.find("Anker SOLIX F3800 Plus (3.84 kWh)")]
+	var deb = main.PALETTE[labels.find("Anker SOLIX BP3800 (3.84 kWh)")]
 	var st1 = main.make_shape("box", dp.dims, Vector3(140, dp.dims.y / 2.0, 140), Quaternion.IDENTITY, "P2000", dp.outline)
 	var st2 = main.make_shape("box", deb.dims, Vector3(146, 3.0, 146), Quaternion.IDENTITY, "EB", deb.outline)
 	st2.node.position = Vector3(140, 3.0, 140)
 	main.settle(st2)
-	check("An expansion battery stacks flat on its power station (DJI 2000)", absf(st2.node.position.y - deb.dims.y / 2.0 - dp.dims.y) < 0.003, str(st2.node.position))
+	check("An expansion battery stacks flat on its power station (Anker F3800 Plus)", absf(st2.node.position.y - deb.dims.y / 2.0 - dp.dims.y) < 0.003, str(st2.node.position))
 	main.remove_shape(st1)
 	main.remove_shape(st2)
 	for nm2 in ["Monitor 32 in", "Stretcher cot"]:
@@ -117,7 +116,73 @@ func run(m) -> void:
 	for pp in main.PALETTE:
 		if pp.cat == "Portable structures":
 			nps += 1
-	check("15 portable structures", nps == 15, str(nps))
+	check("22 portable structures (v0.32: +2 hard-top gazebos, inflatable, site tent, shade structure, tiny home folded / expanded)", nps == 22, str(nps))
+	# v0.32: off-grid power, trailers + hitch snap, storage, workshop moves.
+	for nm in ["Toyota Hilux SR dual-cab tray", "Windrose R700 prime mover", "Single-axle box trailer 6x4", "Tandem cage trailer 8x5",
+			"20ft container on skel A-trailer", "40ft container on skel B-trailer", "Battery trailer (A-trailer) 2.2 MWh class", "Machinery barn 12 x 18 m",
+			"Hard-top gazebo 3.6 x 3 m", "Tiny home trailer expanded (The Bach)", "Ezy Storage Bunker Tough 160L", "Keter Rockwood 570L",
+			"Rhino site box 1175 (forklift)", "Shapeoko 5 Pro 4x4 CNC router (on a bench)", "Langmuir CrossFire PRO CNC plasma", "Formlabs Form 4",
+			"Pylontech US5000 rack battery (4.8 kWh)", "Victron MultiPlus-II 48/5000", "Victron SmartSolar MPPT 250/100", "Freestanding solar array 1 kW (shade)",
+			"Freestanding solar array 5 kW (shade)", "OFFGRID NOW Solar Kart trailer", "Primus AIR 40 wind turbine (400 W class)", "Aeolos-H 3 kW wind turbine"]:
+		check("v0.32 object: " + nm, labels.has(nm))
+	check("v0.32: Racks category gone; racks and industrial gear live in Workshop; new Storage category", not cats.has("Racks") and main.categories().has("Storage")
+			and main.PALETTE[labels.find("Rack 24RU 1200D")].cat == "Workshop" and main.PALETTE[labels.find("Chain hoist 1 t + beam trolley")].cat == "Workshop"
+			and main.PALETTE[labels.find("Welding fume extraction arm")].cat == "Workshop")
+	var v32_rwb = main.PALETTE[labels.find("Workbench (rolling)")]
+	check("Rolling workbench is compact: 1230 long (was 1880), no middle gap", is_equal_approx(v32_rwb.dims.x, 1.23), str(v32_rwb.dims))
+	check("Moved wall-mount gear still mounts (fume arm = wall, chain hoist = ceiling)", main.PALETTE[labels.find("Welding fume extraction arm")].outline.get("mount", "") == "wall" and main.PALETTE[labels.find("Chain hoist 1 t + beam trolley")].outline.get("mount", "") == "ceiling")
+	# Hitch snap: drop a box trailer near the Hilux's tow bar and it snaps on, lines up, then rides with the ute.
+	var v32_hxp = main.PALETTE[labels.find("Toyota Hilux SR dual-cab tray")]
+	var v32_btp = main.PALETTE[labels.find("Single-axle box trailer 6x4")]
+	var v32_c40p = main.PALETTE[labels.find("40ft container on skel B-trailer")]
+	var v32_prm = main.PALETTE[labels.find("Windrose R700 prime mover")]
+	check("Hilux has a tow point; box trailer a ball coupling; skel B-trailer a kingpin; Windrose a fifth wheel",
+			v32_hxp.outline.hitch[0][0] == "tow" and v32_btp.outline.hitch[0][0] == "ball" and v32_c40p.outline.hitch[0][0] == "pin" and v32_prm.outline.hitch[0][0] == "fifth")
+	var v32_hx = main.make_shape("box", v32_hxp.dims, Vector3(300, v32_hxp.dims.y / 2.0, 300), Quaternion(Vector3.UP, 0.3), "Hilux", v32_hxp.outline)
+	var v32_bt = main.make_shape("box", v32_btp.dims, Vector3(296, v32_btp.dims.y / 2.0 + 0.4, 299.2), Quaternion.IDENTITY, "Trailer", v32_btp.outline)
+	var v32_tp0: Vector3 = main.hitch_pts(v32_hx, ["tow"])[0]
+	v32_bt.node.position += Vector3(v32_tp0.x - main.hitch_pts(v32_bt, ["ball"])[0].x - 0.3, 0, v32_tp0.z - main.hitch_pts(v32_bt, ["ball"])[0].z + 0.25)
+	var v32_got = main.try_hitch(v32_bt)
+	var v32_bp0: Vector3 = main.hitch_pts(v32_bt, ["ball"])[0]
+	check("Box trailer dropped 40 cm from the Hilux tow bar snaps onto it", v32_got == v32_hx and Vector2(v32_bp0.x - v32_tp0.x, v32_bp0.z - v32_tp0.z).length() < 0.005, str(v32_bp0 - v32_tp0))
+	check("...lined up behind the ute, wheels on the same ground", absf(main.yaw_of_quat(v32_bt.node.quaternion) - main.yaw_of_quat(v32_hx.node.quaternion)) < 0.001 and absf((v32_bt.node.position.y - v32_bt.dims.y / 2.0) - (v32_hx.node.position.y - v32_hx.dims.y / 2.0)) < 0.002)
+	check("...and moves with the ute (rides along)", main.riders_of(v32_hx).has(v32_bt))
+	var v32_dr0 := {}
+	main.attach_riders(v32_dr0, v32_hx)
+	v32_hx.node.position += Vector3(2, 0, 1)
+	main.carry_riders(v32_hx, v32_dr0.riders)
+	var v32_bp1: Vector3 = main.hitch_pts(v32_bt, ["ball"])[0]
+	var v32_tp1: Vector3 = main.hitch_pts(v32_hx, ["tow"])[0]
+	check("...still on the tow bar after the ute moves 2 m", Vector2(v32_bp1.x - v32_tp1.x, v32_bp1.z - v32_tp1.z).length() < 0.005)
+	var v32_kp = main.make_shape("box", v32_c40p.dims, v32_tp1 + Vector3(-7, v32_c40p.dims.y / 2.0, 0), Quaternion.IDENTITY, "B-trailer", v32_c40p.outline)
+	v32_kp.node.position += Vector3(v32_tp1.x - main.hitch_pts(v32_kp, ["pin"])[0].x, 0, v32_tp1.z - main.hitch_pts(v32_kp, ["pin"])[0].z)
+	check("A kingpin doesn't hitch onto a tow ball", main.try_hitch(v32_kp) == null)
+	var v32_pm = main.make_shape("box", v32_prm.dims, Vector3(330, v32_prm.dims.y / 2.0, 330), Quaternion.IDENTITY, "Windrose", v32_prm.outline)
+	var v32_fw: Vector3 = main.hitch_pts(v32_pm, ["fifth"])[0]
+	v32_kp.node.position += Vector3(v32_fw.x - main.hitch_pts(v32_kp, ["pin"])[0].x - 0.5, 0, v32_fw.z - main.hitch_pts(v32_kp, ["pin"])[0].z)
+	check("Container B-trailer kingpin snaps onto the Windrose fifth wheel", main.try_hitch(v32_kp) == v32_pm and main.riders_of(v32_pm).has(v32_kp))
+	for v32_sx in [v32_hx, v32_bt, v32_kp, v32_pm]:
+		main.remove_shape(v32_sx)
+	# Cable run: device to device, with the length and both ends named.
+	var v32_pyl = main.PALETTE[labels.find("Pylontech US5000 rack battery (4.8 kWh)")]
+	var v32_vic = main.PALETTE[labels.find("Victron MultiPlus-II 48/5000")]
+	var v32_cb1 = main.make_shape("box", v32_pyl.dims, Vector3(400, v32_pyl.dims.y / 2.0, 400), Quaternion.IDENTITY, "Battery", v32_pyl.outline)
+	var v32_cb2 = main.make_shape("box", v32_vic.dims, Vector3(403, 1.0, 400), Quaternion.IDENTITY, "Inverter", v32_vic.outline)
+	var v32_oldmode: String = main.mode
+	main.mode = "cable"
+	var v32_nm0: int = main.measures.size()
+	for q in [Vector3(400, v32_pyl.dims.y, 400), Vector3(401.5, 0.5, 400), Vector3(402.9, 1.0, 400), Vector3(402.9, 1.0, 400)]:
+		main.add_pending_point(q)
+	var cbm = main.measures[-1] if main.measures.size() > v32_nm0 else null
+	check("Cable run: 3 points + tap again = a cable measurement", cbm != null and cbm.type == "cable" and cbm.name.begins_with("Cable"))
+	var v32_cl: Array = main.measure_lines(cbm) if cbm != null else []
+	check("...labelled with its length, Battery → Inverter, and +10% to order", v32_cl.size() == 3 and v32_cl[1] == "Battery → Inverter" and v32_cl[2].contains("10%"), str(v32_cl))
+	check("...and exported with from / to", cbm != null and main.room_data().measurements[-1].get("from", "") == "Battery")
+	main.mode = v32_oldmode
+	if cbm != null:
+		main.remove_measure(cbm)
+	main.remove_shape(v32_cb1)
+	main.remove_shape(v32_cb2)
 	var vo31 = main.PALETTE[labels.find("Farizon V7E open cargo")]
 	check("V7E open cargo cleaned up (no roof ribs / floor slats)", vo31.outline.parts.size() < 20, str(vo31.outline.parts.size()))
 	# Wall mount: a floating shelf held near a wall panel sticks to it at that height.
@@ -454,7 +519,7 @@ func run(m) -> void:
 		main.PALETTE[k3].cat = cats_saved[k3]
 	main.tray_cat = ""
 	main.run_side(cu, "cat:Vehicles")
-	check("Category buttons switch the grid (Vehicles)", main.tray_cat == "Vehicles" and main.tray.items.size() == 9 and main.tray.items.all(func(it): return main.PALETTE[int(it.id.substr(4))].cat == "Vehicles"))
+	check("Category buttons switch the grid (Vehicles)", main.tray_cat == "Vehicles" and main.tray.items.size() == 11 and main.tray.items.all(func(it): return main.PALETTE[int(it.id.substr(4))].cat == "Vehicles"))
 	main.run_side(cu, "cat:Pallets & boxes")
 	check("Tapped open, the hand carrying the menu can't use it (only the other hand)", main.tray_follow and main.tray_attach == cu)
 	var n1: int = main.shapes.size()
@@ -510,7 +575,7 @@ func run(m) -> void:
 		main.process_input(cu, nb.duplicate())
 	cu.btn = nb.duplicate()
 	press.call("stick")
-	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, Tape, Area, Volume, Grid, Reset position; Box draw moved to the objects menu)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 9 and main.menu.item("tape") != null and main.menu.item("volume") != null and main.menu.item("boxdraw") == null and main.menu.item("grid") != null and main.menu.item("circle") == null and main.menu.item("angle") == null and main.menu.item("path") == null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
+	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, Tape, Area, Volume, Cable run, Grid, Reset position; Box draw moved to the objects menu)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 10 and main.menu.item("cable") != null and main.menu.item("tape") != null and main.menu.item("volume") != null and main.menu.item("boxdraw") == null and main.menu.item("grid") != null and main.menu.item("circle") == null and main.menu.item("angle") == null and main.menu.item("path") == null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
 	check("...it pops up 70 cm in front of that controller", absf(main.menu.global_position.distance_to(cu.node.global_position) - 0.7) < 0.01, str(main.menu.global_position))
 	var mp0: Vector3 = main.menu.global_position
 	cu.node.position += Vector3(0.3, 0.1, -0.2)
