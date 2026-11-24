@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.32"
+const BUILD := "0.33"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -1636,7 +1636,9 @@ func _shape_top_at(s: Shape, x: float, z: float, max_y := INF):
 func settle(s: Shape, step := 0.02) -> void:
 	falling = falling.filter(func(f): return f.shape != s)
 	var mt := mount_of(s)
-	if (mt == "wall" or mt == "ceiling") and try_mount(s):
+	if mt == "wall" or mt == "ceiling":
+		# Wall / ceiling things ignore gravity: they snap to a wall or ceiling if one is close, otherwise stay where you let go.
+		try_mount(s)
 		refresh_shape(s)
 		return
 	var on_wall := false
@@ -3445,6 +3447,8 @@ func update_move(c: Ctrl, dr: Dictionary) -> void:
 	var x := snap_grid(p.x)
 	var z := snap_grid(p.z)
 	var y: float = support_below(x, z, dr.base_y - hh + STEP_UP, s) + hh
+	if mount_of(s) in ["wall", "ceiling"]:
+		y = dr.base_y      # no gravity: slides at the height it's at
 	s.node.position = Vector3(x, y, z)
 	if mount_of(s) == "wallfloor":
 		var w := find_wall(s, s.node.position, s.dims.z / 2.0 + MOUNT_REACH, Vector3(c.d.x, 0, c.d.z))
