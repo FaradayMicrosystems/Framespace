@@ -198,3 +198,11 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Decisions: Jackery, Bluetti stacks and Alpha ESS left out (dimensions not confirmed); Anker as a power station + expansion battery to line up; kitchen / beds / sofa kept (Aurora).
 - Tests: native self-test 305/305 (was 273), run locally on Godot 4.6.2.
 - AI involvement: Claude planned, researched, built, tested, merged and released it in one session.
+
+## v0.32: off-grid power layout, hitch snap, trailers, storage (2026-11-24, Brisbane time)
+
+- 15:56–16:01 Aurora listed 27 changes in 5 voice messages (queued, 27/7); 16:02 "go go". ETA given: 50 min (16:52).
+- Built: hitch snap (new `hitch` column; tow / ball / fifth / pin; hitched trailers ride with the vehicle), Cable run tool (device-to-device lengths, from / to, +10% order length, export), 41 new researched objects (off-grid kit, pole arrays, Solar Kart trailer, 3 wind turbines, 2 CNC machines, Form 4, Hilux, Windrose + battery A-trailer, 20ft/40ft containers on skel A/B trailers, 2 box trailers, barn, 5 structures, tiny home folded / expanded, 6 Bunnings tubs, forkliftable Rhino site box), 14 small batteries removed, racks + industrial gear moved to Workshop, rolling workbench rebuilt.
+- Estimates flagged in the notes: Windrose size (not published), battery trailer (generic), Hilux tray size, CrossFire height, Pylontech size.
+- Tests: native self-test 331/331 (was 305), run locally on Godot 4.6.2; wireframes checked in a rendered preview.
+- AI involvement: Claude researched, built, tested, merged and released it in one session.

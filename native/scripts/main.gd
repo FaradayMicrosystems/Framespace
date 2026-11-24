@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.31"
+const BUILD := "0.32"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -245,6 +245,19 @@ static func parse_objects(text: String) -> Array:
 				item.outline["wall"] = true
 			else:
 				item.outline["mount"] = mt
+		# hitch: "tow:x/y ball:x/y fifth:x/y pin:x/y" (mm) -> [[kind, u, v]] on the unit box (centre line)
+		var hz := []
+		for tok in String(row.get("hitch", "")).split(" ", false):
+			var kv := tok.split(":")
+			if type != "box" or kv.size() != 2 or not (kv[0] in HITCH_PAIR.keys() or kv[0] in HITCH_PAIR.values()):
+				continue
+			var xy := kv[1].split("/")
+			if xy.size() == 2 and xy[0].is_valid_float() and xy[1].is_valid_float():
+				hz.append([kv[0], 0.5 - xy[0].to_float() / (dims.x * 1000.0), xy[1].to_float() / (dims.y * 1000.0) - 0.5])
+		if not hz.is_empty():
+			if not item.has("outline"):
+				item["outline"] = {}
+			item.outline["hitch"] = hz
 		out.append(item)
 	return out
 
@@ -260,7 +273,7 @@ func load_palette() -> void:
 # Objects live in the Y / B objects menu; cut, copy, paste, duplicate, delete, pin, size and undo in the X / A clipboard menu.
 const MENU_TOOLS := [
 	"select", "scale", "edit", "playermove",
-	"tape", "area", "volume", "grid",
+	"tape", "area", "volume", "cable", "grid",
 	"resetpos",
 ]
 const MENU_SETTINGS := [
@@ -293,11 +306,11 @@ const ACC_REFS := [
 const FIT_MARGIN := 0.02        # overlaps under 2 cm (scan noise, flush contact) don't count as "doesn't fit"
 const FIT_EVERY := 0.2          # seconds between fit checks
 const C_RED := Color("ff4d4d")
-const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area", "volume", "acctest"]
+const MEASURE_TOOLS := ["tape", "circle", "rect", "height", "angle", "path", "area", "volume", "acctest", "cable"]
 const EDIT_TOOLS := ["scale", "cut", "copy", "paste", "duplicate", "delete", "reset", "drop", "pin"]
 const MODE_NAMES := {"select": "Rotate/Move", "edit": "Edit", "playermove": "Player move",
 	"trace": "Trace", "boxmake": "Box", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
-	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "area": "Area",
+	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "cable": "Cable run", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
 	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test", "volume": "Volume", "boxdraw": "Box draw", "walldraw": "Wall draw"}
 const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
@@ -457,6 +470,7 @@ var unit_wire := {}
 var unit_fill := {}
 var mat_dot: StandardMaterial3D
 var mat_measure: StandardMaterial3D
+var mat_cable: StandardMaterial3D
 var mesh_dot: SphereMesh
 var mesh_handle: BoxMesh
 var mat_handle := {}
@@ -598,6 +612,7 @@ func _build_assets() -> void:
 	mat_dot = _unlit(C_YELLOW, true)
 	mat_dot.render_priority = 5
 	mat_measure = _unlit(C_YELLOW, true)
+	mat_cable = _unlit(Color("ff8c1a"), true)
 	mat_measure.render_priority = 5
 	mesh_handle = BoxMesh.new()
 	mesh_handle.size = Vector3(0.03, 0.03, 0.03)
@@ -1244,9 +1259,26 @@ func measure_lines(m: Measure) -> Array:
 			return ["%s  %.1f°" % [m.name, angle_deg(m.points[0], m.points[1], m.points[2])], "at the middle point"]
 		"path":
 			return ["%s  %s" % [m.name, L(path_len(m.points))], "%d segments" % (m.points.size() - 1)]
+		"cable":
+			var ln := path_len(m.points)
+			return ["%s  %s" % [m.name, L(ln)], "%s → %s" % [_end_name(m.points[0]), _end_name(m.points[-1])], "order %s (+10%% slack)" % L(ln * 1.1)]
 		"area":
 			return ["%s  %s" % [m.name, AREA(poly_area(m.points))], "perim %s · %d sides" % [L(path_len(m.points, true)), m.points.size()]]
 	return [m.name]
+
+
+## Name of the object a cable end touches (inside it or within 10 cm of its box), or "open end".
+func _end_name(p: Vector3) -> String:
+	var best := "open end"
+	var best_d := 0.10
+	for s: Shape in shapes:
+		var he := scale_of(s.type, s.dims) / 2.0
+		var lp: Vector3 = s.node.transform.affine_inverse() * p
+		var d := lp.distance_to(lp.clamp(-he, he))
+		if d < best_d:
+			best_d = d
+			best = s.name
+	return best
 
 
 func _dot(p: Vector3) -> MeshInstance3D:
@@ -1301,9 +1333,11 @@ func create_measure(type: String, points: Array, mname := "") -> Measure:
 		if mp.closed:
 			pts.append(mp.pts[0])
 		li.mesh = _lines_mesh(pts, true)
+	if type == "cable":
+		li.material_override = mat_cable
 	if mname == "":
 		counters.m += 1
-		mname = "M%d" % counters.m
+		mname = ("Cable %d" if type == "cable" else "M%d") % counters.m
 	m.name = mname
 	m.node = Node3D.new()
 	for p in m.points:
@@ -1357,6 +1391,7 @@ func tool_hint(t: String, n: int) -> String:
 		"rect": return ["Rect: tap one corner.", "Tap the next corner along the same edge.", "Tap anywhere on the opposite edge."][mini(n, 2)]
 		"height": return "Height: tap a point. Shows its height above the floor."
 		"angle": return ["Angle: tap a point on the first arm.", "Tap the corner (vertex).", "Tap a point on the second arm."][mini(n, 2)]
+		"cable": return "Cable run: point at the first device (panel, battery, inverter...) and trigger, then each bend. Trigger the last point again to finish." if n < 2 else "Cable run: keep tapping bends. Tap the last point again to finish."
 		"path": return "Path: tap points along the route. Tap the last point again to finish." if n < 2 else "Path: keep tapping. Tap the last point again to finish."
 		"area": return "Area: trigger at each corner (dot 10 cm off the tip; snaps to the floor). Tap the first point again to close it." if n < 3 else "Area: keep tapping, or tap the first point to close."
 		"volume": return "Volume: trigger at each corner of the outline, tap the first one to close, then raise your hand for the height and trigger." if n < 3 else "Volume: keep tapping, or tap the first point to close."
@@ -1402,12 +1437,12 @@ func snap45(a: Vector3, b: Vector3, flat: bool) -> Vector3:
 
 func add_pending_point(p: Vector3) -> void:
 	var finish := false
-	if mode == "path" and pending.size() >= 2 and p.distance_to(pending[-1]) < 0.01:
+	if mode in ["path", "cable"] and pending.size() >= 2 and p.distance_to(pending[-1]) < 0.01:
 		finish = true
 	elif mode in ["area", "volume"] and pending.size() >= 3 and p.distance_to(pending[0]) < SNAP_POINT:
 		finish = true
 	if not finish:
-		if mode in ["path", "area", "volume"] and pending.size() and p.distance_to(pending[-1]) < 0.01:
+		if mode in ["path", "cable", "area", "volume"] and pending.size() and p.distance_to(pending[-1]) < 0.01:
 			return     # double tap on the same spot too early: ignore
 		pending.append(p)
 		var dot := _dot(p)
@@ -1672,6 +1707,7 @@ func button_text(id: String) -> String:
 		"height": return "Height"
 		"angle": return "Angle 3-pt"
 		"path": return "Path"
+		"cable": return "Cable run"
 		"area": return "Area"
 		"volume": return "Volume"
 		"boxdraw": return "Box draw"
@@ -3029,10 +3065,14 @@ func on_drag_release(c: Ctrl) -> void:
 			set_status("Selected %s. Hold trigger to pick it up, grip to slide it." % s.name)
 		else:
 			riding_now = dr.get("riders", [])
-			settle(s)
+			var tow = try_hitch(s)
+			if tow == null:
+				settle(s)
 			riding_now = []
 			_ride_settle(s, dr)
-			set_status("%s placed" % s.name)
+			set_status(("%s hitched to %s: it moves with it now. Pick the trailer up to unhitch." % [s.name, tow.name]) if tow != null else ("%s placed" % s.name))
+			if tow != null and last_ctrl:
+				haptic(last_ctrl, 0.5, 0.05)
 		grid_patch.visible = false
 	elif dr.type == "two":
 		var ts: Shape = dr.shape
@@ -3041,11 +3081,13 @@ func on_drag_release(c: Ctrl) -> void:
 		haptic(c, 0.4, 0.04)
 	elif dr.type == "move":
 		riding_now = dr.get("riders", [])
-		settle(dr.shape, STEP_UP)
+		var tow2 = try_hitch(dr.shape)
+		if tow2 == null:
+			settle(dr.shape, STEP_UP)
 		riding_now = []
 		_ride_settle(dr.shape, dr)
 		grid_patch.visible = false
-		set_status("%s placed" % dr.shape.name)
+		set_status(("%s hitched to %s" % [dr.shape.name, tow2.name]) if tow2 != null else ("%s placed" % dr.shape.name))
 	persist()
 	menu_dirty = true
 
@@ -3063,6 +3105,11 @@ func riders_of(s: Shape) -> Array:
 		var base: Shape = todo.pop_back()
 		for r: Shape in shapes:
 			if r == s or r in out or r.pinned:
+				continue
+			# Trailers hitched on behind move with the vehicle (and whatever is on them with it).
+			if hitched_to(base, r):
+				out.append(r)
+				todo.append(r)
 				continue
 			# Things mounted on a wall / container / drawn wall move with it (not with each other).
 			if mount_of(base) in ["", "wallfloor"] and mount_of(r) in ["wall", "ceiling"] \
@@ -3087,6 +3134,76 @@ func _touches(base: Shape, r: Shape) -> bool:
 	var lp: Vector3 = base.node.transform.affine_inverse() * r.node.position
 	var q := lp.clamp(-he, he)
 	return lp.distance_to(q) <= maxf(r.dims.get("z", 0.0) / 2.0, half_height(r)) + 0.03
+
+
+# ---------------------------------------------------------------- hitch snap (trailers)
+## A trailer's coupling (ball / kingpin) snaps onto a matching tow point (tow bar / fifth wheel) within reach.
+const HITCH_PAIR := {"ball": "tow", "pin": "fifth"}
+const HITCH_REACH := 0.75      # drop the coupling within 75 cm of a tow point and it snaps on
+const HITCH_HELD := 0.05       # a coupling this close to a tow point counts as hitched (moves with the vehicle)
+
+
+## Content-local points of s's hitch points of these kinds.
+func hitch_pts(s: Shape, kinds: Array) -> Array:
+	var out := []
+	if s.type != "box":
+		return out
+	var sc := scale_of(s.type, s.dims)
+	for h in s.outline.get("hitch", []):
+		if h[0] in kinds:
+			out.append(s.node.transform * (Vector3(h[1], h[2], 0.0) * sc))
+	return out
+
+
+func _flat_d(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+## Is trailer r hitched to base right now? (a coupling of r sits on a matching tow point of base)
+func hitched_to(base: Shape, r: Shape) -> bool:
+	for k in HITCH_PAIR.keys():
+		for cp in hitch_pts(r, [k]):
+			for tp in hitch_pts(base, [HITCH_PAIR[k]]):
+				if _flat_d(cp, tp) < HITCH_HELD:
+					return true
+	return false
+
+
+## Snap s (a trailer) onto the nearest matching tow point: same heading as the vehicle, coupling on the tow point,
+## wheels on the same ground. Returns the vehicle, or null.
+func try_hitch(s: Shape):
+	var best = null
+	var best_d := HITCH_REACH
+	var best_k := ""
+	var ex := [s]
+	for it in riding_now:
+		ex.append(it[0])
+	for k in HITCH_PAIR.keys():
+		for cp in hitch_pts(s, [k]):
+			for o: Shape in shapes:
+				if o in ex:
+					continue
+				for tp in hitch_pts(o, [HITCH_PAIR[k]]):
+					var d := _flat_d(cp, tp)
+					if d < best_d:
+						best_d = d
+						best = o
+						best_k = k
+	if best == null:
+		return null
+	var o: Shape = best
+	s.node.quaternion = Quaternion(Vector3.UP, yaw_of_quat(o.node.quaternion))
+	var cp2: Vector3 = hitch_pts(s, [best_k])[0]
+	var tp2: Vector3 = hitch_pts(o, [HITCH_PAIR[best_k]])[0]
+	var bestt := INF
+	for t in hitch_pts(o, [HITCH_PAIR[best_k]]):
+		if _flat_d(cp2, t) < bestt:
+			bestt = _flat_d(cp2, t)
+			tp2 = t
+	s.node.position += Vector3(tp2.x - cp2.x, 0.0, tp2.z - cp2.z)
+	s.node.position.y = o.node.position.y - half_height(o) + half_height(s)
+	refresh_shape(s)
+	return o
 
 
 func mount_of(s: Shape) -> String:
@@ -4291,7 +4408,7 @@ func update_preview() -> void:
 			else:
 				lines = [L(pending[0].distance_to(p))]
 				at = (pending[0] + p) / 2.0
-		"path":
+		"path", "cable":
 			lines = ["total " + L(path_len(pts)), "this leg " + L(pending[-1].distance_to(p))]
 		"area", "volume":
 			if pts.size() >= 3:
@@ -4812,8 +4929,10 @@ func room_data() -> Dictionary:
 				base.merge({"height_m": m.points[0].y})
 			"angle":
 				base.merge({"angle_deg": angle_deg(m.points[0], m.points[1], m.points[2])})
-			"path":
+			"path", "cable":
 				base.merge({"distance_m": path_len(m.points)})
+				if m.type == "cable":
+					base.merge({"from": _end_name(m.points[0]), "to": _end_name(m.points[-1])})
 			"area":
 				base.merge({"area_m2": poly_area(m.points), "perimeter_m": path_len(m.points, true)})
 		ms.append(base)
