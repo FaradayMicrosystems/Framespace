@@ -53,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (163 objects, in 13 categories)", main.PALETTE.size() == 163 and main.categories().size() == 13 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (169 objects, in 13 categories)", main.PALETTE.size() == 169 and main.categories().size() == 13 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
@@ -117,6 +117,25 @@ func run(m) -> void:
 		if pp.cat == "Portable structures":
 			nps += 1
 	check("22 portable structures (v0.32: +2 hard-top gazebos, inflatable, site tent, shade structure, tiny home folded / expanded)", nps == 22, str(nps))
+	# v0.33: wall / ceiling things ignore gravity; tripod lights + flags.
+	for nm in ["Alaska state flag (3 x 5 ft)", "Australian flag (900 x 1800)"]:
+		check("v0.33 wall-mount flag: " + nm, labels.has(nm) and main.PALETTE[labels.find(nm)].cat == "Wall mount" and main.PALETTE[labels.find(nm)].outline.get("mount", "") == "wall")
+	for nm in ["Arlec single-head rechargeable tripod light", "Ryobi 18V ONE+ tripod work light", "Arlec 2 x 30W LED tripod light (1.4 m)", "Arlec 90W 10000lm LED tripod light (1.8 m)"]:
+		check("v0.33 tripod light (keeps gravity): " + nm, labels.has(nm) and main.PALETTE[labels.find(nm)].outline.get("mount", "") == "")
+	var g_fl = main.PALETTE[labels.find("Australian flag (900 x 1800)")]
+	var g_hb = main.PALETTE[labels.find("LED high bay 150 W (UFO)")]
+	var g_tl = main.PALETTE[labels.find("Ryobi 18V ONE+ tripod work light")]
+	var v33_g1 = main.make_shape("box", g_fl.dims, Vector3(500, 1.6, 500), Quaternion.IDENTITY, "Flag", g_fl.outline)
+	var v33_g2 = main.make_shape("box", g_hb.dims, Vector3(503, 2.1, 500), Quaternion.IDENTITY, "High bay", g_hb.outline)
+	var v33_g3 = main.make_shape("box", g_tl.dims, Vector3(506, 1.5, 500), Quaternion.IDENTITY, "Tripod", g_tl.outline)
+	main.settle(v33_g1)
+	main.settle(v33_g2)
+	main.settle(v33_g3)
+	check("Wall-mount thing let go in mid-air stays there (no gravity)", is_equal_approx(v33_g1.node.position.y, 1.6) and is_equal_approx(v33_g1.node.position.x, 500.0), str(v33_g1.node.position))
+	check("Ceiling-mount thing let go in mid-air stays there", is_equal_approx(v33_g2.node.position.y, 2.1), str(v33_g2.node.position))
+	check("Tripod light still drops to the floor", absf(v33_g3.node.position.y - g_tl.dims.y / 2.0) < 0.01, str(v33_g3.node.position))
+	for v33_g in [v33_g1, v33_g2, v33_g3]:
+		main.remove_shape(v33_g)
 	# v0.32: off-grid power, trailers + hitch snap, storage, workshop moves.
 	for nm in ["Toyota Hilux SR dual-cab tray", "Windrose R700 prime mover", "Single-axle box trailer 6x4", "Tandem cage trailer 8x5",
 			"20ft container on skel A-trailer", "40ft container on skel B-trailer", "Battery trailer (A-trailer) 2.2 MWh class", "Machinery barn 12 x 18 m",
@@ -229,7 +248,7 @@ func run(m) -> void:
 	var fs2 = main.make_shape("box", fsp.dims, Vector3(66, 1.5, 66), Quaternion.IDENTITY, "FS2", fsp.outline)
 	await get_tree().physics_frame
 	main.settle(fs2)
-	check("Away from any wall a wall-mount thing drops to the floor", absf(fs2.node.position.y - fsp.dims.y / 2.0) < 0.003, str(fs2.node.position))
+	check("Away from any wall a wall-mount thing stays where you let go (v0.33: no gravity)", is_equal_approx(fs2.node.position.y, 1.5), str(fs2.node.position))
 	# Ceiling mount: a high bay lifted near a container roof flips up flush under it and rides with the container.
 	var c20p = main.PALETTE[labels.find("20ft container")]
 	var c20s = main.make_shape("box", c20p.dims, Vector3(70, c20p.dims.y / 2.0, 70), Quaternion.IDENTITY, "C20", c20p.outline)

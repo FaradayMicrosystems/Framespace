@@ -206,3 +206,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Estimates flagged in the notes: Windrose size (not published), battery trailer (generic), Hilux tray size, CrossFire height, Pylontech size.
 - Tests: native self-test 331/331 (was 305), run locally on Godot 4.6.2; wireframes checked in a rendered preview.
 - AI involvement: Claude researched, built, tested, merged and released it in one session.
+
+## v0.33: no gravity for wall / ceiling things, tripod lights, flags (2026-11-24, Brisbane time)
+
+- 17:57–18:00 Aurora listed 4 changes; 18:02 "go" (released at 4, below the usual 7, at her call). ETA 15 min (18:17).
+- Built: wall/ceiling mount items keep their height when let go or slid (still snap to walls/ceilings, still ride along); 4 Bunnings tripod work lights; Alaska + Australian flags drawn in wireframe.
+- Tests: native self-test 340/340 (was 331), run locally on Godot 4.6.2; wireframes checked in a rendered preview.
+- AI involvement: Claude researched, built, tested, merged and released it in one session.
