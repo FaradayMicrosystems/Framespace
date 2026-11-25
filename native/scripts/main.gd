@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.34"
+const BUILD := "0.35"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -273,7 +273,7 @@ func load_palette() -> void:
 # Objects live in the Y / B objects menu; cut, copy, paste, duplicate, delete, pin, size and undo in the X / A clipboard menu.
 const MENU_TOOLS := [
 	"select", "scale", "edit", "playermove",
-	"tape", "area", "volume", "cable", "grid",
+	"tape", "area", "volume", "cable", "grid", "snapangle",
 	"resetpos", "showhidden",
 ]
 const MENU_SETTINGS := [
@@ -285,7 +285,7 @@ const MENU_SETTINGS := [
 ]
 const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake", "boxdraw", "walldraw", "ceildraw"]
 const CURSOR_MEASURE := 0.10    # Tape / Area / Volume: the point is 10 cm off the controller tip, free in 3D
-const CURSOR_BOXDRAW := 0.5     # Box draw: 50 cm off the tip
+const CURSOR_BOXDRAW := 1.0     # Free draw (Box / Wall / Ceiling draw, Trace): 1 m out from the controller
 const FLOOR_SNAP := 0.08        # Area / Volume / Box draw points within 8 cm above a surface snap onto it
 const GRID_STEPS := [0.01, 0.10, 0.05]
 const SPAWN_NEAR := 0.5         # objects from the menu: nearest edge 50 cm in front of you
@@ -313,7 +313,8 @@ const MODE_NAMES := {"select": "Rotate/Move", "edit": "Edit", "playermove": "Pla
 	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "cable": "Cable run", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
 	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test", "volume": "Volume", "boxdraw": "Box draw", "walldraw": "Wall draw", "ceildraw": "Ceiling draw"}
-const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
+var snap_angle := 15.0         # Tools > Snap angle: placed shapes square up to this many degrees (0 = off)
+const SNAP_ANGLES := [15.0, 5.0, 1.0, 0.0]
 const ROT_SPEED := 120.0        # degrees/s at full stick left/right while holding
 const PUSH_SPEED := 1.5         # m/s at full stick forward/back while holding
 const SNAP_TOUCH := 0.03        # carried shape snaps onto a surface when its bottom is within 3 cm
@@ -402,6 +403,7 @@ var falling: Array = []
 var clipboard: Array = []
 var clip_index := 0
 var history: Array = []
+var redo_stack: Array = []      # v0.35 Redo: room states (objects) that Undo stepped back from
 var pending: Array = []
 var pending_dots: Array = []
 var counters := {"box": 0, "sphere": 0, "cylinder": 0, "cone": 0, "m": 0}
@@ -1407,6 +1409,8 @@ func tool_hint(t: String, n: int) -> String:
 ## Area / Volume / Box draw snap down onto a surface within 8 cm. Snaps to existing points within 3 cm.
 ## Not holding grip: the new segment snaps to the nearest 45° from the last point (Tape / Area / Volume).
 func cursor_point(c: Ctrl, free_angle := false) -> Vector3:
+	if mode in ["walldraw", "ceildraw"]:
+		return floor_point(c)
 	var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw", "ceildraw"] else CURSOR_MEASURE
 	var p: Vector3 = c.o + c.d * off
 	if mode in ["area", "volume", "boxdraw", "walldraw", "ceildraw"]:
@@ -1419,6 +1423,72 @@ func cursor_point(c: Ctrl, free_angle := false) -> Vector3:
 	if mode in ["tape", "area", "volume"] and pending.size() and not free_angle:
 		p = snap45(pending[-1], p, mode != "tape")
 	return p
+
+
+## The room floor (content space) under x, z.
+func floor_y_at(x: float, z: float) -> float:
+	var w := content.to_global(Vector3(x, 0.0, z))
+	return content.to_local(Vector3(w.x, 0.0, w.z)).y
+
+
+const WALL_END_SNAP := 0.15   # Wall / Ceiling draw / Trace points snap onto wall ends within 15 cm
+
+## Floor-pinned draw point (Wall draw, Ceiling draw, Trace outline): 1 m out along the controller, dropped
+## straight onto the floor (never floating). Snaps to the grid, then to wall ends / corners within 15 cm.
+## Wall draw (not closing / not on a wall end): the new wall snaps to the nearest 45° (so 90° corners are exact).
+func floor_point(c: Ctrl) -> Vector3:
+	var p: Vector3 = c.o + c.d * CURSOR_BOXDRAW
+	if mode != "trace":            # Trace follows the real object exactly (and freehand), no grid
+		p.x = snap_grid(p.x)
+		p.z = snap_grid(p.z)
+	p.y = floor_y_at(p.x, p.z)
+	var best = null
+	var best_d := WALL_END_SNAP
+	for q: Vector3 in wall_ends():
+		var dd := _flat(q).distance_to(_flat(p))
+		if dd < best_d:
+			best_d = dd
+			best = q
+	if mode == "trace" and draft.get("kind", "") == "trace" and draft.pts.size() >= 3:
+		# Close onto the first corner, but only once the outline has gone somewhere (not while freehand starts).
+		var f0: Vector3 = draft.pts[0]
+		var far := 0.0
+		for q0: Vector3 in draft.pts:
+			far = maxf(far, _flat(q0).distance_to(_flat(f0)))
+		if far > 0.3 and _flat(f0).distance_to(_flat(p)) < best_d:
+			best = f0
+	if mode == "walldraw" and draft.get("kind", "") == "wall":
+		var f1: Vector3 = draft.pts[0]
+		if draft.pts.size() >= 3 and _flat(f1).distance_to(_flat(p)) < WALL_CLOSE:
+			return f1
+		if best == null:
+			# Straight walls: the nearest 45° direction from the last corner, keeping how far along it you pointed.
+			var a0: Vector3 = draft.pts[-1]
+			var v0 := p - a0
+			v0.y = 0.0
+			if v0.length() < 0.001:
+				return p
+			var stp := PI / 4.0
+			var yw := roundf(atan2(v0.x, v0.z) / stp) * stp
+			var dir := Vector3(sin(yw), 0.0, cos(yw))
+			var q := a0 + dir * v0.dot(dir)
+			q.y = p.y
+			return q
+	if best != null:
+		return Vector3(best.x, p.y, best.z)
+	return p
+
+
+## Both bottom ends of every wall (drawn walls), in content space.
+func wall_ends() -> Array:
+	var out := []
+	for s: Shape in shapes:
+		if s.outline.get("wall", false) and s.node.is_inside_tree():
+			var ax: Vector3 = s.node.basis.x.normalized() * s.dims.x / 2.0
+			var b: Vector3 = s.node.position - Vector3.UP * s.dims.y / 2.0
+			out.append(b + ax)
+			out.append(b - ax)
+	return out
 
 
 ## Point b moved onto the nearest 45° direction from a (flat: stay at a's height).
@@ -1482,8 +1552,49 @@ func add_pending_point(p: Vector3) -> void:
 # ================================================================ history / clipboard
 func push_history(undo_fn: Callable) -> void:
 	history.append(undo_fn)
+	redo_stack.clear()          # a new change ends the redo chain
 	if history.size() > 60:
 		history.pop_front()
+
+
+## Every object's state, keeping the Shape itself so older undo steps still work after a redo.
+func room_state() -> Array:
+	var out := []
+	for s: Shape in shapes:
+		out.append({"s": s, "dims": s.dims.duplicate(), "pos": s.node.position, "rot": s.node.quaternion, "name": s.name, "pinned": s.pinned, "hidden": s.hidden})
+	return out
+
+
+func apply_room_state(st: Array) -> void:
+	var keep := []
+	for e in st:
+		keep.append(e.s)
+	for s: Shape in shapes.duplicate():
+		if not keep.has(s):
+			remove_shape(s)
+	for e in st:
+		var s: Shape = e.s
+		restore_shape(s)
+		s.dims = e.dims.duplicate()
+		s.node.position = e.pos
+		s.node.quaternion = e.rot
+		s.name = e.name
+		if s.pinned != e.pinned:
+			set_pinned(s, e.pinned)
+		if s.hidden != e.hidden:
+			set_hidden(s, e.hidden)
+		refresh_shape(s)
+
+
+func redo() -> void:
+	if redo_stack.is_empty():
+		set_status("Nothing to redo.")
+		return
+	var now_st := room_state()
+	apply_room_state(redo_stack.pop_back())
+	history.append(func(): apply_room_state(now_st))   # Undo steps back again (doesn't clear the redo chain)
+	set_status("Redone.")
+	persist()
 
 
 func undo() -> void:
@@ -1495,8 +1606,10 @@ func undo() -> void:
 		set_status("Nothing to undo.")
 		return
 	var fn: Callable = history.pop_back()
+	var before := room_state()
 	fn.call()
-	set_status("Undone.")
+	redo_stack.append(before)
+	set_status("Undone. X / A > Redo puts it back.")
 	persist()
 
 
@@ -1530,7 +1643,7 @@ func paste_at(point: Vector3, it = null, offset = null) -> void:
 	if it == null:
 		set_status("Clipboard is empty. Copy or Cut a shape first.")
 		return
-	var s := make_shape(it.type, it.dims, point, it.rot, "", it.get("outline"), it.get("orig"))
+	var s := make_shape(it.type, it.dims, point, it.rot, copy_name(str(it.get("name", ""))), it.get("outline"), it.get("orig"))
 	if offset != null:
 		s.node.position += offset
 	else:
@@ -1540,6 +1653,27 @@ func paste_at(point: Vector3, it = null, offset = null) -> void:
 	push_history(func(): remove_shape(s))
 	set_status("Pasted %s (copy of %s)." % [s.name, it.name])
 	persist()
+
+
+## v0.35: copies keep the original's name plus the next free two-digit number:
+## "Shelf" -> "Shelf 02", "Shelf 03"; "Box 1" -> "Box 02"; "Pallet 07" -> next free after the highest.
+func copy_name(base: String) -> String:
+	if base == "":
+		return ""
+	var stem := base
+	var hi := 1
+	var re := RegEx.create_from_string("^(.*?)\\s+(\\d+)$")
+	var m := re.search(base)
+	if m:
+		stem = m.get_string(1)
+		hi = maxi(hi, int(m.get_string(2)))
+	for s2: Shape in shapes:
+		if s2.name == stem:
+			continue
+		var m2 := re.search(s2.name)
+		if m2 and m2.get_string(1) == stem:
+			hi = maxi(hi, int(m2.get_string(2)))
+	return "%s %02d" % [stem, hi + 1]
 
 
 func set_status(t: String) -> void:
@@ -1559,8 +1693,15 @@ func yaw_of_quat(q: Quaternion) -> float:
 
 
 func snap_yaw_quat(q: Quaternion) -> Quaternion:
-	var step := deg_to_rad(YAW_STEP_DEG)
-	return Quaternion(Vector3.UP, roundf(yaw_of_quat(q) / step) * step)
+	return Quaternion(Vector3.UP, snap_yaw(yaw_of_quat(q)))
+
+
+## Yaw rounded to the Snap angle (Tools menu); off = unchanged.
+func snap_yaw(yaw: float) -> float:
+	if snap_angle <= 0.0:
+		return yaw
+	var step := deg_to_rad(snap_angle)
+	return roundf(yaw / step) * step
 
 
 ## Highest surface under content-local (x, z) at or below max_y: a real surface from Space Setup,
@@ -1737,6 +1878,7 @@ func button_text(id: String) -> String:
 		"delete": return "Delete"
 		"undo": return "Undo"
 		"grid": return ("Grid: %d cm" % roundi(grid * 100)) if grid > 0 else "Grid: off"
+		"snapangle": return ("Snap angle: %d°" % roundi(snap_angle)) if snap_angle > 0 else "Snap angle: off"
 		"roomvis": return "Room lines: on" if room_visible else "Room lines: off"
 		"scan": return "Scan room"
 		"clear": return "Clear all"
@@ -1947,7 +2089,7 @@ func _build_tray() -> void:
 	var its := custom_items() if tray_page == "custom" else tray_items()
 	var rng := ("%d–%d of %d  ·  stick up/down scrolls" % [tray_scroll * TRAY_COLS + 1, tray_scroll * TRAY_COLS + its.size(), n]) if n > 0 else ""
 	if tray_page == "custom":
-		var t := "CUSTOM  ·  " + ("REMOVE: pick one" if custom_remove else ("RENAME: pick one" if custom_rename else "trigger one to place it"))
+		var t := "CUSTOM  ·  " + ("DELETE: tap one to delete it" if custom_remove else ("RENAME: tap one to rename it" if custom_rename else "tap one to place it"))
 		if custom_objs.is_empty():
 			t = "CUSTOM  ·  select something, then Save selected"
 		tray.build(t, [[rng, Color(0.6, 0.65, 0.7)]] if rng != "" else [], its, TRAY_COLS, 0.085)
@@ -1962,9 +2104,6 @@ func side_items() -> Array:
 		out.append({"id": "cat:" + cn, "label": cn, "active": tray_page != "custom" and cn == tray_cat, "color": C_CYAN})
 	out.append({"id": "side:custom", "label": "Custom...", "sub": "%d saved" % custom_objs.size(), "active": tray_page == "custom"})
 	out.append({"id": "side:save", "label": "Save selected", "sub": selected.name if selected else "select one first", "enabled": selected != null})
-	if tray_page == "custom":
-		out.append({"id": "side:rename", "label": "Rename: on" if custom_rename else "Rename: off", "color": C_CYAN, "active": custom_rename})
-		out.append({"id": "side:remove", "label": "Remove: on" if custom_remove else "Remove: off", "color": Color("ff6b6b"), "active": custom_remove})
 	return out
 
 
@@ -1986,7 +2125,11 @@ func scroll_tray(rows: int) -> void:
 
 
 func custom_items() -> Array:
-	var out := []
+	# v0.35: Delete and Rename toggles sit at the top of the Custom page.
+	var out := [
+		{"id": "cus:delete", "label": "Delete: ON" if custom_remove else "Delete", "sub": "tap a saved one" if custom_remove else "toggle", "color": Color("ff6b6b"), "active": custom_remove},
+		{"id": "cus:rename", "label": "Rename: ON" if custom_rename else "Rename", "sub": "tap a saved one" if custom_rename else "toggle", "color": C_CYAN, "active": custom_rename},
+	]
 	for i in _tray_window(custom_objs.size()):
 		var p: Dictionary = custom_objs[i]
 		out.append({"id": "cus:%d" % i, "label": p.label, "sub": short_dims(p.type, p.dims), "color": Color("ff6b6b") if custom_remove else (C_CYAN if custom_rename else COLORS[p.type])})
@@ -2245,6 +2388,11 @@ func on_button(id: String, c: Ctrl = null) -> void:
 			grid = GRID_STEPS[(i + 1) % GRID_STEPS.size()]
 			set_status("Grid %d cm" % roundi(grid * 100))
 			persist()
+		"snapangle":
+			var ai := SNAP_ANGLES.find(snap_angle)
+			snap_angle = SNAP_ANGLES[(ai + 1) % SNAP_ANGLES.size()]
+			set_status(("Snap angle %d°: placed things turn in %d° steps." % [roundi(snap_angle), roundi(snap_angle)]) if snap_angle > 0 else "Snap angle off: placed things keep any angle.")
+			persist()
 		"save":
 			save_room_now()
 			set_status("Saved %s." % room.get("name", "room"))
@@ -2367,10 +2515,10 @@ func set_tool(t: String, announce := true) -> void:
 	set_status({
 		"select": "Rotate/Move: trigger picks up (twist your wrist to turn it), grip slides. While holding: stick left/right turns, forward/back pushes/pulls.",
 		"scale": "Scale: trigger an object to select it, then drag its yellow cubes.",
-		"trace": "Trace: tip on a corner, trigger. Click each corner (or hold trigger and draw). Click the first point to close, then POINT the controller up or down to set the height and click. Grip = undo last point. Y / B > Free draw > Trace again turns it off.",
-		"walldraw": "Wall draw: the dot 50 cm off the tip snaps to the floor. Trigger at each corner (a wall goes up between clicks), click the first corner to close the room. Grip = undo the last wall. Stick up/down = wall height (now %s). Y / B > Free draw > Wall draw again turns it off." % L(wall_height),
-		"ceildraw": "Ceiling draw: the dot 50 cm off the tip snaps to the floor. Trigger one corner, trigger the opposite corner: a flat ceiling panel appears on the floor. Then grab it (hold trigger), lift it overhead and let go: it stays exactly there. Ceiling-mount things stick under it. Grip = cancel.",
-		"boxdraw": "Box draw: the dot 50 cm off the tip snaps to the floor. Trigger at one corner, move to the opposite corner, squeeze grip and raise your hand for the height, let go to lock it, trigger to drop the box.",
+		"trace": "Trace: the dot 1 m out sits on the floor. Trigger each corner (or hold trigger and draw). Click the first point to close, then LIFT the controller to set the height and click. Grip = undo last point. Y / B > Free draw > Trace again turns it off.",
+		"walldraw": "Wall draw: the dot 1 m out sits on the floor and walls run straight (90° / 45°), snapping onto existing wall ends. Trigger at each corner (a wall goes up between clicks), click the first corner to close the room. Grip = undo the last wall. Stick up/down = wall height (now %s). Y / B > Free draw > Wall draw again turns it off." % L(wall_height),
+		"ceildraw": "Ceiling draw: the dot 1 m out sits on the floor and snaps onto wall ends. Trigger one corner, trigger the opposite corner: a flat ceiling panel appears on the floor. Then grab it (hold trigger), lift it overhead and let go: it stays exactly there. Ceiling-mount things stick under it. Grip = cancel.",
+		"boxdraw": "Box draw: the dot 1 m out snaps to the floor. Trigger at one corner, move to the opposite corner, squeeze grip and raise your hand for the height, let go to lock it, trigger to drop the box.",
 		"boxmake": "Box: tip on one corner, hold trigger, pull to the opposite corner, let go. (Or click, move, click.) Grip cancels. Y / B > Free draw > Box again turns it off.",
 		"edit": "Edit: point at a face, hold trigger and pull. The face moves along its axis; the opposite face stays put.",
 		"playermove": "Player move: left stick slides you through the room. Right stick: left/right turns you, up/down raises or lowers you (smooth). Tools > Reset position puts it back.",
@@ -2390,14 +2538,16 @@ func clip_menu_items(s) -> Array:
 	if s == null:
 		var clip = clipboard[clip_index] if clipboard.size() else null
 		return [{"id": "paste", "label": "Paste", "enabled": clip != null}, {"id": "nextclip", "label": "Next clip", "enabled": clipboard.size() > 1},
-			{"id": "undo", "label": "Undo", "enabled": can_undo}]
+			{"id": "undo", "label": "Undo", "enabled": can_undo}, {"id": "redo", "label": "Redo", "enabled": redo_stack.size() > 0}]
 	var free: bool = not s.pinned
 	return [{"id": "cut", "label": "Cut", "enabled": free}, {"id": "copy", "label": "Copy", "enabled": free},
 		{"id": "delete", "label": "Delete", "color": Color("ff6b6b"), "enabled": free}, {"id": "duplicate", "label": "Duplicate", "enabled": free},
 		{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW}, {"id": "drop", "label": "Drop", "enabled": not s.pinned},
 		{"id": "hide", "label": "Unhide" if s.hidden else "Hide", "color": C_CYAN},
 		{"id": "rename", "label": "Rename", "color": C_CYAN, "enabled": not s.pinned},
-		{"id": "reset", "label": "Reset size", "enabled": not s.pinned}, {"id": "undo", "label": "Undo", "enabled": can_undo}]
+		{"id": "saveobj", "label": "Save object", "color": C_YELLOW},
+		{"id": "reset", "label": "Reset size", "enabled": not s.pinned}, {"id": "undo", "label": "Undo", "enabled": can_undo},
+		{"id": "redo", "label": "Redo", "enabled": redo_stack.size() > 0}]
 
 
 ## X / A: the clipboard menu, 20 cm in front of that controller. It stays where it opened. Acts on the
@@ -2516,6 +2666,10 @@ func run_tool(id: String) -> void:
 					set_status("%s is visible again." % s.name)
 				persist()
 		"undo": undo()
+		"redo": redo()
+		"saveobj":
+			if s:
+				save_custom(s)
 		"paste": paste_at(p)
 		"nextclip":
 			if clipboard.size():
@@ -3023,6 +3177,16 @@ func grab_from_tray(c: Ctrl, id: String, release: String) -> void:
 		s = spawn_object(oi, null, pt)
 		if s:
 			haptic(c, 0.5, 0.04)
+	elif id == "cus:delete" or id == "cus:rename":
+		if id == "cus:delete":
+			custom_remove = not custom_remove
+			custom_rename = false
+		else:
+			custom_rename = not custom_rename
+			custom_remove = false
+		haptic(c, 0.3, 0.02)
+		refresh_tray()
+		return
 	elif id.begins_with("cus:"):
 		var i := int(id.substr(4))
 		if i < 0 or i >= custom_objs.size():
@@ -3034,7 +3198,7 @@ func grab_from_tray(c: Ctrl, id: String, release: String) -> void:
 			var gone: String = custom_objs[i].label
 			custom_objs.remove_at(i)
 			save_custom_file()
-			set_status("Removed %s from Custom objects." % gone)
+			set_status("Deleted %s from Custom objects." % gone)
 			refresh_tray()
 			return
 		s = spawn_item(custom_objs[i], null, spawn_front(custom_objs[i]))
@@ -3583,8 +3747,7 @@ func update_free(c: Ctrl, dr: Dictionary) -> void:
 	elif mt == "ceiling":
 		var cy = find_ceiling(s, p, MOUNT_REACH)
 		if cy != null:
-			var stp := deg_to_rad(YAW_STEP_DEG)
-			s.node.quaternion = Quaternion(Vector3.UP, roundf(yaw / stp) * stp)
+			s.node.quaternion = Quaternion(Vector3.UP, snap_yaw(yaw))
 			s.node.position = Vector3(snap_grid(p.x), float(cy) - half_height(s) - 0.002, snap_grid(p.z))
 			_mounted_frame(s, dr)
 			return
@@ -3593,8 +3756,7 @@ func update_free(c: Ctrl, dr: Dictionary) -> void:
 	var sup := support_below(p.x, p.z, p.y, s)
 	dr.snapped = p.y - hh - sup < SNAP_TOUCH
 	if dr.snapped:
-		var step := deg_to_rad(YAW_STEP_DEG)
-		yaw = roundf(yaw / step) * step
+		yaw = snap_yaw(yaw)
 		p = Vector3(snap_grid(p.x), sup + hh, snap_grid(p.z))
 		show_grid_patch(p.x, sup, p.z)
 	else:
@@ -3714,6 +3876,8 @@ func stick_held(c: Ctrl, sx: float, sy: float, dt: float) -> void:
 
 # ================================================================ drawing with the controller tip (Trace, Box)
 func tip_point(c: Ctrl) -> Vector3:
+	if mode == "trace":
+		return floor_point(c)        # v0.35: traced on the floor, 1 m out (back to the v0.22 feel)
 	var p := c.o
 	var sp = snap_point(p)
 	if sp != null:
@@ -3744,7 +3908,7 @@ func tip_down(c: Ctrl) -> void:
 			if pts.size() >= 3 and _flat(p).distance_to(_flat(pts[0])) < TIP_SNAP:
 				draft.phase = "height"
 				haptic(c, 0.6, 0.05)
-				set_status("Outline closed (%s). Point up or down to set the height, then click." % AREA(_poly_area_xz(pts)))
+				set_status("Outline closed (%s). Lift the controller to set the height, then click." % AREA(_poly_area_xz(pts)))
 				return
 			if pts.size():
 				p.y = pts[0].y
@@ -3767,7 +3931,7 @@ func tip_hold(c: Ctrl) -> void:
 				draft.phase = "height"
 				c.stroke = false
 				haptic(c, 0.6, 0.05)
-				set_status("Outline closed (%s). Point up or down to set the height, then click." % AREA(_poly_area_xz(pts)))
+				set_status("Outline closed (%s). Lift the controller to set the height, then click." % AREA(_poly_area_xz(pts)))
 				return
 			if _flat(p).distance_to(_flat(pts[-1])) >= FREEHAND_STEP:
 				p.y = pts[0].y
@@ -3924,8 +4088,7 @@ func wall_draw_trigger(c: Ctrl) -> void:
 	tip_ctrl = c
 	last_ctrl = c
 	haptic(c, 0.4, 0.03)
-	var p := cursor_point(c)
-	p = Vector3(snap_grid(p.x), p.y, snap_grid(p.z))
+	var p := floor_point(c)
 	if draft.get("kind", "") != "wall":
 		draft = {"kind": "wall", "pts": [p], "segs": []}
 		set_status("Wall draw: click the next corner. %s high." % L(wall_height))
@@ -4020,8 +4183,7 @@ func ceil_draw_trigger(c: Ctrl) -> void:
 	tip_ctrl = c
 	last_ctrl = c
 	haptic(c, 0.4, 0.03)
-	var p := cursor_point(c)
-	p = Vector3(snap_grid(p.x), p.y, snap_grid(p.z))
+	var p := floor_point(c)
 	if draft.get("kind", "") != "ceil":
 		draft = {"kind": "ceil", "a": p}
 		set_status("Ceiling draw: trigger the opposite corner. Grip cancels.")
@@ -4049,8 +4211,7 @@ func make_ceiling(floor_mid: Vector3, w: float, d: float) -> Shape:
 
 func ceil_draw_preview() -> void:
 	var vc: Ctrl = tip_ctrl if tip_ctrl != null else (last_ctrl if last_ctrl != null else ctrls[1])
-	var p := cursor_point(vc)
-	p = Vector3(snap_grid(p.x), p.y, snap_grid(p.z))
+	var p := floor_point(vc)
 	var v := PackedVector3Array()
 	if draft.get("kind", "") == "ceil":
 		var a: Vector3 = draft.a
@@ -4083,9 +4244,17 @@ func finish_box(b: Vector3) -> void:
 	_add_made(s, "Next box: same again.")
 
 
-## Trace height: where the controller's ray crosses the vertical line above the outline's middle.
-## Point up to raise it (any height, no reaching), down to lower it. Falls back to the tip height.
+## Trace height (v0.35, back to the v0.22 feel): lift the controller and the top follows the draw point
+## (1 m out, free in the air); click to set it.
 func trace_top_y(c: Ctrl) -> float:
+	var pts: Array = draft.get("pts", [])
+	if pts.is_empty():
+		return c.o.y
+	var by0: float = pts[0].y
+	return clampf((c.o + c.d * CURSOR_BOXDRAW).y, by0, by0 + 6.0)
+
+
+func _trace_top_y_pointing(c: Ctrl) -> float:
 	var pts: Array = draft.get("pts", [])
 	if pts.is_empty():
 		return c.o.y
@@ -4200,7 +4369,7 @@ static func mesh_volume(v: Array, faces: Array) -> float:
 
 func update_make_preview() -> void:
 	for c in ctrls:
-		var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw", "ceildraw"] else (CURSOR_MEASURE if mode in ["tape", "area", "volume"] else 0.0)
+		var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw", "ceildraw", "trace"] else (CURSOR_MEASURE if mode in ["tape", "area", "volume"] else 0.0)
 		c.tip.position = Vector3(0, 0, -off)
 		c.tip.visible = (mode in TIP_MODES or off > 0.0) and c.node.get_is_active()
 	if mode == "boxdraw":
@@ -4268,7 +4437,7 @@ func update_make_preview() -> void:
 					for y in [by, p.y]:
 						v.append_array([Vector3(a2.x, y, a2.z), Vector3(b2.x, y, b2.z)])
 					v.append_array([Vector3(a2.x, by, a2.z), Vector3(a2.x, p.y, a2.z)])
-				lines = ["Trace: point up/down for height, trigger to set", "H %s · Vol %s" % [L(absf(p.y - by)), VOL(_poly_area_xz(pts) * absf(p.y - by))]]
+				lines = ["Trace: lift the controller for height, trigger to set", "H %s · Vol %s" % [L(absf(p.y - by)), VOL(_poly_area_xz(pts) * absf(p.y - by))]]
 	if v.is_empty():
 		make_prev.visible = false
 	else:
@@ -4304,10 +4473,7 @@ func save_custom_file() -> void:
 
 ## Save a placed object (its current size and wireframe) to the Custom objects page.
 func save_custom(s: Shape) -> void:
-	var base := s.name
-	var parts := base.rsplit(" ", true, 1)
-	if parts.size() == 2 and parts[1].is_valid_int():
-		base = parts[0]
+	var base := s.name          # v0.35: saved under its actual name (renames included, number and all)
 	var label := base
 	var n := 2
 	var taken := func(l): return custom_objs.any(func(o): return o.label == l)
@@ -5103,7 +5269,7 @@ func room_data() -> Dictionary:
 			surf.append({"label": n.label_name, "width_m": n.size_2d.x, "depth_m": n.size_2d.y, "area_m2": n.size_2d.x * n.size_2d.y})
 	return {"app": "Framespace", "build": BUILD, "id": room.get("id", ""), "name": room.get("name", ""),
 		"created": room.get("created", ""), "updated": _now_iso(),
-		"units": units, "grid": grid, "counters": counters, "clipboard": _clip_data(),
+		"units": units, "grid": grid, "snap_angle": snap_angle, "counters": counters, "clipboard": _clip_data(),
 		"shapes": ss, "measurements": ms, "room": surf}
 
 
@@ -5150,6 +5316,7 @@ func load_room(id: String) -> void:
 	room = {"id": d.get("id", id), "name": d.get("name", id), "created": d.get("created", "")}
 	units = d.get("units", units)
 	grid = d.get("grid", grid)
+	snap_angle = float(d.get("snap_angle", snap_angle))
 	for s in d.get("shapes", []):
 		var fx := flat_wall_fix(s.type, s.dims, s.get("outline"), s.get("orig_dims"))
 		var ns := make_shape(s.type, fx[0], _v3(s.position), _q(s.quaternion), s.name, fx[1], fx[2])
