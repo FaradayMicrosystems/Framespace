@@ -53,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (165 objects, in 12 categories; v0.34 removed Walls)", main.PALETTE.size() == 165 and main.categories().size() == 12 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (174 objects, in 12 categories; v0.35: -2 safety items, +6 ceiling, +5 workshop)", main.PALETTE.size() == 174 and main.categories().size() == 12 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
@@ -295,6 +295,77 @@ func run(m) -> void:
 	var n_before: int = main.shapes.size()
 	main.wall_undo_point()
 	check("...grip removes the last wall", main.shapes.size() == n_before - 1)
+	main.draft = {}
+	# v0.35 Wall draw: pinned to the floor (pointing level at head height), straight (45° snap), snaps onto wall ends.
+	var gsave: float = main.grid
+	main.grid = 0.01
+	wc.d = Vector3(0, 0, -1)
+	wc.o = Vector3(140, 1.6, 141)
+	main.wall_draw_trigger(wc)
+	check("v0.35 Wall draw: pointing level at 1.6 m, the corner is 1 m out ON the floor", main.draft.get("kind", "") == "wall" and absf(main.draft.pts[0].y) < 0.001 and absf(main.draft.pts[0].z - 140.0) < 0.002, str(main.draft.get("pts", [])))
+	wc.o = Vector3(143, 1.3, 141.17)
+	main.wall_draw_trigger(wc)
+	var ws1 = main.shapes[-1]
+	check("...a slightly crooked second click still makes a straight (axis) wall", absf(main.yaw_of_quat(ws1.node.quaternion)) < 0.001 and absf(ws1.node.position.y - 1.0) < 0.002, "%s %s" % [main.yaw_of_quat(ws1.node.quaternion), str(ws1.node.position)])
+	main.draft = {}
+	wc.o = Vector3(143.08, 1.5, 141.09)
+	main.wall_draw_trigger(wc)
+	check("...a new wall starts exactly on an existing wall end (snaps within 15 cm)", main.draft.pts[0].distance_to(Vector3(143.0, 0, 140.0)) < 0.002, str(main.draft.pts[0]))
+	main.draft = {}
+	main.remove_shape(ws1)
+	main.grid = gsave
+	# v0.35 Snap angle setting (Tools menu, next to Grid): 15 -> 5 -> 1 -> off -> 15.
+	main.snap_angle = 15.0
+	var sas := []
+	for k in 4:
+		main.on_button("snapangle")
+		sas.append(roundi(main.snap_angle))
+	check("v0.35 Tools > Snap angle cycles 5 / 1 / off / 15", sas == [5, 1, 0, 15], str(sas))
+	main.snap_angle = 5.0
+	check("...5°: 37° rounds to 35°", absf(rad_to_deg(main.snap_yaw(deg_to_rad(37.0))) - 35.0) < 0.01)
+	main.snap_angle = 0.0
+	check("...off: 37° stays 37°", absf(rad_to_deg(main.snap_yaw(deg_to_rad(37.0))) - 37.0) < 0.01)
+	main.snap_angle = 15.0
+	# v0.35 copies keep the name: Shelf -> Shelf 02 -> Shelf 03.
+	var cn1 = main.make_shape("box", {"x": 0.5, "y": 0.5, "z": 0.5}, Vector3(150, 0.25, 150), Quaternion.IDENTITY, "Shelf")
+	main.paste_at(Vector3(151, 0, 150), main.clip_item(cn1))
+	var cn2 = main.shapes[-1]
+	main.paste_at(Vector3(152, 0, 150), main.clip_item(cn1))
+	var cn3 = main.shapes[-1]
+	main.paste_at(Vector3(153, 0, 150), main.clip_item(cn3))
+	var cn4 = main.shapes[-1]
+	check("v0.35 copies keep the name: Shelf -> Shelf 02, 03, 04", cn2.name == "Shelf 02" and cn3.name == "Shelf 03" and cn4.name == "Shelf 04", "%s %s %s" % [cn2.name, cn3.name, cn4.name])
+	check("...Zork 1 -> Zork 02", main.copy_name("Zork 1") == "Zork 02", main.copy_name("Zork 1"))
+	# v0.35 Redo.
+	var nrd: int = main.shapes.size()
+	main.undo()
+	check("Undo removes the last paste", main.shapes.size() == nrd - 1 and not main.shapes.has(cn4))
+	main.redo()
+	check("v0.35 Redo puts it back (same object)", main.shapes.size() == nrd and main.shapes.has(cn4))
+	main.undo()
+	check("...and Undo after Redo still works", main.shapes.size() == nrd - 1)
+	cn3.node.position = Vector3(160, 0.25, 160)
+	main.push_history(func(): pass)
+	check("...a new change clears Redo", main.redo_stack.is_empty())
+	# v0.35 X / A > Save object -> Custom, under its real name.
+	main.custom_objs.clear()
+	main.ctx.target = cn2
+	main.run_tool("saveobj")
+	check("v0.35 X / A > Save object saves it into Custom as 'Shelf 02'", main.custom_objs.size() == 1 and main.custom_objs[0].label == "Shelf 02", str(main.custom_objs))
+	main.custom_objs.clear()
+	main.save_custom_file()
+	for sx in [cn1, cn2, cn3]:
+		main.remove_shape(sx)
+	# v0.35 objects.
+	var lab35 := []
+	for pp in main.PALETTE:
+		lab35.append(pp.label)
+	check("v0.35: first aid cabinet and eye wash are gone", not lab35.has("First aid cabinet (workplace)") and not lab35.has("Eye wash station (bottles)"))
+	var ceil35 := ["Lifting point + hook (ceiling)", "Electric wire-rope hoist 2 t (monorail)", "Ceiling electric winch 500 kg", "Overhead crane 2 t single girder (6 m span)", "Tool spring balancer 3-5 kg", "Industrial ceiling fan 1.4 m"]
+	check("v0.35: 5 industrial ceiling items + a ceiling fan, all ceiling mount", ceil35.all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].outline.get("mount", "") == "ceiling" and main.PALETTE[lab35.find(n)].cat == "Ceiling mount"))
+	var shop35 := ["Hydraulic press brake 40 t x 1600", "Geared-head floor drill press", "TIG welder AC/DC on cart (water-cooled)", "2x72 belt grinder on stand", "Magnetic base drill"]
+	check("v0.35: 5 new Workshop machines with real wireframes", shop35.all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].cat == "Workshop" and main.PALETTE[lab35.find(n)].outline.get("parts", []).size() > 10))
+	check("v0.35: CCTV dome and Australian flag rebuilt (detailed)", main.PALETTE[lab35.find("CCTV dome camera")].outline.get("parts", []).size() > 80 and main.PALETTE[lab35.find("Australian flag (900 x 1800)")].outline.get("parts", []).size() > 80)
 	# v0.34 Ceiling draw: two corners on the floor = a flat panel; lift it, it stays; a high bay sticks under it.
 	main.set_tool("ceildraw")
 	wc.o = Vector3(100, 0.5, 100)
@@ -542,13 +613,13 @@ func run(m) -> void:
 	var cq = main.ctrls[1]
 	cq.shape_hit = {"shape": main.shapes[4], "point": main.shapes[4].node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.open_tools(cq)
-	check("X / A on a shape: 10 buttons incl. Cut, Pin, Hide, Rename, Undo (no Bigger / Smaller)", main.ctx.is_open and main.ctx.items.size() == 10 and main.ctx.item("hide") != null and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("rename") != null and main.ctx.item("bigger") == null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
+	check("X / A on a shape: 12 buttons incl. Cut, Pin, Hide, Rename, Save object, Undo, Redo (no Bigger / Smaller)", main.ctx.is_open and main.ctx.items.size() == 12 and main.ctx.item("saveobj") != null and main.ctx.item("redo") != null and main.ctx.item("hide") != null and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("rename") != null and main.ctx.item("bigger") == null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
 	check("...20 cm in front of that controller", main.ctx_attach == cq and absf(main.ctx.global_position.distance_to(cq.node.global_position) - 0.2) < 0.01, str(main.ctx.global_position))
 	main.run_tool("delete")
 	check("Delete removes it; the palette stays open (tap mode)", main.shapes.size() == 4 and main.ctx.is_open)
 	cq.shape_hit = null
 	main.open_tools(cq)
-	check("X / A on empty space: Paste, Next clip, Undo", main.ctx.items.size() == 3 and main.ctx.item("paste") != null)
+	check("X / A on empty space: Paste, Next clip, Undo, Redo", main.ctx.items.size() == 4 and main.ctx.item("paste") != null and main.ctx.item("redo") != null)
 	main.run_tool("undo")
 	check("Undo brings it back", main.shapes.size() == 5)
 	var victim = main.shapes[4]
@@ -666,7 +737,7 @@ func run(m) -> void:
 		main.process_input(cu, nb.duplicate())
 	cu.btn = nb.duplicate()
 	press.call("stick")
-	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, Tape, Area, Volume, Cable run, Grid, Reset position, Show hidden; Box draw in the objects menu)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 11 and main.menu.item("showhidden") != null and main.menu.item("cable") != null and main.menu.item("tape") != null and main.menu.item("volume") != null and main.menu.item("boxdraw") == null and main.menu.item("grid") != null and main.menu.item("circle") == null and main.menu.item("angle") == null and main.menu.item("path") == null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
+	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, Tape, Area, Volume, Cable run, Grid, Reset position, Show hidden; Box draw in the objects menu)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 12 and main.menu.item("snapangle") != null and main.menu.item("showhidden") != null and main.menu.item("cable") != null and main.menu.item("tape") != null and main.menu.item("volume") != null and main.menu.item("boxdraw") == null and main.menu.item("grid") != null and main.menu.item("circle") == null and main.menu.item("angle") == null and main.menu.item("path") == null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
 	check("...it pops up 70 cm in front of that controller", absf(main.menu.global_position.distance_to(cu.node.global_position) - 0.7) < 0.01, str(main.menu.global_position))
 	var mp0: Vector3 = main.menu.global_position
 	cu.node.position += Vector3(0.3, 0.1, -0.2)
@@ -1048,33 +1119,37 @@ func run(m) -> void:
 	# Trace: an L-shaped outline, then the height.
 	main.set_tool("trace")
 	var ntr: int = main.shapes.size()
-	for q in [Vector3(8, 0, 8), Vector3(9, 0, 8), Vector3(9, 0, 8.5), Vector3(8.5, 0, 8.5), Vector3(8.5, 0, 9), Vector3(8, 0, 9)]:
+	cb.d = Vector3.DOWN          # v0.35: the trace point is 1 m out along the controller, pinned to the floor
+	for q in [Vector3(8, 1.2, 8), Vector3(9, 1.5, 8), Vector3(9, 0.3, 8.5), Vector3(8.5, 1.0, 8.5), Vector3(8.5, 1.1, 9), Vector3(8, 1.3, 9)]:
 		cb.o = q
 		main.on_trigger_down(cb, {"trigger": true})
 		main.tip_up(cb)
-	cb.o = Vector3(8.01, 0, 8.01)
+	check("v0.35 Trace: corners are pinned to the floor wherever the hand is", main.draft.pts.all(func(q): return absf(q.y) < 0.001), str(main.draft.pts))
+	cb.o = Vector3(8.08, 1.4, 8.06)
 	main.on_trigger_down(cb, {"trigger": true})
-	check("Trace: clicking the first corner closes the outline", main.draft.get("phase", "") == "height")
-	cb.o = Vector3(8.5, 1.0, 10.0)
-	cb.d = (Vector3(8.5, 2.5, 8.5) - cb.o).normalized()
-	check("Trace height follows where you point: aim 2.5 m up without reaching", absf(main.trace_top_y(cb) - 2.5) < 0.001, str(main.trace_top_y(cb)))
-	cb.d = (Vector3(8.5, 0.8, 8.5) - cb.o).normalized()
+	check("Trace: clicking near the first corner closes the outline", main.draft.get("phase", "") == "height")
+	cb.o = Vector3(8.5, 2.5, 10.0)
+	cb.d = Vector3(0, 0, -1)
+	check("Trace height follows the lifted controller (v0.22 style)", absf(main.trace_top_y(cb) - 2.5) < 0.001, str(main.trace_top_y(cb)))
+	cb.o = Vector3(8.5, 0.8, 10.0)
 	main.on_trigger_down(cb, {"trigger": true})
 	var trc = main.shapes[-1]
 	check("...a click sets the height: L-shaped trace 1 × 0.8 × 1 m", main.shapes.size() == ntr + 1 and is_equal_approx(trc.dims.x, 1.0) and is_equal_approx(trc.dims.y, 0.8) and is_equal_approx(trc.dims.z, 1.0), str(trc.dims))
 	check("Its volume is the L (0.6 m³), not its box (0.8 m³)", absf(main.shape_volume(trc) - 0.6) < 0.001, str(main.shape_volume(trc)))
 	check("...and the pointer hits its real shape", trc.col.shape is ConvexPolygonShape3D)
 	main.set_tool("trace")
-	cb.o = Vector3(12, 0, 12)
+	cb.d = Vector3.DOWN
+	cb.o = Vector3(12, 1, 12)
 	main.on_trigger_down(cb, {"trigger": true})
 	cb.stroke_t0 -= 1.0
 	for i in 10:
-		cb.o = Vector3(12 + 0.04 * i, 0, 12)
+		cb.o = Vector3(12 + 0.04 * i, 1, 12)
 		main.tip_hold(cb)
 	check("Holding trigger draws freehand (a point every 3 cm)", main.draft.pts.size() >= 9, str(main.draft.pts.size()))
 	main.tip_grip(cb)
 	check("Grip undoes the last point", main.draft.pts.size() >= 8)
 	main.set_tool("select")
+	cb.d = Vector3(0, 0, -1)
 
 	# Trace / Box toggle in the objects menu > Free draw tiles: tap again to turn it off.
 	main.set_tool("select")
@@ -1211,22 +1286,22 @@ func run(m) -> void:
 	var vsh = main.shapes[-1]
 	check("...trigger at 1.2 m: a 1 x 1 x 1.2 m solid (1.2 m³) dropped in the world", main.shapes.size() == nvs + 1 and absf(main.shape_volume(vsh) - 1.2) < 0.01, "%s %s" % [vsh.dims, main.shape_volume(vsh)])
 	main.remove_shape(vsh)
-	# Box draw: dot 50 cm off the tip, snaps to the floor; trigger, move, grip for height, let go, trigger.
+	# Box draw: dot 1 m off the tip (v0.35), snaps to the floor; trigger, move, grip for height, let go, trigger.
 	main.set_tool("boxdraw")
 	var nbd: int = main.shapes.size()
-	mt.o = Vector3(120, 0.04, 120.5)
+	mt.o = Vector3(120, 0.04, 121.0)
 	mt.d = Vector3(0, 0, -1)
 	main.on_trigger_down(mt, {"trigger": true})
 	check("Box draw: the first corner snaps to the floor", main.draft.get("kind", "") == "bd" and absf(main.draft.a.y) < 0.001 and is_equal_approx(main.draft.a.z, 120.0), str(main.draft))
-	mt.o = Vector3(121.0, 0.03, 121.3)
+	mt.o = Vector3(121.0, 0.03, 121.8)
 	main.box_draw_frame(mt, {})
-	mt.o = Vector3(121.0, 0.4, 121.3)
+	mt.o = Vector3(121.0, 0.4, 121.8)
 	main.box_draw_frame(mt, {"grip": true})
-	mt.o = Vector3(121.0, 1.0, 121.3)
+	mt.o = Vector3(121.0, 1.0, 121.8)
 	main.box_draw_frame(mt, {"grip": true})
 	check("...grip: the height follows your hand", absf(main.draft.h - 0.6) < 0.01 and main.draft.phase == "height", str(main.draft.h))
 	main.box_draw_frame(mt, {})
-	mt.o = Vector3(121.0, 1.6, 121.3)
+	mt.o = Vector3(121.0, 1.6, 121.8)
 	main.box_draw_frame(mt, {})
 	check("...let go of grip: the height locks", main.draft.phase == "locked" and absf(main.draft.h - 0.6) < 0.01)
 	main.on_trigger_down(mt, {"trigger": true})
@@ -1247,7 +1322,7 @@ func run(m) -> void:
 	main.custom_objs.clear()
 	main.open_tray(main.ctrls[0])
 	main.run_side(main.ctrls[0], "side:save")
-	check("Save selected adds it to Custom objects", main.custom_objs.size() == 1 and main.custom_objs[0].label == "Trace")
+	check("Save selected adds it to Custom objects, under its real name (v0.35)", main.custom_objs.size() == 1 and main.custom_objs[0].label == trc.name, main.custom_objs[0].label if main.custom_objs.size() else "")
 	main.run_side(main.ctrls[0], "side:custom")
 	check("Custom... shows your saved objects", main.tray_page == "custom" and main.tray.item("cus:0") != null)
 	main.load_custom()
@@ -1260,11 +1335,13 @@ func run(m) -> void:
 	check("Picking a custom object places a copy, same size and shape", main.shapes.size() == nc + 1 and main.shapes[-1].dims == trc.dims and not main.shapes[-1].outline.get("poly", []).is_empty())
 	cg3.ui = null
 	main.on_drag_release(cg3)
-	# Rename with the on-screen keyboard.
-	main.run_side(main.ctrls[0], "side:rename")
+	# Rename with the on-screen keyboard (v0.35: Rename / Delete toggles at the top of the Custom page).
+	check("v0.35: Custom page starts with Delete and Rename toggles", main.tray.item("cus:delete") != null and main.tray.item("cus:rename") != null and main.tray_side.item("side:remove") == null)
+	main.grab_from_tray(cg3, "cus:rename", "trigger")
+	check("...Rename toggles on", main.custom_rename and not main.custom_remove)
 	cg3.ui = {"panel": main.tray, "id": "cus:0", "dist": 0.5, "point": main.tray.global_position}
 	main.on_trigger_down(cg3, {"trigger": true})
-	check("Rename: on + pick one opens the keyboard", main.kbd.is_open and main.kbd_text == "Trace")
+	check("Rename: on + pick one opens the keyboard", main.kbd.is_open and main.kbd_text == trc.name, main.kbd_text)
 	for kid in ["k:clear", "k:S", "k:H", "k:E", "k:D", "k:space", "k:1", "k:back", "k:2"]:
 		cg3.ui = {"panel": main.kbd, "id": kid, "dist": 0.5, "point": main.kbd.global_position}
 		main.on_trigger_down(cg3, {"trigger": true})
@@ -1273,7 +1350,7 @@ func run(m) -> void:
 	main.on_trigger_down(cg3, {"trigger": true})
 	main.load_custom()
 	check("...OK renames it (and it's saved)", not main.kbd.is_open and main.custom_objs[0].label == "SHED 2", main.custom_objs[0].label)
-	main.run_side(main.ctrls[0], "side:rename")
+	main.grab_from_tray(cg3, "cus:rename", "trigger")
 	# X / A > Rename an object in the room.
 	var rn = main.make_shape("box", {"x": 0.4, "y": 0.4, "z": 0.4}, Vector3(130, 0.2, 130), Quaternion.IDENTITY, "Box 77")
 	main.ctx.target = rn
@@ -1286,10 +1363,11 @@ func run(m) -> void:
 	main.undo()
 	check("...Undo puts the old name back", rn.name == "Box 77")
 	main.remove_shape(rn)
-	main.run_side(main.ctrls[0], "side:remove")
+	main.grab_from_tray(cg3, "cus:delete", "trigger")
+	check("Delete toggles on (Rename off)", main.custom_remove and not main.custom_rename)
 	cg3.ui = {"panel": main.tray, "id": "cus:0", "dist": 0.5, "point": main.tray.global_position}
 	main.on_trigger_down(cg3, {"trigger": true})
-	check("Remove: on deletes a custom object", main.custom_objs.is_empty())
+	check("Delete: on + tap deletes a custom object", main.custom_objs.is_empty())
 	cg3.ui = null
 	main.tray_page = "all"
 	main.custom_remove = false

@@ -5,7 +5,7 @@ Built with Godot 4.6.2 and Meta's official OpenXR plugin (GodotOpenXRVendors 5.0
 
 ## Get the APK
 
-- **Latest release (v0.22):** [Releases > latest](https://github.com/FaradayMicrosystems/Framespace/releases/latest), file `framespace.apk`. Direct link: https://github.com/FaradayMicrosystems/Framespace/releases/latest/download/framespace.apk
+- **Latest release:** [Releases > latest](https://github.com/FaradayMicrosystems/Framespace/releases/latest), file `framespace.apk`. Direct link: https://github.com/FaradayMicrosystems/Framespace/releases/latest/download/framespace.apk
 - **Newest build from `main` (may be ahead of the release):** [Releases > native-latest](https://github.com/FaradayMicrosystems/Framespace/releases/tag/native-latest), file `framespace.apk`.
 - **Any branch or PR:** Actions > "Native Quest APK" > pick a run > Artifacts > `framespace-quest-apk` (a zip that holds the APK).
 
@@ -31,8 +31,8 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 | **Click a thumbstick** | **Tools** menu, 70 cm in front of that controller (stays put); point and pull the trigger to pick (it closes): Rotate/Move, Scale, Edit, Player move, the measuring tools and Reset position. Click again to close without picking |
 | **Click both thumbsticks** | Tools menu, fixed in front of you |
 | **Left ≡ button** | **Settings** menu, stuck to the left hand: units, grid, room lines, scan, save, Rooms..., export, clear, Turn room, Accuracy test, Room info, Fit check, quit |
-| **X** or **A** | **Clipboard** menu. Pointing at a shape: Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Bigger 5%** / **Smaller 5%** / **Reset size** / **Undo**. On empty space: Paste (where you pointed) / Next clip / Undo |
-| **Y** or **B** | **Objects** menu from [`objects.csv`](../objects.csv), with a sidebar: **Trace**, **Box**, **Custom...**, **Save selected** |
+| **X** or **A** | **Clipboard** menu. Pointing at a shape: Cut / Copy / Delete / Duplicate / **Pin** / Drop / **Hide** / Rename / **Save object** (to Custom) / Reset size / **Undo** / **Redo**. On empty space: Paste (where you pointed) / Next clip / Undo / Redo. Copies keep the name: Shelf, Shelf 02, Shelf 03... |
+| **Y** or **B** | **Objects** menu from [`objects.csv`](../objects.csv), with a sidebar: **Free draw** (Box draw, Wall draw, Ceiling draw, Trace), the categories, **Custom...** (Delete / Rename toggles at the top), **Save selected** |
 | **Tap** X / A / Y / B | X / A: the clipboard menu pops up 20 cm in front of that controller and **stays put**. Y / B: the objects menu pops up **70 cm in front of that controller** and stays there; trigger-grab objects from it, tap again to close. Picking from it doesn't close it (the clipboard menu follows whatever you select). Tap the same button again to close it |
 | **Hold** X / A / Y / B | Quick-pick. X / A: point at an item **with the same hand** and **let go of the button** to pick it. Y / B: letting go picks nothing; the menu stays up until you **trigger-grab** one object, then it closes. The menu closes. An object you quick-pick hangs on your pointer: click the trigger to put it down |
 | **Rotate/Move:** hold **trigger** on an object | Pick it up. It hangs on your pointer. **Twist your wrist** to turn it. **Touch a surface** and it snaps to the grid on top of it, turning in 15° steps. Let go to place it; let go in mid-air and it falls onto whatever is below |
@@ -53,7 +53,7 @@ Think brush and canvas: point at things, pick them up with the trigger, put them
 
 **Drawing with the controller tip** (a yellow dot shows the tip; points snap to corners within 2.5 cm):
 - **Box** (objects sidebar): put the tip on one corner, hold trigger, pull to the opposite corner, let go. Or click, move, click. Grip cancels.
-- **Trace** (objects sidebar): click each corner of the outline (or hold trigger and draw freehand), click the first corner again to close it, then **point** the controller up or down to set the height (the ray, not your reach, sets it) and click. You get a solid shape with the traced outline; its volume is the real shape's, not its box. Grip undoes the last point.
+- **Trace** (Y / B > Free draw): the dot sits on the floor 1 m out from the controller. Click each corner of the outline (or hold trigger and draw freehand), click the first corner again to close it, then **lift** the controller to set the height and click. You get a solid shape with the traced outline; its volume is the real shape's, not its box. Grip undoes the last point.
 - **Trace / Box are toggles:** the sidebar button says ON while it's active; tap it again to turn it off and go back to Rotate/Move.
 
 **Custom objects:** select any object (a trace, a box, a resized pallet...), open the objects menu (Y / B) and press **Save selected**. **Custom...** shows your saved objects; pick one to place a copy. **Remove: on** deletes them. They're kept on the headset between sessions.
