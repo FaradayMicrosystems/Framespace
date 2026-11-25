@@ -213,3 +213,10 @@ A rough, conventional estimate for the same scope by one experienced WebXR devel
 - Built: wall/ceiling mount items keep their height when let go or slid (still snap to walls/ceilings, still ride along); 4 Bunnings tripod work lights; Alaska + Australian flags drawn in wireframe.
 - Tests: native self-test 340/340 (was 331), run locally on Godot 4.6.2; wireframes checked in a rendered preview.
 - AI involvement: Claude researched, built, tested, merged and released it in one session.
+
+## v0.34: Free draw category, flat 2 m walls, Ceiling draw, Hide (2026-11-25, Brisbane time)
+
+- 10:37–10:42 Aurora asked for 6 changes (queued 6/7); 10:53 "don't worry about batching, make those changes now". ETA given: 50 min (11:45).
+- Built: Free draw category in the objects menu (Box draw, Wall draw, new Ceiling draw, Trace as tiles); drawn walls 2 m by default and flat (5 mm hit surface); Walls category and wall panel / partition objects removed (old rooms load them flat); Ceiling draw (floor rectangle -> free-floating panel, ceiling-mount things stick under it and ride with it); Hide / Unhide (X / A) plus Show hidden toggle (stick-click menu), saved with the room.
+- Tests: native self-test 359/359 (was 340), run locally on Godot 4.6.2.
+- AI involvement: Claude built, tested, merged and released it in one session.

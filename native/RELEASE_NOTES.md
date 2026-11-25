@@ -1,27 +1,32 @@
-# Framespace v0.33 (Quest 3 APK)
+# Framespace v0.34 (Quest 3 APK)
 
-**Install:** download `framespace.apk` below and sideload it over v0.32. It keeps your saved rooms.
+**Install:** download `framespace.apk` below and sideload it over v0.33. It keeps your saved rooms.
 
-4 changes, released early at Aurora's "go".
+6 changes, released early at Aurora's call.
 
-## Wall and ceiling things ignore gravity
-- **Every Wall mount and Ceiling mount object now stays exactly where you let go**, at any height, even in mid-air. That includes monitors, shelves, flags, lights, reels, the chain hoist and the fume arm. It applies to trigger hold, grip slide (which now keeps it at its height instead of dropping it to the floor), paste and duplicate.
-- **They still snap flat to a wall or ceiling** if you let go within about 12 cm of one, and they still move with the wall or container they're mounted on.
-- **Floor-standing things that back onto a wall keep gravity**, for example the steel shelving and battery rack.
+## Free draw (objects menu)
+- **New Free draw category** at the top of the Y / B objects menu sidebar. Pick it and the drawing tools show as tiles: **Box draw, Wall draw, Ceiling draw and Trace**. They're no longer loose at the top of the sidebar.
+- **Racks** were already in Workshop, so there was no separate Racks category to merge.
 
-## Tripod work lights (Workshop; these keep gravity)
-- Arlec single-head rechargeable, 1000 lm. About 1.2 m tall; the height is an estimate.
-- Ryobi 18V ONE+ tripod work light, 2700 lm. Drawn at 1.7 m, its full height.
-- Arlec 2 x 30W twin head, 6000 lm, on its 1.4 m tripod.
-- Arlec IP65 90W twin head, 10,000 lm, on its 1.8 m tripod.
+## Walls
+- **Wall draw makes 2 m walls by default.** Stick up/down still changes the height.
+- **Drawn walls are flat faces now**, with no real thickness. They're just something to mount wall items on. Behind each face there's a hidden 5 mm surface so wall-mount items still snap.
+- **The Walls category is gone**: Wall panel 1 / 2 / 3 m and the 2 m partition. Wall draw replaces them. Old rooms that contain them, or contain thick drawn walls, load them as flat walls.
 
-## Flags (Wall mount)
-- **Alaska state flag**, 900 x 1500 mm (3 x 5 ft): the Big Dipper and the North Star.
-- **Australian flag**, 900 x 1800 mm (official 1:2): the Union Jack, the Commonwealth Star and the Southern Cross.
+## Ceiling draw (new)
+- **Trigger one corner on the floor, then the opposite corner.** That gives you a flat ceiling panel lying on the floor. The app switches straight to Rotate/Move with the panel selected.
+- **Hold trigger on it, lift it overhead and let go.** It ignores gravity, the grid and snapping, and stays exactly where you leave it.
+- **Ceiling-mount items stick underneath it**: battens, high bays, CCTV, reels and the hoist. They move with the panel.
+- Grip cancels a half-drawn panel.
+
+## Hide
+- **X / A > Hide** makes the object invisible, but it stays solid. Things stacked on it stay put, and things mounted to it stay where they are.
+- **Stick-click menu > Show hidden: off/on.** When it's on, hidden objects show faintly so you can point at one and pick **X / A > Unhide**. The button shows how many objects are hidden.
+- Hidden objects stay hidden when the room is saved.
 
 ## Test on the headset
-1. **Wall-mount item in mid-air:** take a flag or a monitor, let go in mid-air. Does it stay put?
-2. **Grip slide:** slide it with grip. Does it stay at the same height?
-3. **Wall snap:** move it near a wall. Does it still snap flat?
-4. **Tripod light:** drop one in the air. Does it fall to the floor?
-5. **Flags:** do they read the right way round from the front? The Union Jack should be at the top left.
+1. **Free draw:** Y / B > Free draw. Are all 4 tools there, and does each one start when you tap it?
+2. **Wall draw:** draw a room. Are the walls 2 m, flat, and does a monitor snap onto one?
+3. **Ceiling draw:** draw a panel, lift it overhead, let go. Does it stay? Does a high bay stick under it, and move with it?
+4. **Hide:** hide a pallet that has cartons on it. Do the cartons stay floating where they were? Then turn Show hidden on and Unhide the pallet.
+5. **Old room:** load a room that has the old wall panels. Do they come back as flat walls?

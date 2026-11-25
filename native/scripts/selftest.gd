@@ -53,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (169 objects, in 13 categories)", main.PALETTE.size() == 169 and main.categories().size() == 13 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (165 objects, in 12 categories; v0.34 removed Walls)", main.PALETTE.size() == 165 and main.categories().size() == 12 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
@@ -105,13 +105,16 @@ func run(m) -> void:
 	main.settle(ds)
 	check("Dryer dropped on the washer stacks on top (bottom at 850 mm)", absf(ds.node.position.y - dry.dims.y / 2.0 - 0.85) < 0.003, str(ds.node.position))
 	# v0.31: wall mount, ceiling mount, walls, workshop / power / vehicle / structure objects.
-	for nm in ["Floating shelf 900", "Monitor 32 in (wall)", "LED high bay 150 W (UFO)", "Wall panel 2 m", "Elegoo OrangeStorm Giga",
+	for nm in ["Floating shelf 900", "Monitor 32 in (wall)", "LED high bay 150 W (UFO)", "Elegoo OrangeStorm Giga",
 			"Formlabs Fuse 1+ 30W", "Polaris Sportsman 570 ATV", "Polaris Ranger 570 Mid-Size", "Bunk bed (single over single)",
 			"Tesla Powerwall 3 (13.5 kWh)", "EcoFlow DELTA Pro Ultra 12.3 kWh", "Pop-up gazebo 3 x 3 m", "Fabric warehouse 10 x 20 m", "Split-system AC indoor unit 7 kW"]:
 		check("v0.31 object: " + nm, labels.has(nm))
 	check("Shelving: one floating shelf, no stacking shelves or spacers", not (labels.has("Shelf 5 cm") or labels.has("Shelf 30 cm") or labels.has("Shelf spacer 1 m") or labels.has("Shelf spacer 1.5 m") or labels.has("Garage shelving 1800")))
 	var cats: Array = main.categories()
-	check("Categories: Wall mount, Ceiling mount, Walls, Portable structures (Shelving & storage is gone)", cats.has("Wall mount") and cats.has("Ceiling mount") and cats.has("Walls") and cats.has("Portable structures") and not cats.has("Shelving & storage"), str(cats))
+	check("Categories: Wall mount, Ceiling mount, Portable structures (Shelving & storage is gone)", cats.has("Wall mount") and cats.has("Ceiling mount") and cats.has("Portable structures") and not cats.has("Shelving & storage"), str(cats))
+	# v0.34: placeable walls are gone (Wall draw replaces them); racks live in Workshop.
+	check("v0.34: no Walls category, no Wall panel / Partition objects", not cats.has("Walls") and not labels.has("Wall panel 2 m") and not labels.has("Partition 2 m x 1.2 m"), str(cats))
+	check("v0.34: the racks are in Workshop", main.PALETTE[labels.find("Rack 24RU 1200D")].cat == "Workshop")
 	var nps := 0
 	for pp in main.PALETTE:
 		if pp.cat == "Portable structures":
@@ -204,15 +207,15 @@ func run(m) -> void:
 	main.remove_shape(v32_cb2)
 	var vo31 = main.PALETTE[labels.find("Farizon V7E open cargo")]
 	check("V7E open cargo cleaned up (no roof ribs / floor slats)", vo31.outline.parts.size() < 20, str(vo31.outline.parts.size()))
-	# Wall mount: a floating shelf held near a wall panel sticks to it at that height.
-	var wpp = main.PALETTE[labels.find("Wall panel 2 m")]
-	var wps = main.make_shape("box", wpp.dims, Vector3(60, wpp.dims.y / 2.0, 60), Quaternion.IDENTITY, "WP", wpp.outline)
+	# Wall mount: a floating shelf held near a drawn (flat) wall sticks to it at that height.
+	var wps = main.make_wall(Vector3(59, 0, 60), Vector3(61, 0, 60))
+	check("v0.34: a drawn wall is a flat face (5 mm), 2 m high by default", is_equal_approx(wps.dims.z, 0.005) and is_equal_approx(wps.dims.y, 2.0), str(wps.dims))
 	var fsp = main.PALETTE[labels.find("Floating shelf 900")]
 	var fs = main.make_shape("box", fsp.dims, Vector3(60.2, 1.5, 60.15), Quaternion.IDENTITY, "FS", fsp.outline)
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	main.settle(fs)
-	check("Floating shelf held near a wall sticks flat to it at that height", absf(fs.node.position.z - 60.182) < 0.004 and absf(fs.node.position.y - 1.5) < 0.006, str(fs.node.position))
+	check("Floating shelf held near a wall sticks flat to it at that height", absf(fs.node.position.z - 60.1295) < 0.004 and absf(fs.node.position.y - 1.5) < 0.006, str(fs.node.position))
 	check("...facing out from the wall", absf((fs.node.quaternion * Vector3(0, 0, 1)).z - 1.0) < 0.01, str(fs.node.quaternion))
 	check("...drill guide label: height above the floor", main.mount_text(fs).begins_with("Centre"), main.mount_text(fs))
 	await get_tree().physics_frame
@@ -231,20 +234,27 @@ func run(m) -> void:
 	main.start_free(hc31, fs3, false)
 	hc31.o = Vector3(59.5, 1.2, 61.24)
 	main.update_free(hc31, hc31.drag)
-	check("Carried shelf near the wall snaps flat against it", absf(fs3.node.position.z - 60.182) < 0.004 and hc31.drag.get("mounted", false), str(fs3.node.position))
+	check("Carried shelf near the wall snaps flat against it", absf(fs3.node.position.z - 60.1295) < 0.004 and hc31.drag.get("mounted", false), str(fs3.node.position))
 	hc31.o = Vector3(59.5, 1.2, 61.6)
 	main.update_free(hc31, hc31.drag)
 	check("...pulled away it comes off the wall", fs3.node.position.z > 60.4 and not hc31.drag.has("mounted"), str(fs3.node.position))
 	hc31.o = Vector3(59.5, 1.2, 61.24)
 	main.update_free(hc31, hc31.drag)
 	main.on_drag_release(hc31)
-	check("...let go against the wall and it stays there", absf(fs3.node.position.z - 60.182) < 0.004 and absf(fs3.node.position.y - 1.2) < 0.006, str(fs3.node.position))
+	check("...let go against the wall and it stays there", absf(fs3.node.position.z - 60.1295) < 0.004 and absf(fs3.node.position.y - 1.2) < 0.006, str(fs3.node.position))
 	main.remove_shape(fs3)
 	fs3.node.queue_free()
 	var side_ids := []
 	for it in main.side_items():
 		side_ids.append(it.id)
-	check("Objects menu sidebar has Wall draw", side_ids.has("side:wall"))
+	var fd_ids := []
+	for it in main.free_draw_items():
+		fd_ids.append(it.id)
+	check("v0.34: objects menu has a Free draw category with Box, Wall, Ceiling draw and Trace", side_ids[0] == "cat:Free draw" and fd_ids == ["side:box", "side:wall", "side:ceil", "side:trace"], str(side_ids) + str(fd_ids))
+	check("...and the draw tools are no longer loose at the top of the sidebar", not side_ids.has("side:wall") and not side_ids.has("side:box"))
+	main.tray_cat = main.FREE_CAT
+	check("...picking Free draw shows the tools as tiles", main.tray_items().size() == 4 and main.tray_count() == 4)
+	main.tray_cat = ""
 	var fs2 = main.make_shape("box", fsp.dims, Vector3(66, 1.5, 66), Quaternion.IDENTITY, "FS2", fsp.outline)
 	await get_tree().physics_frame
 	main.settle(fs2)
@@ -277,7 +287,7 @@ func run(m) -> void:
 			walls.append(sx)
 	check("Wall draw: 4 clicks + the first again = 4 walls, room closed", walls.size() == nw0 + 3 and main.draft.is_empty(), "%d %s" % [walls.size(), str(main.draft)])
 	var w1 = walls[-4] if walls.size() >= 4 else null
-	check("...2.4 m high, 110 mm thick, 3 m long, standing on the floor", w1 != null and is_equal_approx(w1.dims.y, 2.4) and is_equal_approx(w1.dims.z, 0.11) and absf(w1.dims.x - 3.0) < 0.002 and absf(w1.node.position.y - 1.2) < 0.002, str(w1.dims) if w1 else "")
+	check("...2 m high, flat (5 mm), 3 m long, standing on the floor", w1 != null and is_equal_approx(w1.dims.y, 2.0) and is_equal_approx(w1.dims.z, 0.005) and absf(w1.dims.x - 3.0) < 0.002 and absf(w1.node.position.y - 1.0) < 0.002, str(w1.dims) if w1 else "")
 	wc.o = Vector3(90, 0.5, 90)
 	main.wall_draw_trigger(wc)
 	wc.o = Vector3(92, 0.5, 90)
@@ -285,6 +295,68 @@ func run(m) -> void:
 	var n_before: int = main.shapes.size()
 	main.wall_undo_point()
 	check("...grip removes the last wall", main.shapes.size() == n_before - 1)
+	# v0.34 Ceiling draw: two corners on the floor = a flat panel; lift it, it stays; a high bay sticks under it.
+	main.set_tool("ceildraw")
+	wc.o = Vector3(100, 0.5, 100)
+	main.ceil_draw_trigger(wc)
+	wc.o = Vector3(103, 0.5, 102)
+	main.ceil_draw_trigger(wc)
+	var cl = main.shapes[-1]
+	check("Ceiling draw: 2 corners = a flat 3 x 2 m panel on the floor", cl.name.begins_with("Ceiling") and absf(cl.dims.x - 3.0) < 0.002 and absf(cl.dims.z - 2.0) < 0.002 and is_equal_approx(cl.dims.y, 0.005) and cl.node.position.y < 0.01, "%s %s" % [str(cl.dims), str(cl.node.position)])
+	check("...then straight into Rotate/Move with it selected (ready to grab)", main.mode == "select" and main.selected == cl, main.mode)
+	var hcc = main.ctrls[0]
+	hcc.o = Vector3(101.5, 1.0, 104)
+	hcc.d = Vector3(0, 0, -1)
+	var cl_p0: Vector3 = cl.node.position
+	main.start_free(hcc, cl, true)
+	hcc.o = Vector3(101.63, 3.2, 104.31)
+	main.update_free(hcc, hcc.drag)
+	main.on_drag_release(hcc)
+	var cl_want: Vector3 = cl_p0 + Vector3(0.13, 2.2, 0.31)
+	check("...lifted and let go it stays exactly there (no gravity, no grid snap)", cl.node.position.distance_to(cl_want) < 0.01, "%s want %s" % [str(cl.node.position), str(cl_want)])
+	main.settle(cl)
+	check("...settle doesn't drop it either", cl.node.position.distance_to(cl_want) < 0.01, str(cl.node.position))
+	cl.node.position = Vector3(101.5, 2.7, 101)
+	main.refresh_shape(cl)
+	var hb2 = main.make_shape("box", hbp.dims, Vector3(101.5, 2.7 - 0.0025 - hbp.dims.y / 2.0 - 0.06, 101), Quaternion.IDENTITY, "HB2", hbp.outline)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	main.settle(hb2)
+	check("...a ceiling-mount high bay lifted near it sticks flush underneath", absf(hb2.node.position.y + hbp.dims.y / 2.0 - 2.6975) < 0.005, str(hb2.node.position))
+	check("...and moves with the drawn ceiling", main.riders_of(cl).has(hb2))
+	# v0.34 Hide: invisible but still solid.
+	var hbase = main.make_shape("box", {"x": 1.0, "y": 0.5, "z": 1.0}, Vector3(110, 0.25, 110))
+	main.set_hidden(hbase, true)
+	check("Hide: hidden object is invisible", hbase.hidden and not hbase.node.visible)
+	await get_tree().physics_frame
+	var hct = main.make_shape("box", {"x": 0.3, "y": 0.2, "z": 0.2}, Vector3(110, 2.0, 110))
+	main.settle(hct)
+	check("...but still solid: a carton dropped on it sits on top", absf(hct.node.position.y - 0.6) < 0.004, str(hct.node.position))
+	var hids := []
+	main.ctx.target = hbase
+	for it in main.clip_menu_items(hbase):
+		hids.append(it.label)
+	check("...X / A menu shows Unhide on a hidden object", hids.has("Unhide"), str(hids))
+	main.on_button("showhidden")
+	check("Show hidden on: hidden objects drawn faint", main.show_hidden and hbase.node.visible and hbase.wire_mat.albedo_color.a < 0.5)
+	check("...Tools menu has the toggle", main.MENU_TOOLS.has("showhidden") and main.button_text("showhidden").begins_with("Show hidden: on"), main.button_text("showhidden"))
+	main.on_button("showhidden")
+	check("Show hidden off again: invisible", not main.show_hidden and not hbase.node.visible)
+	var hrd: Array = main.room_data().shapes
+	var hsaved := false
+	for e in hrd:
+		if e.name == hbase.name:
+			hsaved = e.get("hidden", false)
+	check("...hidden is saved with the room", hsaved)
+	main.ctx.target = hbase
+	main.run_tool("hide")
+	check("...X / A > Unhide makes it visible again", not hbase.hidden and hbase.node.visible)
+	# v0.34: old thick walls (drawn or Wall panel objects) load as flat faces.
+	var fx: Array = main.flat_wall_fix("box", {"x": 2.0, "y": 2.4, "z": 0.11}, {"wall": true, "parts": [1]}, {})
+	check("Old 110 mm walls load as flat 5 mm faces", is_equal_approx(fx[0].z, 0.005) and fx[1] == {"wall": true}, str(fx))
+	for sx in [cl, hb2, hbase, hct]:
+		main.remove_shape(sx)
+		sx.node.queue_free()
 	main.set_tool("select", false)
 	for sx in [wps, fs, ct31, fs2, c20s, hb] + walls.slice(walls.size() - 4):
 		main.remove_shape(sx)
@@ -470,7 +542,7 @@ func run(m) -> void:
 	var cq = main.ctrls[1]
 	cq.shape_hit = {"shape": main.shapes[4], "point": main.shapes[4].node.position, "normal": Vector3.UP, "dist": 1.0}
 	main.open_tools(cq)
-	check("X / A on a shape: 9 buttons incl. Cut, Pin, Rename, Undo (no Bigger / Smaller)", main.ctx.is_open and main.ctx.items.size() == 9 and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("rename") != null and main.ctx.item("bigger") == null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
+	check("X / A on a shape: 10 buttons incl. Cut, Pin, Hide, Rename, Undo (no Bigger / Smaller)", main.ctx.is_open and main.ctx.items.size() == 10 and main.ctx.item("hide") != null and main.ctx.item("cut") != null and main.ctx.item("pin") != null and main.ctx.item("rename") != null and main.ctx.item("bigger") == null and main.ctx.item("undo") != null, str(main.ctx.items.size()))
 	check("...20 cm in front of that controller", main.ctx_attach == cq and absf(main.ctx.global_position.distance_to(cq.node.global_position) - 0.2) < 0.01, str(main.ctx.global_position))
 	main.run_tool("delete")
 	check("Delete removes it; the palette stays open (tap mode)", main.shapes.size() == 4 and main.ctx.is_open)
@@ -516,7 +588,7 @@ func run(m) -> void:
 	check("Tap X again closes it", not main.ctx.is_open)
 	main.face_button(cu, "high", true, false, 12.0)
 	main.face_button(cu, "high", false, true, 12.1)
-	check("Tap Y: objects menu (first category, up to 4 x 4) + sidebar (Trace, Box draw, categories, Custom, Save selected)", main.tray.is_open and main.tray_side.is_open and main.tray.items.size() == mini(16, main.cat_indices().size()) and main.tray_side.item("cat:Vehicles") != null and main.tray_side.item("side:trace") != null and main.tray_side.item("side:box") != null and main.tray_side.item("side:custom") != null and main.tray_side.item("side:save") != null)
+	check("Tap Y: objects menu (first category, up to 4 x 4) + sidebar (Free draw, categories, Custom, Save selected)", main.tray.is_open and main.tray_side.is_open and main.tray.items.size() == mini(16, main.cat_indices().size()) and main.tray_side.item("cat:Vehicles") != null and main.tray_side.item("cat:Free draw") != null and main.tray_side.item("side:custom") != null and main.tray_side.item("side:save") != null)
 	check("...sidebar sits left of the grid", main.tray.to_local(main.tray_side.global_position).x < -(main.tray.size.x + main.tray_side.size.x) / 2.0 + 0.001)
 	check("...it opens 25 cm in front of that controller", absf(main.tray.global_position.distance_to(cu.node.global_position) - 0.25) < 0.01, str(main.tray.global_position))
 	cu.node.position += Vector3(0.3, -0.2, 0.1)
@@ -594,7 +666,7 @@ func run(m) -> void:
 		main.process_input(cu, nb.duplicate())
 	cu.btn = nb.duplicate()
 	press.call("stick")
-	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, Tape, Area, Volume, Cable run, Grid, Reset position; Box draw moved to the objects menu)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 10 and main.menu.item("cable") != null and main.menu.item("tape") != null and main.menu.item("volume") != null and main.menu.item("boxdraw") == null and main.menu.item("grid") != null and main.menu.item("circle") == null and main.menu.item("angle") == null and main.menu.item("path") == null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
+	check("Stick click: Tools menu (Rotate/Move, Scale, Edit, Player move, Tape, Area, Volume, Cable run, Grid, Reset position, Show hidden; Box draw in the objects menu)", main.menu.is_open and main.menu_kind == "tools" and main.menu.items.size() == 11 and main.menu.item("showhidden") != null and main.menu.item("cable") != null and main.menu.item("tape") != null and main.menu.item("volume") != null and main.menu.item("boxdraw") == null and main.menu.item("grid") != null and main.menu.item("circle") == null and main.menu.item("angle") == null and main.menu.item("path") == null and main.menu.item("freedraw") == null and main.menu.item("playermove") != null and main.menu.item("edit") != null and main.menu.item("units") == null, str(main.menu.items.size()))
 	check("...it pops up 70 cm in front of that controller", absf(main.menu.global_position.distance_to(cu.node.global_position) - 0.7) < 0.01, str(main.menu.global_position))
 	var mp0: Vector3 = main.menu.global_position
 	cu.node.position += Vector3(0.3, 0.1, -0.2)
@@ -1004,20 +1076,22 @@ func run(m) -> void:
 	check("Grip undoes the last point", main.draft.pts.size() >= 8)
 	main.set_tool("select")
 
-	# Trace / Box toggle in the objects menu sidebar: tap again to turn it off.
+	# Trace / Box toggle in the objects menu > Free draw tiles: tap again to turn it off.
 	main.set_tool("select")
+	main.tray_cat = main.FREE_CAT
 	main.open_tray(main.ctrls[0])
-	main.run_side(main.ctrls[0], "side:trace")
-	check("Sidebar Trace turns Trace on", main.mode == "trace")
+	main.grab_from_tray(main.ctrls[0], "side:trace", "trigger")
+	check("Free draw > Trace tile turns Trace on", main.mode == "trace")
 	main.open_tray(main.ctrls[0])
-	check("...its button says Trace: ON", main.tray_side.item("side:trace").label == "Trace: ON")
+	check("...its tile says Trace: ON", main.tray.item("side:trace").label == "Trace: ON")
 	main.run_side(main.ctrls[0], "side:trace")
-	check("...tap it again: Trace off, back to Rotate/Move", main.mode == "select" and main.tray_side.item("side:trace").label == "Trace: off")
+	check("...tap it again: Trace off, back to Rotate/Move", main.mode == "select" and main.tray.item("side:trace").label == "Trace")
 	main.run_side(main.ctrls[0], "side:box")
 	main.open_tray(main.ctrls[0])
 	main.run_side(main.ctrls[0], "side:box")
 	check("Box toggles off the same way", main.mode == "select")
 	main.close_tray()
+	main.tray_cat = ""
 
 	# Two-hand resize: carry with one hand, grab it with the other (trigger), pull apart: it stretches along that axis.
 	main.set_tool("select")
