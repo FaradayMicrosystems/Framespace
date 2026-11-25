@@ -9,7 +9,7 @@ extends Node3D
 const UIPanel := preload("res://scripts/ui_panel.gd")
 const SceneAnchorScene := preload("res://scene_anchor.tscn")
 
-const BUILD := "0.33"
+const BUILD := "0.34"
 const MIN_SIZE := 0.01        # 1 cm smallest dimension
 const SNAP_POINT := 0.025     # tape points snap to corners/points within 2.5 cm
 const CLIP_MAX := 5
@@ -274,7 +274,7 @@ func load_palette() -> void:
 const MENU_TOOLS := [
 	"select", "scale", "edit", "playermove",
 	"tape", "area", "volume", "cable", "grid",
-	"resetpos",
+	"resetpos", "showhidden",
 ]
 const MENU_SETTINGS := [
 	"units", "roomvis", "scan",
@@ -283,7 +283,7 @@ const MENU_SETTINGS := [
 	"accuracy", "roominfo", "fitcheck", "occlude",
 	"quit",
 ]
-const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake", "boxdraw", "walldraw"]
+const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake", "boxdraw", "walldraw", "ceildraw"]
 const CURSOR_MEASURE := 0.10    # Tape / Area / Volume: the point is 10 cm off the controller tip, free in 3D
 const CURSOR_BOXDRAW := 0.5     # Box draw: 50 cm off the tip
 const FLOOR_SNAP := 0.08        # Area / Volume / Box draw points within 8 cm above a surface snap onto it
@@ -312,7 +312,7 @@ const MODE_NAMES := {"select": "Rotate/Move", "edit": "Edit", "playermove": "Pla
 	"trace": "Trace", "boxmake": "Box", "tape": "Tape", "circle": "Circle 3-pt", "rect": "Rect 3-pt",
 	"height": "Height", "angle": "Angle 3-pt", "path": "Path", "cable": "Cable run", "area": "Area",
 	"cut": "Cut", "copy": "Copy", "paste": "Paste", "duplicate": "Duplicate", "delete": "Delete",
-	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test", "volume": "Volume", "boxdraw": "Box draw", "walldraw": "Wall draw"}
+	"reset": "Reset size", "scale": "Scale", "drop": "Drop", "pin": "Pin/Unpin", "acctest": "Accuracy test", "volume": "Volume", "boxdraw": "Box draw", "walldraw": "Wall draw", "ceildraw": "Ceiling draw"}
 const YAW_STEP_DEG := 15.0      # placed shapes square up to 15° steps
 const ROT_SPEED := 120.0        # degrees/s at full stick left/right while holding
 const PUSH_SPEED := 1.5         # m/s at full stick forward/back while holding
@@ -348,6 +348,7 @@ class Shape:
 	var fit_hits: Array = []         # names of walls / furniture / shapes it overlaps (Fit check)
 	var occ: MeshInstance3D          # invisible depth-only body: hides wireframe lines behind it (Occlusion)
 	var occ_key := ""
+	var hidden := false               # invisible, but still solid (stacking, mounting, physics unchanged)
 	var sight: StaticBody3D           # LAYER_SIGHT copy of the occlusion body: blocks the pointer like it blocks your view
 
 
@@ -443,6 +444,7 @@ var menu_dirty := true
 var selftest := false
 
 var occlusion := true          # wireframes hide the lines behind other objects
+var show_hidden := false       # Tools menu > Show hidden: draw hidden objects faintly so they can be picked and unhidden
 var fit_check := true          # shapes overlapping walls, furniture or each other turn red
 var fit_timer := 0.0
 var fit_ignore: Array[RID] = []   # floor + whole-room mesh: never count as "doesn't fit"
@@ -1093,7 +1095,7 @@ func refresh_shape(s: Shape) -> void:
 			s.col.shape = cv
 	s.label.position = Vector3(0, sc.y / 2.0 + 0.09, 0)
 	var lines := shape_lines(s.type, ("%s (pinned)" % s.name) if s.pinned else s.name, s.dims, s.outline)
-	if mount_of(s) != "":
+	if not (mount_of(s) in ["", "free"]):
 		lines.append(mount_text(s))
 	var fit_i := -1
 	if s.fit_hits.size():
@@ -1405,9 +1407,9 @@ func tool_hint(t: String, n: int) -> String:
 ## Area / Volume / Box draw snap down onto a surface within 8 cm. Snaps to existing points within 3 cm.
 ## Not holding grip: the new segment snaps to the nearest 45° from the last point (Tape / Area / Volume).
 func cursor_point(c: Ctrl, free_angle := false) -> Vector3:
-	var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw"] else CURSOR_MEASURE
+	var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw", "ceildraw"] else CURSOR_MEASURE
 	var p: Vector3 = c.o + c.d * off
-	if mode in ["area", "volume", "boxdraw", "walldraw"]:
+	if mode in ["area", "volume", "boxdraw", "walldraw", "ceildraw"]:
 		var sup := support_below(p.x, p.z, p.y, null)
 		if p.y - sup < FLOOR_SNAP:
 			p.y = sup
@@ -1636,6 +1638,10 @@ func _shape_top_at(s: Shape, x: float, z: float, max_y := INF):
 func settle(s: Shape, step := 0.02) -> void:
 	falling = falling.filter(func(f): return f.shape != s)
 	var mt := mount_of(s)
+	if mt == "free":
+		# Free things (drawn ceilings) ignore everything: they stay exactly where you let go.
+		refresh_shape(s)
+		return
 	if mt == "wall" or mt == "ceiling":
 		# Wall / ceiling things ignore gravity: they snap to a wall or ceiling if one is close, otherwise stay where you let go.
 		try_mount(s)
@@ -1745,6 +1751,7 @@ func button_text(id: String) -> String:
 		"accuracy": return "Accuracy test..."
 		"roominfo": return "Room info..."
 		"fitcheck": return "Fit check: on" if fit_check else "Fit check: off"
+		"showhidden": return ("Show hidden: on (%d)" if show_hidden else "Show hidden: off (%d)") % hidden_count()
 		"occlude": return "Occlusion: on" if occlusion else "Occlusion: off"
 		"accexport": return "Export results"
 		"accclear": return "Clear results"
@@ -1787,7 +1794,7 @@ func menu_items() -> Array:
 			col = Color("ff6b6b")
 		elif id.begins_with("turn") or id == "placehere" or id == "resetpos":
 			col = Color(0.6, 0.8, 1.0)
-		out.append({"id": id, "label": button_text(id), "active": id == mode, "enabled": button_enabled(id), "color": col})
+		out.append({"id": id, "label": button_text(id), "active": id == mode or (id == "showhidden" and show_hidden), "enabled": button_enabled(id), "color": col})
 	return out
 
 
@@ -1802,6 +1809,8 @@ func categories() -> Array:
 
 ## Palette indices in the current category.
 func cat_indices() -> Array:
+	if tray_cat == FREE_CAT:
+		return []
 	var cats := categories()
 	if tray_cat == "" or not (tray_cat in cats):
 		tray_cat = cats[0] if cats.size() else ""
@@ -1812,7 +1821,33 @@ func cat_indices() -> Array:
 	return out
 
 
+const FREE_CAT := "Free draw"   # objects-menu category of the drawing tools (they make objects)
+
+
+## The drawing tools, shown as tiles when the Free draw category is picked.
+func free_draw_items() -> Array:
+	var defs := [
+		["side:box", "boxdraw", "Box draw", "floor, grip = height"],
+		["side:wall", "walldraw", "Wall draw", "click corners · %s high" % L(wall_height)],
+		["side:ceil", "ceildraw", "Ceiling draw", "draw on floor, lift it up"],
+		["side:trace", "trace", "Trace", "outline + height"],
+	]
+	var out := []
+	for d in defs:
+		var on: bool = mode == d[1]
+		out.append({"id": d[0], "label": d[2] + (": ON" if on else ""), "sub": "tap to turn off" if on else d[3], "color": C_YELLOW, "active": on})
+	return out
+
+
+func tray_count() -> int:
+	if tray_page == "custom":
+		return custom_objs.size()
+	return free_draw_items().size() if tray_cat == FREE_CAT else cat_indices().size()
+
+
 func tray_items() -> Array:
+	if tray_cat == FREE_CAT:
+		return free_draw_items()
 	var out := []
 	var idx := cat_indices()
 	for j in _tray_window(idx.size()):
@@ -1908,7 +1943,7 @@ func open_tray(c: Ctrl) -> void:
 
 
 func _build_tray() -> void:
-	var n := custom_objs.size() if tray_page == "custom" else cat_indices().size()
+	var n := tray_count()
 	var its := custom_items() if tray_page == "custom" else tray_items()
 	var rng := ("%d–%d of %d  ·  stick up/down scrolls" % [tray_scroll * TRAY_COLS + 1, tray_scroll * TRAY_COLS + its.size(), n]) if n > 0 else ""
 	if tray_page == "custom":
@@ -1917,17 +1952,13 @@ func _build_tray() -> void:
 			t = "CUSTOM  ·  select something, then Save selected"
 		tray.build(t, [[rng, Color(0.6, 0.65, 0.7)]] if rng != "" else [], its, TRAY_COLS, 0.085)
 	else:
-		tray.build(tray_cat.to_upper() + "  ·  trigger one to place it", [[rng, Color(0.6, 0.65, 0.7)]], its, TRAY_COLS, 0.085)
+		tray.build(tray_cat.to_upper() + ("  ·  pick a tool, it makes objects" if tray_cat == FREE_CAT else "  ·  trigger one to place it"), [[rng, Color(0.6, 0.65, 0.7)]], its, TRAY_COLS, 0.085)
 	tray_side.build("MAKE  ·  CATEGORIES", [], side_items(), 2, 0.09)
 
 
 func side_items() -> Array:
-	var out := [
-		{"id": "side:trace", "label": "Trace: ON" if mode == "trace" else "Trace: off", "sub": "tap to turn off" if mode == "trace" else "outline + height", "color": C_YELLOW, "active": mode == "trace"},
-		{"id": "side:box", "label": "Box draw: ON" if mode == "boxdraw" else "Box draw: off", "sub": "tap to turn off" if mode == "boxdraw" else "floor, grip = height", "color": C_YELLOW, "active": mode == "boxdraw"},
-		{"id": "side:wall", "label": "Wall draw: ON" if mode == "walldraw" else "Wall draw: off", "sub": "tap to turn off" if mode == "walldraw" else "click corners · %s high" % L(wall_height), "color": C_YELLOW, "active": mode == "walldraw"},
-	]
-	for cn in categories():
+	var out := []
+	for cn in [FREE_CAT] + categories():
 		out.append({"id": "cat:" + cn, "label": cn, "active": tray_page != "custom" and cn == tray_cat, "color": C_CYAN})
 	out.append({"id": "side:custom", "label": "Custom...", "sub": "%d saved" % custom_objs.size(), "active": tray_page == "custom"})
 	out.append({"id": "side:save", "label": "Save selected", "sub": selected.name if selected else "select one first", "enabled": selected != null})
@@ -1946,7 +1977,7 @@ func _tray_window(n: int) -> Array:
 
 
 func scroll_tray(rows: int) -> void:
-	var n := custom_objs.size() if tray_page == "custom" else cat_indices().size()
+	var n := tray_count()
 	var old := tray_scroll
 	tray_scroll += rows
 	_tray_window(n)
@@ -2002,8 +2033,8 @@ func run_side(c: Ctrl, id: String) -> void:
 		refresh_tray()
 		return
 	match id:
-		"side:trace", "side:box", "side:wall":
-			var want: String = {"side:trace": "trace", "side:box": "boxdraw", "side:wall": "walldraw"}[id]
+		"side:trace", "side:box", "side:wall", "side:ceil":
+			var want: String = {"side:trace": "trace", "side:box": "boxdraw", "side:wall": "walldraw", "side:ceil": "ceildraw"}[id]
 			if mode == want:
 				set_tool("select", false)       # toggle off: back to Rotate/Move
 				set_status("%s off. Back to Rotate/Move." % MODE_NAMES[want])
@@ -2146,6 +2177,11 @@ func on_button(id: String, c: Ctrl = null) -> void:
 				sh.occ.visible = occlusion
 			save_settings()
 			set_status("Occlusion on: you only see the wireframe lines that aren't behind something." if occlusion else "Occlusion off: see-through wireframes.")
+		"showhidden":
+			show_hidden = not show_hidden
+			for sh: Shape in shapes:
+				apply_hidden(sh)
+			set_status(("Show hidden on: %d hidden objects drawn faint. Select one, X / A > Unhide." if show_hidden else "Show hidden off: %d hidden objects are invisible (still solid).") % hidden_count())
 		"fitcheck":
 			set_fit_check(not fit_check)
 			set_status("Fit check on: objects that hit walls, furniture or each other turn red." if fit_check else "Fit check off.")
@@ -2331,10 +2367,11 @@ func set_tool(t: String, announce := true) -> void:
 	set_status({
 		"select": "Rotate/Move: trigger picks up (twist your wrist to turn it), grip slides. While holding: stick left/right turns, forward/back pushes/pulls.",
 		"scale": "Scale: trigger an object to select it, then drag its yellow cubes.",
-		"trace": "Trace: tip on a corner, trigger. Click each corner (or hold trigger and draw). Click the first point to close, then POINT the controller up or down to set the height and click. Grip = undo last point. Y / B > Trace again turns it off.",
-		"walldraw": "Wall draw: the dot 50 cm off the tip snaps to the floor. Trigger at each corner (a wall goes up between clicks), click the first corner to close the room. Grip = undo the last wall. Stick up/down = wall height (now %s). Y / B > Wall draw again turns it off." % L(wall_height),
+		"trace": "Trace: tip on a corner, trigger. Click each corner (or hold trigger and draw). Click the first point to close, then POINT the controller up or down to set the height and click. Grip = undo last point. Y / B > Free draw > Trace again turns it off.",
+		"walldraw": "Wall draw: the dot 50 cm off the tip snaps to the floor. Trigger at each corner (a wall goes up between clicks), click the first corner to close the room. Grip = undo the last wall. Stick up/down = wall height (now %s). Y / B > Free draw > Wall draw again turns it off." % L(wall_height),
+		"ceildraw": "Ceiling draw: the dot 50 cm off the tip snaps to the floor. Trigger one corner, trigger the opposite corner: a flat ceiling panel appears on the floor. Then grab it (hold trigger), lift it overhead and let go: it stays exactly there. Ceiling-mount things stick under it. Grip = cancel.",
 		"boxdraw": "Box draw: the dot 50 cm off the tip snaps to the floor. Trigger at one corner, move to the opposite corner, squeeze grip and raise your hand for the height, let go to lock it, trigger to drop the box.",
-		"boxmake": "Box: tip on one corner, hold trigger, pull to the opposite corner, let go. (Or click, move, click.) Grip cancels. Y / B > Box again turns it off.",
+		"boxmake": "Box: tip on one corner, hold trigger, pull to the opposite corner, let go. (Or click, move, click.) Grip cancels. Y / B > Free draw > Box again turns it off.",
 		"edit": "Edit: point at a face, hold trigger and pull. The face moves along its axis; the opposite face stays put.",
 		"playermove": "Player move: left stick slides you through the room. Right stick: left/right turns you, up/down raises or lowers you (smooth). Tools > Reset position puts it back.",
 		"cut": "Cut: trigger on an object.",
@@ -2358,6 +2395,7 @@ func clip_menu_items(s) -> Array:
 	return [{"id": "cut", "label": "Cut", "enabled": free}, {"id": "copy", "label": "Copy", "enabled": free},
 		{"id": "delete", "label": "Delete", "color": Color("ff6b6b"), "enabled": free}, {"id": "duplicate", "label": "Duplicate", "enabled": free},
 		{"id": "pin", "label": "Unpin" if s.pinned else "Pin", "color": C_YELLOW}, {"id": "drop", "label": "Drop", "enabled": not s.pinned},
+		{"id": "hide", "label": "Unhide" if s.hidden else "Hide", "color": C_CYAN},
 		{"id": "rename", "label": "Rename", "color": C_CYAN, "enabled": not s.pinned},
 		{"id": "reset", "label": "Reset size", "enabled": not s.pinned}, {"id": "undo", "label": "Undo", "enabled": can_undo}]
 
@@ -2468,6 +2506,15 @@ func run_tool(id: String) -> void:
 				close_tools()
 				open_keyboard(-1, s)
 				return
+		"hide":
+			if s:
+				set_hidden(s, not s.hidden)
+				push_history(func(): set_hidden(s, not s.hidden))
+				if s.hidden:
+					set_status("Hid %s. Still solid. Tools > Show hidden to see it again." % s.name)
+				else:
+					set_status("%s is visible again." % s.name)
+				persist()
 		"undo": undo()
 		"paste": paste_at(p)
 		"nextclip":
@@ -2624,6 +2671,12 @@ func update_pointer(c: Ctrl, space: PhysicsDirectSpaceState3D) -> void:
 		ex.append(c.drag.shape.body.get_rid())
 		if c.drag.shape.sight != null:
 			ex.append(c.drag.shape.sight.get_rid())
+	if not show_hidden:
+		for hs0: Shape in shapes:
+			if hs0.hidden:
+				ex.append(hs0.body.get_rid())
+				if hs0.sight != null:
+					ex.append(hs0.sight.get_rid())
 	# Line of sight: the first thing you can see along the ray (an object's visible body, or a real wall) wins.
 	var hs := _ray(space, ow, far, LAYER_SHAPE | LAYER_SIGHT, ex)
 	if not hs.is_empty() and real != null and real.dist < ow.distance_to(hs.position) - 0.01:
@@ -2889,6 +2942,9 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 	if mode == "walldraw":
 		wall_draw_trigger(c)
 		return
+	if mode == "ceildraw":
+		ceil_draw_trigger(c)
+		return
 	if mode == "paste":
 		var pp: Vector3 = c.target.point if c.target != null else c.o + c.d * 0.8
 		haptic(c, 0.4, 0.03)
@@ -2955,6 +3011,9 @@ func spawn_front(p: Dictionary) -> Vector3:
 
 
 func grab_from_tray(c: Ctrl, id: String, release: String) -> void:
+	if id.begins_with("side:"):
+		run_side(c, id)          # Free draw tiles: the drawing tools
+		return
 	var s: Shape = null
 	var pt = null
 	if id.begins_with("obj:"):
@@ -3001,6 +3060,11 @@ func on_grip_down(c: Ctrl, b: Dictionary) -> void:
 		return            # grip = height (handled every frame)
 	if mode == "walldraw" and c.ui == null:
 		wall_undo_point()
+		return
+	if mode == "ceildraw" and c.ui == null:
+		if draft.get("kind", "") == "ceil":
+			draft = {}
+			set_status("Ceiling draw: cancelled. Trigger on the floor for the first corner.")
 		return
 	if c.drag != null and c.drag.type == "handle":
 		# Grip during a resize: stop resizing (size stays where it is) and slide it instead.
@@ -3114,7 +3178,7 @@ func riders_of(s: Shape) -> Array:
 				todo.append(r)
 				continue
 			# Things mounted on a wall / container / drawn wall move with it (not with each other).
-			if mount_of(base) in ["", "wallfloor"] and mount_of(r) in ["wall", "ceiling"] \
+			if mount_of(base) in ["", "wallfloor", "free"] and mount_of(r) in ["wall", "ceiling"] \
 					and _touches(base, r):
 				out.append(r)
 				todo.append(r)
@@ -3447,7 +3511,7 @@ func update_move(c: Ctrl, dr: Dictionary) -> void:
 	var x := snap_grid(p.x)
 	var z := snap_grid(p.z)
 	var y: float = support_below(x, z, dr.base_y - hh + STEP_UP, s) + hh
-	if mount_of(s) in ["wall", "ceiling"]:
+	if mount_of(s) in ["wall", "ceiling", "free"]:
 		y = dr.base_y      # no gravity: slides at the height it's at
 	s.node.position = Vector3(x, y, z)
 	if mount_of(s) == "wallfloor":
@@ -3500,6 +3564,15 @@ func update_free(c: Ctrl, dr: Dictionary) -> void:
 	var yaw: float = dr.yaw0 + wrist_twist(c, dr.q0)
 	var mt := mount_of(s)
 	var flat_d := Vector3(c.d.x, 0, c.d.z)
+	if mt == "free":
+		grid_patch.visible = false
+		dr.snapped = false
+		s.node.position = p
+		s.node.quaternion = Quaternion(Vector3.UP, yaw)
+		refresh_shape(s)
+		carry_riders(s, dr.get("riders", []))
+		riding_now = []
+		return
 	# Wall / ceiling things stick flat to a wall (at the height you hold them) or flush under the ceiling.
 	if mt == "wall":
 		var w := find_wall(s, p, s.dims.z / 2.0 + MOUNT_REACH, flat_d)
@@ -3840,11 +3913,11 @@ func finish_box_draw() -> void:
 
 
 # ---------------------------------------------------------------- Wall draw (objects-menu sidebar)
-# Click corners on the floor; a wall (WALL_THICK thick, wall_height high) goes up along each segment.
+# Click corners on the floor; a flat wall face (wall_height high) goes up along each segment.
 # Click the first corner again to close the room. Grip removes the last wall. Stick up/down: height ±10 cm.
-const WALL_THICK := 0.11       # AU stud wall: 90 mm stud + 2 x 10 mm plasterboard
+const WALL_THICK := 0.005      # drawn walls are a flat face (5 mm, so wall-mount things have something to hit)
 const WALL_CLOSE := 0.15
-var wall_height := 2.4         # most common Australian ceiling height
+var wall_height := 2.0         # Aurora: 2 m walls by default (stick up/down changes it)
 
 
 func wall_draw_trigger(c: Ctrl) -> void:
@@ -3934,6 +4007,63 @@ func wall_draw_preview() -> void:
 		v.append_array([p, p + Vector3.UP * h])
 		make_lbl.position = p + Vector3.UP * (h + 0.1)
 		set_label(make_lbl, ["Wall draw", "%s high · stick up/down" % L(h), "Trigger = first corner"])
+	make_prev.mesh = _lines_mesh(v)
+	make_prev.visible = true
+	make_lbl.visible = true
+
+
+# ---------------------------------------------------------------- Ceiling draw (objects menu > Free draw)
+# Trigger one corner on the floor, trigger the opposite corner: a flat ceiling panel (5 mm) lies on the floor.
+# Grab it, lift it overhead, let go: it ignores gravity and snapping and stays exactly where you leave it.
+# Ceiling-mount things (battens, high bays, CCTV, reels, hoist) stick under it.
+func ceil_draw_trigger(c: Ctrl) -> void:
+	tip_ctrl = c
+	last_ctrl = c
+	haptic(c, 0.4, 0.03)
+	var p := cursor_point(c)
+	p = Vector3(snap_grid(p.x), p.y, snap_grid(p.z))
+	if draft.get("kind", "") != "ceil":
+		draft = {"kind": "ceil", "a": p}
+		set_status("Ceiling draw: trigger the opposite corner. Grip cancels.")
+		return
+	var a: Vector3 = draft.a
+	draft = {}
+	var w := absf(p.x - a.x)
+	var d := absf(p.z - a.z)
+	if w < MIN_SIZE or d < MIN_SIZE:
+		set_status("Ceiling draw: too small, try again (trigger the first corner).")
+		return
+	var s := make_ceiling(Vector3((a.x + p.x) / 2.0, a.y, (a.z + p.z) / 2.0), w, d)
+	push_history(func(): remove_shape(s))
+	persist()
+	# Straight into Rotate/Move so the next trigger hold picks it up.
+	set_tool("select", false)
+	select(s)
+	set_status("%s: %s × %s. Hold trigger on it, lift it overhead and let go. It stays where you leave it." % [s.name, L(w), L(d)])
+
+
+func make_ceiling(floor_mid: Vector3, w: float, d: float) -> Shape:
+	var dims := {"x": roundf(w * 1000.0) / 1000.0, "y": WALL_THICK, "z": roundf(d * 1000.0) / 1000.0}
+	return make_shape("box", dims, floor_mid + Vector3.UP * WALL_THICK / 2.0, Quaternion.IDENTITY, _next_name("Ceiling"), {"mount": "free", "ceil": true})
+
+
+func ceil_draw_preview() -> void:
+	var vc: Ctrl = tip_ctrl if tip_ctrl != null else (last_ctrl if last_ctrl != null else ctrls[1])
+	var p := cursor_point(vc)
+	p = Vector3(snap_grid(p.x), p.y, snap_grid(p.z))
+	var v := PackedVector3Array()
+	if draft.get("kind", "") == "ceil":
+		var a: Vector3 = draft.a
+		var b := Vector3(p.x, a.y, a.z)
+		var cc := Vector3(p.x, a.y, p.z)
+		var dd := Vector3(a.x, a.y, p.z)
+		v.append_array([a, b, b, cc, cc, dd, dd, a, a, cc, b, dd])
+		make_lbl.position = (a + cc) / 2.0 + Vector3.UP * 0.12
+		set_label(make_lbl, ["Ceiling draw", "%s × %s" % [L(absf(p.x - a.x)), L(absf(p.z - a.z))], "Trigger = opposite corner · grip cancels"])
+	else:
+		v.append_array([p + Vector3(-0.05, 0, 0), p + Vector3(0.05, 0, 0), p + Vector3(0, 0, -0.05), p + Vector3(0, 0, 0.05)])
+		make_lbl.position = p + Vector3.UP * 0.12
+		set_label(make_lbl, ["Ceiling draw", "Draw it on the floor, then lift it", "Trigger = first corner"])
 	make_prev.mesh = _lines_mesh(v)
 	make_prev.visible = true
 	make_lbl.visible = true
@@ -4070,7 +4200,7 @@ static func mesh_volume(v: Array, faces: Array) -> float:
 
 func update_make_preview() -> void:
 	for c in ctrls:
-		var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw"] else (CURSOR_MEASURE if mode in ["tape", "area", "volume"] else 0.0)
+		var off := CURSOR_BOXDRAW if mode in ["boxdraw", "walldraw", "ceildraw"] else (CURSOR_MEASURE if mode in ["tape", "area", "volume"] else 0.0)
 		c.tip.position = Vector3(0, 0, -off)
 		c.tip.visible = (mode in TIP_MODES or off > 0.0) and c.node.get_is_active()
 	if mode == "boxdraw":
@@ -4078,6 +4208,9 @@ func update_make_preview() -> void:
 		return
 	if mode == "walldraw":
 		wall_draw_preview()
+		return
+	if mode == "ceildraw":
+		ceil_draw_preview()
 		return
 	if mode == "volume" and draft.get("vol", false):
 		var vc: Ctrl = last_ctrl if last_ctrl != null else ctrls[1]
@@ -4466,8 +4599,32 @@ func _process(delta: float) -> void:
 ## Wire / fill colours: red when it doesn't fit, white wire while selected.
 func apply_shape_colors(s: Shape) -> void:
 	var base: Color = C_RED if s.fit_hits.size() else s.color
-	s.wire_mat.albedo_color = Color.WHITE if s == selected else base
+	s.wire_mat.albedo_color = Color(Color.WHITE if s == selected else base, 0.3 if s.hidden else 1.0)
 	s.fill_mat.albedo_color = Color(base, (0.14 if s == selected else 0.06) + (0.08 if s.fit_hits.size() else 0.0))
+
+
+# ---------------------------------------------------------------- hide / show hidden
+## Hidden = invisible (lines, fill, label, occlusion) but still solid: things stay stacked on it and stuck to it.
+## With Show hidden on it is drawn faint, so you can point at it and Unhide it.
+func set_hidden(s: Shape, on: bool) -> void:
+	s.hidden = on
+	if on and selected == s and not show_hidden:
+		select(null)
+	apply_hidden(s)
+	menu_dirty = true
+
+
+func apply_hidden(s: Shape) -> void:
+	s.node.visible = not s.hidden or show_hidden
+	apply_shape_colors(s)
+
+
+func hidden_count() -> int:
+	var n := 0
+	for s: Shape in shapes:
+		if s.hidden:
+			n += 1
+	return n
 
 
 func set_fit_check(on: bool) -> void:
@@ -4914,7 +5071,7 @@ func room_data() -> Dictionary:
 		var p := s.node.position
 		var q := s.node.quaternion
 		ss.append({"name": s.name, "type": s.type, "dims": s.dims, "volume_m3": shape_volume(s),
-			"position": [p.x, p.y, p.z], "quaternion": [q.x, q.y, q.z, q.w], "outline": s.outline, "pinned": s.pinned, "orig_dims": s.orig_dims})
+			"position": [p.x, p.y, p.z], "quaternion": [q.x, q.y, q.z, q.w], "outline": s.outline, "pinned": s.pinned, "hidden": s.hidden, "orig_dims": s.orig_dims})
 	var ms := []
 	for m in measures:
 		var pts := []
@@ -4994,9 +5151,12 @@ func load_room(id: String) -> void:
 	units = d.get("units", units)
 	grid = d.get("grid", grid)
 	for s in d.get("shapes", []):
-		var ns := make_shape(s.type, s.dims, _v3(s.position), _q(s.quaternion), s.name, s.get("outline"), s.get("orig_dims"))
+		var fx := flat_wall_fix(s.type, s.dims, s.get("outline"), s.get("orig_dims"))
+		var ns := make_shape(s.type, fx[0], _v3(s.position), _q(s.quaternion), s.name, fx[1], fx[2])
 		if s.get("pinned", false):
 			set_pinned(ns, true)
+		if s.get("hidden", false):
+			set_hidden(ns, true)
 	for m in d.get("measurements", []):
 		var pts := []
 		for p in m.points:
@@ -5014,6 +5174,16 @@ func load_room(id: String) -> void:
 	content.visible = true
 	save_settings()
 	set_status("Loaded %s (%d shapes, %d measurements) where you stand. On your usual spot? Face your usual way and recenter." % [room.name, shapes.size(), measures.size()])
+
+
+## v0.34: walls are flat faces. Old thick drawn walls and the removed Wall panel / Partition objects load flat.
+## Returns [dims, outline, orig_dims].
+func flat_wall_fix(type: String, dims: Dictionary, outline, orig) -> Array:
+	if type == "box" and outline is Dictionary and outline.get("wall", false) and float(dims.get("z", 0.0)) > 0.02:
+		var d2 := dims.duplicate()
+		d2.z = WALL_THICK
+		return [d2, {"wall": true}, d2]
+	return [dims, outline, orig]
 
 
 func delete_current_room() -> void:
