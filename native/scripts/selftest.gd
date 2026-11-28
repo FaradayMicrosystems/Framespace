@@ -53,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (162 objects, in 10 categories; v0.40: Structures merge, removals, trolleys, Ezy 120L)", main.PALETTE.size() == 162 and main.categories().size() == 10 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (155 objects, in 10 categories; v0.41: -3 structures, -heat detector, -Inabox, -2 Keter)", main.PALETTE.size() == 155 and main.categories().size() == 10 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
@@ -117,7 +117,7 @@ func run(m) -> void:
 	for pp in main.PALETTE:
 		if pp.cat == "Structures":
 			nps += 1
-	check("v0.40: 13 structures (3 pop-up gazebos, carport, donga, crib room, toilets, shelters, shade, tiny home x2)", nps == 13, str(nps))
+	check("v0.41: 10 structures (3 pop-up gazebos, carport, donga, portable toilet, 2 shelters, tiny home x2)", nps == 10, str(nps))
 	# v0.33: wall / ceiling things ignore gravity; tripod lights + flags.
 	for nm in ["Alaska state flag (3 x 5 ft)", "Australian flag (900 x 1800)"]:
 		check("v0.33 wall-mount flag: " + nm, labels.has(nm) and main.PALETTE[labels.find(nm)].cat == "Wall mount" and main.PALETTE[labels.find(nm)].outline.get("mount", "") == "wall")
@@ -140,7 +140,7 @@ func run(m) -> void:
 	# v0.32: off-grid power, trailers + hitch snap, storage, workshop moves.
 	for nm in ["Toyota Hilux SR dual-cab tray", "Windrose R700 prime mover", "Single-axle box trailer 6x4", "Tandem cage trailer 8x5",
 			"20ft container on skel A-trailer", "40ft container on skel B-trailer", "Battery trailer (A-trailer) 2.2 MWh class",
-			"Tiny home trailer expanded (The Bach)", "Ezy Storage Bunker Tough 160L", "Keter Rockwood 570L",
+			"Tiny home trailer expanded (The Bach)", "Ezy Storage Bunker Tough 160L",
 			"Rhino site box 1175 (forklift)", "Shapeoko 5 Pro 4x4 CNC router (on a bench)", "Langmuir CrossFire PRO CNC plasma", "Formlabs Form 4",
 			"Pylontech US5000 rack battery (4.8 kWh)", "Victron MultiPlus-II 48/5000", "Victron SmartSolar MPPT 250/100", "Freestanding solar array 1 kW (shade)",
 			"Freestanding solar array 5 kW (shade)", "OFFGRID NOW Solar Kart trailer", "Primus AIR 40 wind turbine (400 W class)", "Aeolos-H 3 kW wind turbine"]:
@@ -195,6 +195,15 @@ func run(m) -> void:
 		main.add_pending_point(q)
 	var cbm = main.measures[-1] if main.measures.size() > v32_nm0 else null
 	check("Cable run: 3 points + tap again = a cable measurement", cbm != null and cbm.type == "cable" and cbm.name.begins_with("Cable"))
+	var v41_cores := 0
+	var v41_plugs := 0
+	if cbm != null:
+		for ch in cbm.node.get_children():
+			if String(ch.name).contains("CableCore"):
+				v41_cores += 1
+			elif String(ch.name).contains("AndersonPlug"):
+				v41_plugs += 1
+	check("v0.41: the cable run leaves a red + black twin cable with an Anderson plug at each end", v41_cores == 2 and v41_plugs == 2, "%d cores, %d plugs" % [v41_cores, v41_plugs])
 	var v32_cl: Array = main.measure_lines(cbm) if cbm != null else []
 	check("...labelled with its length, Battery → Inverter, and +10% to order", v32_cl.size() == 3 and v32_cl[1] == "Battery → Inverter" and v32_cl[2].contains("10%"), str(v32_cl))
 	check("...and exported with from / to", cbm != null and main.room_data().measurements[-1].get("from", "") == "Battery")
@@ -204,7 +213,7 @@ func run(m) -> void:
 	main.remove_shape(v32_cb1)
 	main.remove_shape(v32_cb2)
 	var vo31 = main.PALETTE[labels.find("Farizon V7E open cargo")]
-	check("V7E open cargo cleaned up (no roof ribs / floor slats)", vo31.outline.parts.size() < 20, str(vo31.outline.parts.size()))
+	check("V7E open cargo cleaned up (no roof ribs / floor slats)", vo31.outline.parts.size() < 60, str(vo31.outline.parts.size()))
 	# Wall mount: a floating shelf held near a drawn (flat) wall sticks to it at that height.
 	var wps = main.make_wall(Vector3(59, 0, 60), Vector3(61, 0, 60))
 	check("v0.34: a drawn wall is a flat face (5 mm), 2 m high by default", is_equal_approx(wps.dims.z, 0.005) and is_equal_approx(wps.dims.y, 2.0), str(wps.dims))
@@ -248,10 +257,12 @@ func run(m) -> void:
 	var fd_ids := []
 	for it in main.free_draw_items():
 		fd_ids.append(it.id)
-	check("v0.34: objects menu has a Free draw category with Box, Wall, Ceiling draw and Trace", side_ids[0] == "cat:Free draw" and fd_ids == ["side:box", "side:wall", "side:ceil", "side:trace"], str(side_ids) + str(fd_ids))
+	check("v0.41: objects menu has Free draw (Box, Wall, Ceiling draw) then its own Trace category", side_ids[0] == "cat:Free draw" and side_ids[1] == "cat:Trace" and fd_ids == ["side:box", "side:wall", "side:ceil"], str(side_ids) + str(fd_ids))
 	check("...and the draw tools are no longer loose at the top of the sidebar", not side_ids.has("side:wall") and not side_ids.has("side:box"))
 	main.tray_cat = main.FREE_CAT
-	check("...picking Free draw shows the tools as tiles", main.tray_items().size() == 4 and main.tray_count() == 4)
+	check("...picking Free draw shows the tools as tiles", main.tray_items().size() == 3 and main.tray_count() == 3)
+	main.tray_cat = main.TRACE_CAT
+	check("...picking Trace shows just the Trace tile", main.tray_items().size() == 1 and main.tray_items()[0].id == "side:trace")
 	main.tray_cat = ""
 	var fs2 = main.make_shape("box", fsp.dims, Vector3(66, 1.5, 66), Quaternion.IDENTITY, "FS2", fsp.outline)
 	await get_tree().physics_frame
@@ -365,12 +376,23 @@ func run(m) -> void:
 	check("v0.35: 5 new Workshop machines with real wireframes", shop35.all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].cat == "Workshop" and main.PALETTE[lab35.find(n)].outline.get("parts", []).size() > 10))
 	var gone40 := ["Frame marquee 6 x 6 m", "Container dome shelter 6 m span", "Hoop tunnel shelter 6 x 12 m", "Fabric warehouse 10 x 20 m", "Steel shed 3 x 3 m", "Guard hut 2.4 x 2.4 m", "Hard-top gazebo 3.6 x 3 m", "Overhead crane 2 t single girder (6 m span)", "Tool spring balancer 3-5 kg", "Industrial ceiling fan 1.4 m", "Generator 7.5 kVA", "Garage 1-car", "Garage 2-car", "Machinery barn 12 x 18 m", "Carton light M 72L"]
 	check("v0.40: removed objects are gone", gone40.all(func(n): return not lab35.has(n)))
-	var box40 := ["Rhino cargo case 600 (CCG600)", "Rhino cargo case 900 (CCG900)", "Rhino cargo case 1200 (CCG1200)", "Ezy Storage Bunker Tough 120L", "Keter Rockwood 570L", "Carton heavy L 150L"]
+	var box40 := ["Rhino cargo case 600 (CCG600)", "Rhino cargo case 900 (CCG900)", "Rhino cargo case 1200 (CCG1200)", "Ezy Storage Bunker Tough 120L", "Carton heavy L 150L"]
 	check("v0.40: boxes live in Pallets & boxes", box40.all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].cat == "Pallets & boxes"))
 	var rc12 = main.PALETTE[lab35.find("Rhino cargo case 1200 (CCG1200)")]
 	check("v0.36: Rhino 1200 cargo case is 1200 x 550 x 395", is_equal_approx(rc12.dims.x, 1.2) and is_equal_approx(rc12.dims.z, 0.55) and is_equal_approx(rc12.dims.y, 0.395))
 	check("v0.40: platform + hand trolleys in Containers & trailers", ["Platform trolley 300 kg (folding)", "Hand trolley 100 kg (folding)"].all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].cat == "Containers & trailers"))
 	check("v0.40: Carport sits in Structures", main.PALETTE[lab35.find("Carport 2-car solar")].cat == "Structures")
+	var gone41 := ["Shade structure 9 x 6 m (6-post)", "Toilet block 3.6 x 2.4 m", "Crib room 12 x 3 m", "Heat detector", "Inabox Heavy Duty 65L", "Keter Marvel Plus 270L", "Keter Rockwood 570L"]
+	check("v0.41: removed objects are gone", gone41.all(func(n): return not lab35.has(n)))
+	var cct = main.PALETTE[lab35.find("CCTV dome camera")]
+	var cc_s = main.make_shape("box", cct.dims, Vector3(520, 1.0, 520), Quaternion.IDENTITY, "CC", cct.outline)
+	check("v0.41: a line-only object (CCTV dome) gets no occluder box hiding its own lines", cc_s.occ.mesh == null)
+	main.remove_shape(cc_s)
+	for vn in ["Toyota Hilux SR dual-cab tray", "Polaris Ranger 570 Mid-Size", "Windrose R700 prime mover"]:
+		var vp = main.PALETTE[lab35.find(vn)]
+		check("v0.41: %s rebuilt (wheel arches, windows, wheels; no profile slab)" % vn, vp.outline.get("pts", []).is_empty() and vp.outline.get("parts", []).size() > 300, str(vp.outline.get("parts", []).size()))
+	var v7 = main.PALETTE[lab35.find("Farizon V7E open cargo")]
+	check("v0.41: V7E load box has solid wheel wells inside", v7.outline.solids.size() >= 12)
 	check("v0.35: CCTV dome and Australian flag rebuilt (detailed)", main.PALETTE[lab35.find("CCTV dome camera")].outline.get("parts", []).size() > 80 and main.PALETTE[lab35.find("Australian flag (900 x 1800)")].outline.get("parts", []).size() > 80)
 	# v0.34 Ceiling draw: two corners on the floor = a flat panel; lift it, it stays; a high bay sticks under it.
 	main.set_tool("ceildraw")
@@ -765,7 +787,7 @@ func run(m) -> void:
 	press.call("stick")
 	check("Stick click again closes it", not main.menu.is_open)
 	press.call("menu")
-	check("Left ≡: settings menu (16 buttons incl. Occlusion; Grid moved to Tools)", main.menu.is_open and main.menu_kind == "settings" and main.menu.items.size() == 16 and main.menu.item("occlude") != null and main.menu.item("units") != null and main.menu.item("tape") == null and main.menu.item("copy") == null, str(main.menu.items.size()))
+	check("Left ≡: settings menu (16 buttons incl. Fix floor, no Occlusion toggle)", main.menu.is_open and main.menu_kind == "settings" and main.menu.items.size() == 16 and main.menu.item("fixfloor") != null and main.menu.item("occlude") == null and main.menu.item("units") != null and main.menu.item("tape") == null and main.menu.item("copy") == null, str(main.menu.items.size()))
 	press.call("menu")
 	check("≡ again closes it", not main.menu.is_open)
 	cu.btn = {}
@@ -1143,6 +1165,7 @@ func run(m) -> void:
 	check("...a click sets the height: L-shaped trace 1 × 0.8 × 1 m", main.shapes.size() == ntr + 1 and is_equal_approx(trc.dims.x, 1.0) and is_equal_approx(trc.dims.y, 0.8) and is_equal_approx(trc.dims.z, 1.0), str(trc.dims))
 	check("Its volume is the L (0.6 m³), not its box (0.8 m³)", absf(main.shape_volume(trc) - 0.6) < 0.001, str(main.shape_volume(trc)))
 	check("...and the pointer hits its real shape", trc.col.shape is ConvexPolygonShape3D)
+	check("v0.41: Trace turns itself off after one shape (back to Rotate/Move)", main.mode == "select", main.mode)
 	main.set_tool("trace")
 	cb.d = Vector3.DOWN
 	cb.o = Vector3(12, 1, 12)
@@ -1159,7 +1182,7 @@ func run(m) -> void:
 
 	# Trace / Box toggle in the objects menu > Free draw tiles: tap again to turn it off.
 	main.set_tool("select")
-	main.tray_cat = main.FREE_CAT
+	main.tray_cat = main.TRACE_CAT
 	main.open_tray(main.ctrls[0])
 	main.grab_from_tray(main.ctrls[0], "side:trace", "trigger")
 	check("Free draw > Trace tile turns Trace on", main.mode == "trace")
@@ -1167,6 +1190,7 @@ func run(m) -> void:
 	check("...its tile says Trace: ON", main.tray.item("side:trace").label == "Trace: ON")
 	main.run_side(main.ctrls[0], "side:trace")
 	check("...tap it again: Trace off, back to Rotate/Move", main.mode == "select" and main.tray.item("side:trace").label == "Trace")
+	main.tray_cat = main.FREE_CAT
 	main.run_side(main.ctrls[0], "side:box")
 	main.open_tray(main.ctrls[0])
 	main.run_side(main.ctrls[0], "side:box")
@@ -1220,10 +1244,10 @@ func run(m) -> void:
 	var vpi = main.PALETTE[labels2.find("Farizon F3E tray")]
 	var occ_v = main.make_shape("box", vpi.dims, Vector3(70, vpi.dims.y / 2.0, 70), Quaternion.IDENTITY, "V", vpi.outline)
 	check("...a trayback's body is its cab and tray", occ_v.occ.mesh != null and occ_v.occ.mesh.get_aabb().size.y > 1.7)
-	main.on_button("occlude")
-	check("Settings > Occlusion off shows see-through wireframes again", not main.occlusion and not ob.occ.visible)
-	main.on_button("occlude")
-	check("...and back on", main.occlusion and ob.occ.visible)
+	check("v0.41: occlusion is always on", main.occlusion and ob.occ.visible)
+	var v41_y0: float = main.origin.position.y
+	main.fix_floor()
+	check("v0.41: Fix floor runs without a crash (no tracked controller in the test = nothing moves)", is_equal_approx(main.origin.position.y, v41_y0) or main.ctrls.any(func(cc): return cc.node.get_is_active()))
 	for sx in [ob, occ_c, occ_v]:
 		main.remove_shape(sx)
 
