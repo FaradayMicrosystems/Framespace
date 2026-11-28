@@ -1303,14 +1303,14 @@ func cable_meshes(pts: Array) -> Array:
 		var mi := MeshInstance3D.new()
 		mi.mesh = _lines_mesh(pr[0], true)
 		mi.material_override = pr[1]
-		mi.name = "CableCore"
+		mi.name = "CableCore%d" % out.size()
 		out.append(mi)
 	if pts.size() >= 2:
 		for e in [[pts[0], pts[1]], [pts[-1], pts[-2]]]:
 			var plug := MeshInstance3D.new()
 			plug.mesh = _plug_mesh()
 			plug.material_override = mat_plug
-			plug.name = "AndersonPlug"
+			plug.name = "AndersonPlug%d" % out.size()
 			var fwd: Vector3 = (e[0] - e[1])
 			plug.position = e[0]
 			if Vector2(fwd.x, fwd.z).length() > 1e-4:
