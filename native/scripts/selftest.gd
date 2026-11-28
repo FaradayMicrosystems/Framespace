@@ -393,6 +393,11 @@ func run(m) -> void:
 		check("v0.41: %s rebuilt (wheel arches, windows, wheels; no profile slab)" % vn, vp.outline.get("pts", []).is_empty() and vp.outline.get("parts", []).size() > 300, str(vp.outline.get("parts", []).size()))
 	var v7 = main.PALETTE[lab35.find("Farizon V7E open cargo")]
 	check("v0.41: V7E load box has solid wheel wells inside", v7.outline.solids.size() >= 12)
+	var ws42 := []
+	for pp in main.PALETTE:
+		if pp.cat == "Workshop":
+			ws42.append(pp.label)
+	check("v0.42: the 3 server racks are first in Workshop", ws42.slice(0, 3) == ["Rack 18RU 1200D", "Rack 22RU 1200D", "Rack 24RU 1200D"], str(ws42.slice(0, 3)))
 	check("v0.35: CCTV dome and Australian flag rebuilt (detailed)", main.PALETTE[lab35.find("CCTV dome camera")].outline.get("parts", []).size() > 80 and main.PALETTE[lab35.find("Australian flag (900 x 1800)")].outline.get("parts", []).size() > 80)
 	# v0.34 Ceiling draw: two corners on the floor = a flat panel; lift it, it stays; a high bay sticks under it.
 	main.set_tool("ceildraw")
