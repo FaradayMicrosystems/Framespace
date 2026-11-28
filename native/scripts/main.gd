@@ -280,7 +280,7 @@ const MENU_SETTINGS := [
 	"units", "roomvis", "scan",
 	"save", "rooms", "export", "clear",
 	"turnl5", "turnl1", "turnr1", "turnr5",
-	"accuracy", "roominfo", "fitcheck", "occlude",
+	"accuracy", "roominfo", "fitcheck", "fixfloor",
 	"quit",
 ]
 const MODE_TOOLS := ["select", "scale", "edit", "playermove", "trace", "boxmake", "boxdraw", "walldraw", "ceildraw"]
@@ -446,6 +446,8 @@ var menu_dirty := true
 var selftest := false
 
 var occlusion := true          # wireframes hide the lines behind other objects
+var floor_offset := 0.0        # v0.41 Fix floor: height shift of the XR origin so the real floor sits at y = 0
+const FLOOR_CTRL_H := 0.035    # a Touch Plus controller lying on the floor: its origin is ~3.5 cm up
 var show_hidden := false       # Tools menu > Show hidden: draw hidden objects faintly so they can be picked and unhidden
 var fit_check := true          # shapes overlapping walls, furniture or each other turn red
 var fit_timer := 0.0
@@ -475,6 +477,9 @@ var unit_fill := {}
 var mat_dot: StandardMaterial3D
 var mat_measure: StandardMaterial3D
 var mat_cable: StandardMaterial3D
+var mat_cable_red: StandardMaterial3D
+var mat_cable_black: StandardMaterial3D
+var mat_plug: StandardMaterial3D
 var mesh_dot: SphereMesh
 var mesh_handle: BoxMesh
 var mat_handle := {}
@@ -617,6 +622,9 @@ func _build_assets() -> void:
 	mat_dot.render_priority = 5
 	mat_measure = _unlit(C_YELLOW, true)
 	mat_cable = _unlit(Color("ff8c1a"), true)
+	mat_cable_red = _unlit(Color("e02020"))
+	mat_cable_black = _unlit(Color("2a2a2a"))   # dark grey so it shows over passthrough
+	mat_plug = _unlit(Color("9aa0a6"))
 	mat_measure.render_priority = 5
 	mesh_handle = BoxMesh.new()
 	mesh_handle.size = Vector3(0.03, 0.03, 0.03)
@@ -637,6 +645,7 @@ func _build_world() -> void:
 	origin = XROrigin3D.new()
 	origin.name = "Origin"
 	add_child(origin)
+	origin.position.y = floor_offset   # v0.41 Fix floor (saved)
 	camera = XRCamera3D.new()
 	camera.name = "Camera"
 	camera.position = Vector3(0, 1.6, 0)
@@ -1007,7 +1016,7 @@ func build_occ(s: Shape, sc: Vector3) -> void:
 		var hy: float = maxf(0.001, sc.y / 2.0 - OCC_INSET)
 		_occ_prism(st, poly2, -hy, hy, func(v: Vector2, a: float): return Vector3(v.x, a, v.y))
 		n += 1
-	if n == 0 and pts.size() < 3 and o.get("mesh", {}).is_empty():
+	if n == 0 and pts.size() < 3 and o.get("mesh", {}).is_empty() and o.get("parts", []).is_empty():   # v0.41: line-only objects get no occluder (it hid their own lines)
 		_occ_box(st, Vector3.ZERO, (sc / 2.0 - ins).max(Vector3.ONE * 0.0005))
 		n += 1
 	s.occ.mesh = st.commit() if n > 0 else null
@@ -1271,6 +1280,66 @@ func measure_lines(m: Measure) -> Array:
 	return [m.name]
 
 
+const CABLE_GAP := 0.007        # v0.41: red and black cores 14 mm apart (twin 6 B&S style)
+const PLUG_HALF := Vector3(0.028, 0.017, 0.035)   # Anderson SB50-ish plug body, ~70 x 56 x 34 mm
+
+
+## v0.41 Cable run: a red + black twin cable along the run with an Anderson plug at each end.
+func cable_meshes(pts: Array) -> Array:
+	var red := PackedVector3Array()
+	var blk := PackedVector3Array()
+	for i in pts.size():
+		var a: Vector3 = pts[maxi(0, i - 1)]
+		var b: Vector3 = pts[mini(pts.size() - 1, i + 1)]
+		var dir := (b - a)
+		var side := dir.cross(Vector3.UP)
+		if side.length() < 1e-4:
+			side = Vector3.RIGHT
+		side = side.normalized() * CABLE_GAP
+		red.append(pts[i] + side)
+		blk.append(pts[i] - side)
+	var out := []
+	for pr in [[red, mat_cable_red], [blk, mat_cable_black]]:
+		var mi := MeshInstance3D.new()
+		mi.mesh = _lines_mesh(pr[0], true)
+		mi.material_override = pr[1]
+		mi.name = "CableCore%d" % out.size()
+		out.append(mi)
+	if pts.size() >= 2:
+		for e in [[pts[0], pts[1]], [pts[-1], pts[-2]]]:
+			var plug := MeshInstance3D.new()
+			plug.mesh = _plug_mesh()
+			plug.material_override = mat_plug
+			plug.name = "AndersonPlug%d" % out.size()
+			var fwd: Vector3 = (e[0] - e[1])
+			plug.position = e[0]
+			if Vector2(fwd.x, fwd.z).length() > 1e-4:
+				plug.rotation.y = atan2(fwd.x, fwd.z)
+			out.append(plug)
+	return out
+
+
+func _plug_mesh() -> ArrayMesh:
+	var h := PLUG_HALF
+	var c := [Vector3(-h.x, -h.y, -h.z), Vector3(h.x, -h.y, -h.z), Vector3(h.x, h.y, -h.z), Vector3(-h.x, h.y, -h.z),
+		Vector3(-h.x, -h.y, h.z), Vector3(h.x, -h.y, h.z), Vector3(h.x, h.y, h.z), Vector3(-h.x, h.y, h.z)]
+	var pts := PackedVector3Array()
+	for e in [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]:
+		pts.append(c[e[0]])
+		pts.append(c[e[1]])
+	# the two contact slots on the mating face and the handle loop on top
+	for sx in [-0.012, 0.012]:
+		pts.append(Vector3(sx, -0.006, h.z))
+		pts.append(Vector3(sx, 0.006, h.z))
+	pts.append(Vector3(-h.x * 0.6, h.y, -h.z * 0.5))
+	pts.append(Vector3(-h.x * 0.6, h.y + 0.012, -h.z * 0.5))
+	pts.append(Vector3(-h.x * 0.6, h.y + 0.012, -h.z * 0.5))
+	pts.append(Vector3(h.x * 0.6, h.y + 0.012, -h.z * 0.5))
+	pts.append(Vector3(h.x * 0.6, h.y + 0.012, -h.z * 0.5))
+	pts.append(Vector3(h.x * 0.6, h.y, -h.z * 0.5))
+	return _lines_mesh(pts)
+
+
 ## Name of the object a cable end touches (inside it or within 10 cm of its box), or "open end".
 func _end_name(p: Vector3) -> String:
 	var best := "open end"
@@ -1337,8 +1406,11 @@ func create_measure(type: String, points: Array, mname := "") -> Measure:
 		if mp.closed:
 			pts.append(mp.pts[0])
 		li.mesh = _lines_mesh(pts, true)
+	var cable_parts := []
 	if type == "cable":
 		li.material_override = mat_cable
+		li.visible = false              # v0.41: the run is drawn as a real twin cable instead
+		cable_parts = cable_meshes(m.points)
 	if mname == "":
 		counters.m += 1
 		mname = ("Cable %d" if type == "cable" else "M%d") % counters.m
@@ -1349,6 +1421,8 @@ func create_measure(type: String, points: Array, mname := "") -> Measure:
 	if type == "circle":
 		m.node.add_child(_dot(m.center))
 	m.node.add_child(li)
+	for cp in cable_parts:
+		m.node.add_child(cp)
 	var lbl := make_label(C_YELLOW)
 	lbl.position = label_pos + Vector3(0, 0.05, 0)
 	set_label(lbl, measure_lines(m))
@@ -1894,7 +1968,7 @@ func button_text(id: String) -> String:
 		"roominfo": return "Room info..."
 		"fitcheck": return "Fit check: on" if fit_check else "Fit check: off"
 		"showhidden": return ("Show hidden: on (%d)" if show_hidden else "Show hidden: off (%d)") % hidden_count()
-		"occlude": return "Occlusion: on" if occlusion else "Occlusion: off"
+		"fixfloor": return "Fix floor (controller on the floor)"
 		"accexport": return "Export results"
 		"accclear": return "Clear results"
 	return id
@@ -1951,7 +2025,7 @@ func categories() -> Array:
 
 ## Palette indices in the current category.
 func cat_indices() -> Array:
-	if tray_cat == FREE_CAT:
+	if tray_cat in [FREE_CAT, TRACE_CAT]:
 		return []
 	var cats := categories()
 	if tray_cat == "" or not (tray_cat in cats):
@@ -1964,15 +2038,15 @@ func cat_indices() -> Array:
 
 
 const FREE_CAT := "Free draw"   # objects-menu category of the drawing tools (they make objects)
+const TRACE_CAT := "Trace"      # v0.41: Trace has its own category
 
 
 ## The drawing tools, shown as tiles when the Free draw category is picked.
 func free_draw_items() -> Array:
-	var defs := [
+	var defs := [["side:trace", "trace", "Trace", "outline + height, then it turns off"]] if tray_cat == TRACE_CAT else [
 		["side:box", "boxdraw", "Box draw", "floor, grip = height"],
 		["side:wall", "walldraw", "Wall draw", "click corners · %s high" % L(wall_height)],
 		["side:ceil", "ceildraw", "Ceiling draw", "draw on floor, lift it up"],
-		["side:trace", "trace", "Trace", "outline + height"],
 	]
 	var out := []
 	for d in defs:
@@ -1984,11 +2058,11 @@ func free_draw_items() -> Array:
 func tray_count() -> int:
 	if tray_page == "custom":
 		return custom_objs.size()
-	return free_draw_items().size() if tray_cat == FREE_CAT else cat_indices().size()
+	return free_draw_items().size() if tray_cat in [FREE_CAT, TRACE_CAT] else cat_indices().size()
 
 
 func tray_items() -> Array:
-	if tray_cat == FREE_CAT:
+	if tray_cat in [FREE_CAT, TRACE_CAT]:
 		return free_draw_items()
 	var out := []
 	var idx := cat_indices()
@@ -2094,13 +2168,13 @@ func _build_tray() -> void:
 			t = "CUSTOM  ·  select something, then Save selected"
 		tray.build(t, [[rng, Color(0.6, 0.65, 0.7)]] if rng != "" else [], its, TRAY_COLS, 0.085)
 	else:
-		tray.build(tray_cat.to_upper() + ("  ·  pick a tool, it makes objects" if tray_cat == FREE_CAT else "  ·  trigger one to place it"), [[rng, Color(0.6, 0.65, 0.7)]], its, TRAY_COLS, 0.085)
+		tray.build(tray_cat.to_upper() + ("  ·  pick a tool, it makes objects" if tray_cat in [FREE_CAT, TRACE_CAT] else "  ·  trigger one to place it"), [[rng, Color(0.6, 0.65, 0.7)]], its, TRAY_COLS, 0.085)
 	tray_side.build("MAKE  ·  CATEGORIES", [], side_items(), 2, 0.09)
 
 
 func side_items() -> Array:
 	var out := []
-	for cn in [FREE_CAT] + categories():
+	for cn in [FREE_CAT, TRACE_CAT] + categories():
 		out.append({"id": "cat:" + cn, "label": cn, "active": tray_page != "custom" and cn == tray_cat, "color": C_CYAN})
 	out.append({"id": "side:custom", "label": "Custom...", "sub": "%d saved" % custom_objs.size(), "active": tray_page == "custom"})
 	out.append({"id": "side:save", "label": "Save selected", "sub": selected.name if selected else "select one first", "enabled": selected != null})
@@ -2314,12 +2388,8 @@ func on_button(id: String, c: Ctrl = null) -> void:
 		"roominfo":
 			menu_page = "roominfo"
 			set_status("From your Space Setup scan." if surfaces.size() else "No Space Setup yet: press Scan room.")
-		"occlude":
-			occlusion = not occlusion
-			for sh: Shape in shapes:
-				sh.occ.visible = occlusion
-			save_settings()
-			set_status("Occlusion on: you only see the wireframe lines that aren't behind something." if occlusion else "Occlusion off: see-through wireframes.")
+		"fixfloor":
+			fix_floor(c)
 		"showhidden":
 			show_hidden = not show_hidden
 			for sh: Shape in shapes:
@@ -3046,7 +3116,7 @@ func on_trigger_down(c: Ctrl, b: Dictionary) -> void:
 				haptic(c, 0.4, 0.03)
 				on_button(id, c)
 				# Picking a tool other than Move/Scale gets the menu out of your way.
-				if id != "grid" and (menu_kind == "tools" or id in MEASURE_TOOLS or id in EDIT_TOOLS or id in MODE_TOOLS) and menu.is_open:
+				if not (id in ["grid", "snapangle"]) and (menu_kind == "tools" or id in MEASURE_TOOLS or id in EDIT_TOOLS or id in MODE_TOOLS) and menu.is_open:
 					close_menu()
 		elif pnl == tray:
 			grab_from_tray(c, id, "trigger")
@@ -4310,7 +4380,11 @@ func finish_trace(top_y: float) -> void:
 		hull.append([u, 0.5, t])
 	var o := {"poly": poly, "hull": hull, "vfrac": _poly_area_xz(clean) / (w * dd)}
 	var s := make_shape("box", {"x": w, "y": h, "z": dd}, Vector3(cen.x, y0 + h / 2.0, cen.y), Quaternion.IDENTITY, _next_name("Volume" if mode == "volume" else "Trace"), o)
+	var was_trace := mode == "trace"
 	_add_made(s, "Y / B > Save selected keeps it as a Custom object.")
+	if was_trace:
+		set_tool("select", false)     # v0.41: Trace turns itself off after one shape
+		set_status("Traced %s. Trace is off; Y / B > Trace to trace another." % s.name)
 
 
 ## Volume of a closed polygon mesh (faces oriented consistently first), or -1 if it isn't closed.
@@ -4523,6 +4597,28 @@ func turn_player(deg: float) -> void:
 	var pivot := Vector3(head.x, content.transform.origin.y, head.z)
 	var r := Transform3D(Basis(Vector3.UP, deg_to_rad(deg)), Vector3.ZERO)
 	content.transform = (Transform3D.IDENTITY.translated(pivot) * r * Transform3D.IDENTITY.translated(-pivot) * content.transform).orthonormalized()
+
+
+## v0.41 Fix floor: lay one controller on the real floor, press Fix floor with the other.
+## The lower controller sets the floor; the whole view shifts so that point is y = 0.
+func fix_floor(_c: Ctrl = null) -> void:
+	var low = null
+	for cc: Ctrl in ctrls:
+		if cc.node != null and cc.node.get_is_active():
+			var y: float = cc.node.global_position.y
+			if low == null or y < low:
+				low = y
+	if low == null:
+		set_status("Fix floor: no controller tracked. Lay one on the floor and try again.")
+		return
+	var dy: float = float(low) - FLOOR_CTRL_H
+	if absf(dy) > 1.2:
+		set_status("Fix floor: the lower controller is %.0f cm off the floor you have now. Lay it flat on the floor first." % (dy * 100.0))
+		return
+	floor_offset -= dy
+	origin.position.y = floor_offset
+	save_settings()
+	set_status("Floor fixed (moved %+.1f cm). Things on the floor now sit on the real floor." % (-dy * 100.0))
 
 
 func reset_position() -> void:
@@ -5118,13 +5214,16 @@ func load_settings() -> void:
 		if d is Dictionary:
 			room["id"] = d.get("current_room", "")
 			fit_check = bool(d.get("fit_check", true))
-			occlusion = bool(d.get("occlusion", true))
+			occlusion = true          # v0.41: always on (the toggle is gone)
+			floor_offset = float(d.get("floor_offset", 0.0))
+			if origin != null:
+				origin.position.y = floor_offset
 
 
 func save_settings() -> void:
 	var f := FileAccess.open("user://settings.json", FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"current_room": room.get("id", ""), "fit_check": fit_check, "occlusion": occlusion}))
+		f.store_string(JSON.stringify({"current_room": room.get("id", ""), "fit_check": fit_check, "occlusion": occlusion, "floor_offset": floor_offset}))
 
 
 func list_rooms() -> Array:

@@ -1,30 +1,34 @@
-# Framespace v0.40 (Quest 3 APK)
+# Framespace v0.41 (Quest 3 APK)
 
-**Install:** download `framespace.apk` below and sideload it over v0.35. Your saved rooms are kept.
+**Install:** download `framespace.apk` below and sideload it over v0.40. Your saved rooms are kept.
 
-Includes the v0.36 Rhino cargo cases. 162 objects in 10 categories.
+18 changes from your v0.40 headset test. 155 objects.
 
-## Categories
-- **Structures** (new) replaces Buildings and Portable structures. It holds the 3 pop-up gazebos, the 2-car solar carport, site donga, crib room, toilet block, portable toilet, inflatable work shelter, site shelter tent, 9 x 6 m shade structure and the tiny home trailer (folded and expanded).
-- **Storage is gone.** All its boxes and tubs moved into **Pallets & boxes**.
+## Floor
+- **Fix floor** (left ≡ menu, where Occlusion was). Lay one controller flat on the real floor, then press Fix floor with the other hand. The floor moves to the real floor and stays fixed next time you open the app.
+- **Occlusion is always on.** The toggle is gone.
+
+## Menus and tools
+- **Snap angle:** the Tools menu now stays open while you change it, the same as Grid.
+- **Trace has its own category** in the Y / B objects menu. Free draw now holds Box, Wall and Ceiling draw.
+- **Trace turns itself off** after each shape. Wall draw still stays on until you turn it off.
+- **Cable run leaves a real cable:** a red and black twin cable along the run, with an Anderson plug at each end. The cable stays until you delete it.
+
+## Wireframes
+- **Fixed the "shadowy box":** objects made only of lines (CCTV dome, LED high bay) were hiding their own lines behind an invisible box. They don't any more.
+- **Rebuilt the Toyota Hilux, Polaris Ranger and Windrose R700.** Each now has proper wheel arches, doors, windows, wheels with hubs and a chassis, and the solid profile slab is gone. The Hilux keeps its tray and tow bar. The Windrose keeps its fifth wheel.
+- **Farizon V7E open cargo:** tie-rail lines inside the load box, floor lines every 500 mm, and **solid rear wheel wells** inside (800 x 230 x 260 mm each side), so pallets can't go through them.
 
 ## Removed
-- Both frame marquees, both container dome shelters, the hoop tunnel shelter, the fabric warehouse, the steel shed, the guard hut and both hard-top gazebos.
-- The 1-car garage, 2-car garage and machinery barn.
-- The overhead crane, tool spring balancer and industrial ceiling fan. The wire-rope hoist stays.
-- The 7.5 kVA generator.
-- The light-duty cartons. One set is kept: Bunnings heavy duty 52 / 104 / 150 L, checked against Bunnings' external sizes.
-
-## Added
-- **Ezy Storage Bunker Tough 120L** (760 x 580 x 399, 6-point snap latch lid, wheels). There's no 128L in the range; the 120L is the closest size.
-- **Rhino cargo cases** 400, 600, 900, 1200 and 1200 Low Rider (from v0.36), now in Pallets & boxes.
-- **Containers & trailers:** a 300 kg folding platform trolley (900 x 610) and a 100 kg folding hand trolley.
-
-## Fixed
-- **Rolling workbench:** the tilt-out drawer that stuck out is gone. The right side is now one full-height door to a big storage cupboard, and the tool drawers are on the left.
+- Shade structure, toilet block, crib room.
+- Heat detector.
+- Inabox 65L, Keter Marvel Plus 270L and Keter Rockwood 570L. The tubs are now Ezy Storage only.
 
 ## Test on the headset
-1. Rolling workbench: is the right side one flat door now, with nothing sticking out?
-2. Open Structures. Is anything there that you don't want?
-3. Put the Rhino 600 / 900 / 1200 next to the real cases. Do the sizes and latches match?
-4. Load the trolleys. Are they a useful size, or do you want different models?
+1. **Fix floor:** put a controller on the floor and press Fix floor. Do objects now sit exactly on the floor? Does Trace sit on the floor too?
+2. **Snap angle:** change it a few times. Does the menu stay open?
+3. **Trace:** trace one thing. Does Trace turn off by itself?
+4. **Cable run:** run a cable. Is it red and black with plugs at both ends?
+5. **CCTV dome and LED high bay:** is the shadowy box gone?
+6. **Hilux, Ranger, Windrose:** do they look right now?
+7. **V7E:** do the wheel wells sit where the real ones are?
