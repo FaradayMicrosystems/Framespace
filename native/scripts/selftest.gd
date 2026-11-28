@@ -53,7 +53,7 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (174 objects, in 12 categories; v0.35: -2 safety items, +6 ceiling, +5 workshop)", main.PALETTE.size() == 174 and main.categories().size() == 12 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (179 objects, in 12 categories; v0.36: +5 Rhino cargo cases)", main.PALETTE.size() == 179 and main.categories().size() == 12 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
