@@ -53,15 +53,15 @@ func run(m) -> void:
 	check("Yamaha XSR900 GP replaces the old motorcycle", labels.has("Yamaha XSR900 GP") and not labels.has("Motorcycle"))
 	var c20 = main.PALETTE[labels.find("20ft container")]
 	check("20ft container is 6058 x 2438 x 2591 mm outside", is_equal_approx(c20.dims.x, 6.058) and is_equal_approx(c20.dims.y, 2.591), str(c20.dims))
-	check("Palette loaded from objects.csv (179 objects, in 12 categories; v0.36: +5 Rhino cargo cases)", main.PALETTE.size() == 179 and main.categories().size() == 12 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
+	check("Palette loaded from objects.csv (162 objects, in 10 categories; v0.40: Structures merge, removals, trolleys, Ezy 120L)", main.PALETTE.size() == 162 and main.categories().size() == 10 and main.PALETTE[0].cat == "Pallets & boxes", str(main.PALETTE.size()))
 	check("AU pallet loaded, old Person cylinder, Wheelchair turn, Office desk, Car (sedan), 42/48 RU racks and the 50 cm spacer are gone", not (labels.has("Rack 42RU 1200D") or labels.has("Rack 48RU 1200D") or labels.has("Shelf spacer 50 cm") or labels.has("AU pallet loaded") or labels.has("Person 1.75 m") or labels.has("Wheelchair turn") or labels.has("Office desk") or labels.has("Car (sedan)")))
 	var ibc = main.PALETTE[labels.find("IBC 1000 L")] if labels.has("IBC 1000 L") else null
 	check("IBC 1000 L is a real wireframe (cage, tank, base), not a plain box", ibc != null and ibc.outline.parts.size() > 60)
 	var drm = main.PALETTE[labels.find("Drum 205 L")] if labels.has("Drum 205 L") else null
 	check("205 L drum is 584 x 880 with rims and rolling hoops", drm != null and is_equal_approx(drm.dims.x, 0.584) and is_equal_approx(drm.dims.y, 0.88) and drm.outline.parts.size() > 100)
 	for nm in ["Kitchen sink bench 900", "Kitchen oven bench 600", "Dishwasher 600", "Kitchen corner 900", "Folding table 1800", "Gaming chair",
-			"Standing desk 117 cm", "Standing desk 80 cm", "Chery Stockman", "Farizon H9E 4.5 t", "Garage 1-car", "Garage 2-car", "Carport 2-car solar",
-			"Workbench (rolling)", "Carton light S 26L", "Carton light M 72L", "Carton light L 107L", "Carton heavy S 52L", "Carton heavy M 104L", "Carton heavy L 150L"]:
+			"Standing desk 117 cm", "Standing desk 80 cm", "Chery Stockman", "Farizon H9E 4.5 t", "Carport 2-car solar",
+			"Workbench (rolling)", "Carton heavy S 52L", "Carton heavy M 104L", "Carton heavy L 150L"]:
 		check("v0.24 object: " + nm, labels.has(nm))
 	check("Removed: Crate, Pantry, Wall cabinet, Snow leopard, Island bench, Bar stool, Dual-cab ute, Pantech, old cartons", not (labels.has("Crate") or labels.has("Pantry 600") or labels.has("Wall cabinet 600") or labels.has("Snow leopard 1.75 m") or labels.has("Island bench 1800") or labels.has("Bar stool") or labels.has("Dual-cab ute") or labels.has("Pantech truck 4.5 t") or labels.has("Carton large") or labels.has("Carton small")))
 	var stk = main.PALETTE[labels.find("Chery Stockman")]
@@ -87,8 +87,6 @@ func run(m) -> void:
 	check("Racks are detailed (doors, rails, equipment, PDU, castors)", rk22.outline.parts.size() > 150, str(rk22.outline.parts.size()))
 	var sd = main.PALETTE[labels.find("Standing desk 117 cm")]
 	check("Standing desk set to 1170 mm", is_equal_approx(sd.dims.y, 1.17))
-	var g2 = main.PALETTE[labels.find("Garage 2-car")]
-	check("2-car garage is 6 x 6 m and hollow (walk in, park)", is_equal_approx(g2.dims.x, 6.0) and is_equal_approx(g2.dims.z, 6.0) and g2.outline.solids.size() > 4)
 	for nm in ["10ft container", "Tandem box trailer", "King bed", "Single bed", "Wardrobe 2-door", "Kitchen bench 600", "Dryer",
 			"Rack 18RU 1200D", "Rack 22RU 1200D", "Rack 24RU 1200D", "Steel shelving 1800"]:
 		if not labels.has(nm):
@@ -107,19 +105,19 @@ func run(m) -> void:
 	# v0.31: wall mount, ceiling mount, walls, workshop / power / vehicle / structure objects.
 	for nm in ["Floating shelf 900", "Monitor 32 in (wall)", "LED high bay 150 W (UFO)", "Elegoo OrangeStorm Giga",
 			"Formlabs Fuse 1+ 30W", "Polaris Sportsman 570 ATV", "Polaris Ranger 570 Mid-Size", "Bunk bed (single over single)",
-			"Tesla Powerwall 3 (13.5 kWh)", "EcoFlow DELTA Pro Ultra 12.3 kWh", "Pop-up gazebo 3 x 3 m", "Fabric warehouse 10 x 20 m", "Split-system AC indoor unit 7 kW"]:
+			"Tesla Powerwall 3 (13.5 kWh)", "EcoFlow DELTA Pro Ultra 12.3 kWh", "Pop-up gazebo 3 x 3 m", "Split-system AC indoor unit 7 kW"]:
 		check("v0.31 object: " + nm, labels.has(nm))
 	check("Shelving: one floating shelf, no stacking shelves or spacers", not (labels.has("Shelf 5 cm") or labels.has("Shelf 30 cm") or labels.has("Shelf spacer 1 m") or labels.has("Shelf spacer 1.5 m") or labels.has("Garage shelving 1800")))
 	var cats: Array = main.categories()
-	check("Categories: Wall mount, Ceiling mount, Portable structures (Shelving & storage is gone)", cats.has("Wall mount") and cats.has("Ceiling mount") and cats.has("Portable structures") and not cats.has("Shelving & storage"), str(cats))
+	check("Categories: Wall mount, Ceiling mount, Structures (Buildings, Portable structures, Storage, Shelving & storage gone)", cats.has("Wall mount") and cats.has("Ceiling mount") and cats.has("Structures") and not cats.has("Buildings") and not cats.has("Portable structures") and not cats.has("Storage") and not cats.has("Shelving & storage"), str(cats))
 	# v0.34: placeable walls are gone (Wall draw replaces them); racks live in Workshop.
 	check("v0.34: no Walls category, no Wall panel / Partition objects", not cats.has("Walls") and not labels.has("Wall panel 2 m") and not labels.has("Partition 2 m x 1.2 m"), str(cats))
 	check("v0.34: the racks are in Workshop", main.PALETTE[labels.find("Rack 24RU 1200D")].cat == "Workshop")
 	var nps := 0
 	for pp in main.PALETTE:
-		if pp.cat == "Portable structures":
+		if pp.cat == "Structures":
 			nps += 1
-	check("22 portable structures (v0.32: +2 hard-top gazebos, inflatable, site tent, shade structure, tiny home folded / expanded)", nps == 22, str(nps))
+	check("v0.40: 13 structures (3 pop-up gazebos, carport, donga, crib room, toilets, shelters, shade, tiny home x2)", nps == 13, str(nps))
 	# v0.33: wall / ceiling things ignore gravity; tripod lights + flags.
 	for nm in ["Alaska state flag (3 x 5 ft)", "Australian flag (900 x 1800)"]:
 		check("v0.33 wall-mount flag: " + nm, labels.has(nm) and main.PALETTE[labels.find(nm)].cat == "Wall mount" and main.PALETTE[labels.find(nm)].outline.get("mount", "") == "wall")
@@ -141,13 +139,13 @@ func run(m) -> void:
 		main.remove_shape(v33_g)
 	# v0.32: off-grid power, trailers + hitch snap, storage, workshop moves.
 	for nm in ["Toyota Hilux SR dual-cab tray", "Windrose R700 prime mover", "Single-axle box trailer 6x4", "Tandem cage trailer 8x5",
-			"20ft container on skel A-trailer", "40ft container on skel B-trailer", "Battery trailer (A-trailer) 2.2 MWh class", "Machinery barn 12 x 18 m",
-			"Hard-top gazebo 3.6 x 3 m", "Tiny home trailer expanded (The Bach)", "Ezy Storage Bunker Tough 160L", "Keter Rockwood 570L",
+			"20ft container on skel A-trailer", "40ft container on skel B-trailer", "Battery trailer (A-trailer) 2.2 MWh class",
+			"Tiny home trailer expanded (The Bach)", "Ezy Storage Bunker Tough 160L", "Keter Rockwood 570L",
 			"Rhino site box 1175 (forklift)", "Shapeoko 5 Pro 4x4 CNC router (on a bench)", "Langmuir CrossFire PRO CNC plasma", "Formlabs Form 4",
 			"Pylontech US5000 rack battery (4.8 kWh)", "Victron MultiPlus-II 48/5000", "Victron SmartSolar MPPT 250/100", "Freestanding solar array 1 kW (shade)",
 			"Freestanding solar array 5 kW (shade)", "OFFGRID NOW Solar Kart trailer", "Primus AIR 40 wind turbine (400 W class)", "Aeolos-H 3 kW wind turbine"]:
 		check("v0.32 object: " + nm, labels.has(nm))
-	check("v0.32: Racks category gone; racks and industrial gear live in Workshop; new Storage category", not cats.has("Racks") and main.categories().has("Storage")
+	check("v0.32: Racks category gone; racks and industrial gear live in Workshop", not cats.has("Racks")
 			and main.PALETTE[labels.find("Rack 24RU 1200D")].cat == "Workshop" and main.PALETTE[labels.find("Chain hoist 1 t + beam trolley")].cat == "Workshop"
 			and main.PALETTE[labels.find("Welding fume extraction arm")].cat == "Workshop")
 	var v32_rwb = main.PALETTE[labels.find("Workbench (rolling)")]
@@ -361,10 +359,18 @@ func run(m) -> void:
 	for pp in main.PALETTE:
 		lab35.append(pp.label)
 	check("v0.35: first aid cabinet and eye wash are gone", not lab35.has("First aid cabinet (workplace)") and not lab35.has("Eye wash station (bottles)"))
-	var ceil35 := ["Lifting point + hook (ceiling)", "Electric wire-rope hoist 2 t (monorail)", "Ceiling electric winch 500 kg", "Overhead crane 2 t single girder (6 m span)", "Tool spring balancer 3-5 kg", "Industrial ceiling fan 1.4 m"]
-	check("v0.35: 5 industrial ceiling items + a ceiling fan, all ceiling mount", ceil35.all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].outline.get("mount", "") == "ceiling" and main.PALETTE[lab35.find(n)].cat == "Ceiling mount"))
+	var ceil35 := ["Lifting point + hook (ceiling)", "Electric wire-rope hoist 2 t (monorail)", "Ceiling electric winch 500 kg"]
+	check("v0.35/v0.40: 3 industrial ceiling items, all ceiling mount", ceil35.all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].outline.get("mount", "") == "ceiling" and main.PALETTE[lab35.find(n)].cat == "Ceiling mount"))
 	var shop35 := ["Hydraulic press brake 40 t x 1600", "Geared-head floor drill press", "TIG welder AC/DC on cart (water-cooled)", "2x72 belt grinder on stand", "Magnetic base drill"]
 	check("v0.35: 5 new Workshop machines with real wireframes", shop35.all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].cat == "Workshop" and main.PALETTE[lab35.find(n)].outline.get("parts", []).size() > 10))
+	var gone40 := ["Frame marquee 6 x 6 m", "Container dome shelter 6 m span", "Hoop tunnel shelter 6 x 12 m", "Fabric warehouse 10 x 20 m", "Steel shed 3 x 3 m", "Guard hut 2.4 x 2.4 m", "Hard-top gazebo 3.6 x 3 m", "Overhead crane 2 t single girder (6 m span)", "Tool spring balancer 3-5 kg", "Industrial ceiling fan 1.4 m", "Generator 7.5 kVA", "Garage 1-car", "Garage 2-car", "Machinery barn 12 x 18 m", "Carton light M 72L"]
+	check("v0.40: removed objects are gone", gone40.all(func(n): return not lab35.has(n)))
+	var box40 := ["Rhino cargo case 600 (CCG600)", "Rhino cargo case 900 (CCG900)", "Rhino cargo case 1200 (CCG1200)", "Ezy Storage Bunker Tough 120L", "Keter Rockwood 570L", "Carton heavy L 150L"]
+	check("v0.40: boxes live in Pallets & boxes", box40.all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].cat == "Pallets & boxes"))
+	var rc12 = main.PALETTE[lab35.find("Rhino cargo case 1200 (CCG1200)")]
+	check("v0.36: Rhino 1200 cargo case is 1200 x 550 x 395", is_equal_approx(rc12.dims.x, 1.2) and is_equal_approx(rc12.dims.z, 0.55) and is_equal_approx(rc12.dims.y, 0.395))
+	check("v0.40: platform + hand trolleys in Containers & trailers", ["Platform trolley 300 kg (folding)", "Hand trolley 100 kg (folding)"].all(func(n): return lab35.has(n) and main.PALETTE[lab35.find(n)].cat == "Containers & trailers"))
+	check("v0.40: Carport sits in Structures", main.PALETTE[lab35.find("Carport 2-car solar")].cat == "Structures")
 	check("v0.35: CCTV dome and Australian flag rebuilt (detailed)", main.PALETTE[lab35.find("CCTV dome camera")].outline.get("parts", []).size() > 80 and main.PALETTE[lab35.find("Australian flag (900 x 1800)")].outline.get("parts", []).size() > 80)
 	# v0.34 Ceiling draw: two corners on the floor = a flat panel; lift it, it stays; a high bay sticks under it.
 	main.set_tool("ceildraw")
