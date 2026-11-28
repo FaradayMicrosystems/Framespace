@@ -1,35 +1,30 @@
-# Framespace v0.35 (Quest 3 APK)
+# Framespace v0.40 (Quest 3 APK)
 
-**Install:** download `framespace.apk` below and sideload it over v0.34. Your saved rooms are kept.
+**Install:** download `framespace.apk` below and sideload it over v0.35. Your saved rooms are kept.
 
-23 changes, all from Aurora's 25 Nov headset test.
+Includes the v0.36 Rhino cargo cases. 162 objects in 10 categories.
 
-## Free draw
-- **The draw point is 1 m out** from the controller (it was 50 cm). This applies to Box draw, Wall draw, Ceiling draw and Trace.
-- **Wall draw is fixed.** The point is pinned to the floor even when you point level, so there are no more rhombuses in the air. Walls run straight: each wall snaps to the nearest 45°, so 90° corners are exact. A new wall snaps onto an existing wall end within 15 cm, and Ceiling draw snaps to wall ends the same way.
-- **Trace is back to the original style.** The point sits on the floor while you click the corners (or draw freehand). Close the outline, then **lift the controller** to set the height and click.
+## Categories
+- **Structures** (new) replaces Buildings and Portable structures. It holds the 3 pop-up gazebos, the 2-car solar carport, site donga, crib room, toilet block, portable toilet, inflatable work shelter, site shelter tent, 9 x 6 m shade structure and the tiny home trailer (folded and expanded).
+- **Storage is gone.** All its boxes and tubs moved into **Pallets & boxes**.
 
-## Tools menu (stick click)
-- **Snap angle**, next to Grid, cycles 15° / 5° / 1° / off. Placed objects turn in those steps, so you can make finer rotations, or set it to off for any angle.
+## Removed
+- Both frame marquees, both container dome shelters, the hoop tunnel shelter, the fabric warehouse, the steel shed, the guard hut and both hard-top gazebos.
+- The 1-car garage, 2-car garage and machinery barn.
+- The overhead crane, tool spring balancer and industrial ceiling fan. The wire-rope hoist stays.
+- The 7.5 kVA generator.
+- The light-duty cartons. One set is kept: Bunnings heavy duty 52 / 104 / 150 L, checked against Bunnings' external sizes.
 
-## Clipboard (X / A) and Custom
-- **Copies keep the name.** Copy/paste or Duplicate "Shelf" and you get "Shelf 02", "Shelf 03" and so on. A name that already ends in a number carries on from the highest one.
-- **Redo** is next to Undo.
-- **Save object** saves the selected object straight into Custom, under its name.
-- **Custom page:** **Delete** and **Rename** toggles sit at the top. With Delete on, tap a saved object to delete it. With Rename on, tap one to rename it. With both off, tapping places a copy.
-- **Saved objects keep their real name**, including renames.
+## Added
+- **Ezy Storage Bunker Tough 120L** (760 x 580 x 399, 6-point snap latch lid, wheels). There's no 128L in the range; the 120L is the closest size.
+- **Rhino cargo cases** 400, 600, 900, 1200 and 1200 Low Rider (from v0.36), now in Pallets & boxes.
+- **Containers & trailers:** a 300 kg folding platform trolley (900 x 610) and a 100 kg folding hand trolley.
 
-## Objects (174 in total)
-- **Rebuilt:** CCTV dome camera (base, skirt, dome, tilted camera and lens) and the Australian flag (proper Union Jack saltires and cross, 7-point Commonwealth Star, Southern Cross with Epsilon).
-- **Removed:** first aid cabinet and eye wash station.
-- **Ceiling mount (new):** lifting point with hook, 2 t electric wire-rope hoist on a monorail, 500 kg ceiling winch, 2 t single-girder overhead crane (6 m span), tool spring balancer, 1.4 m industrial ceiling fan.
-- **Workshop (new):** 40 t x 1600 hydraulic press brake, geared-head floor drill press, water-cooled AC/DC TIG welder on a cart, 2x72 belt grinder on a stand, magnetic base drill.
+## Fixed
+- **Rolling workbench:** the tilt-out drawer that stuck out is gone. The right side is now one full-height door to a big storage cupboard, and the tool drawers are on the left.
 
 ## Test on the headset
-1. **Wall draw:** stand and point level, then draw a room. Is every corner on the floor and every wall straight? Does a new wall start exactly on an old wall's end?
-2. **Trace:** trace a real box on the floor, close the outline, lift the controller for the height and click. Does the height follow your hand?
-3. **Snap angle:** set it to 5°, then 1°, then off, and rotate something each time. Can you get the fine angle you want?
-4. **Copy/paste:** paste a renamed object three times. Do you get name 02, 03, 04?
-5. **Undo, then Redo.** Does Redo bring it back?
-6. **Save object, then Custom:** is it there under its name? Do Delete and Rename at the top work?
-7. **New ceiling and workshop objects:** tell me which wireframes need more work.
+1. Rolling workbench: is the right side one flat door now, with nothing sticking out?
+2. Open Structures. Is anything there that you don't want?
+3. Put the Rhino 600 / 900 / 1200 next to the real cases. Do the sizes and latches match?
+4. Load the trolleys. Are they a useful size, or do you want different models?
